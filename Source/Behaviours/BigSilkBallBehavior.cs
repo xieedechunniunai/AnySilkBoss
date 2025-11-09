@@ -10,6 +10,26 @@ namespace AnySilkBoss.Source.Behaviours
     /// <summary>
     /// 大丝球Behavior - 管理单个大丝球的行为和FSM
     /// 用于天女散花大招
+    /// 
+    /// === 时间规划 ===
+    /// 阶段1：吸收蓄力（Absorb Charge）
+    ///   - 保底时长：10秒
+    ///   - 每秒生成10个小丝球追踪大丝球
+    ///   - 吸收30个小丝球后达到最大尺寸(0.7)，停止生成但继续吸收已生成的
+    ///   
+    /// 阶段2：射击波次（Shoot Waves）- 动画播放开始
+    ///   - 7波定向抛射
+    ///   - 每波3个小丝球，间隔1秒
+    ///   - 总时长：约9秒
+    ///   
+    /// 阶段3：最终爆炸（Final Burst）- 超出动画时间
+    ///   - 4圈同心圆，每圈20个小丝球
+    ///   - 圈生成间隔0.5秒
+    ///   - 所有圈生成完后延迟1.0秒统一爆发
+    ///   - 总时长：约3秒
+    ///   
+    /// 动画覆盖：Silk_Cocoon_Intro_Burst (11.53秒) 覆盖阶段2大部分和阶段3开始
+    /// 总时长：吸收10s + 射击9s + 爆炸3s = 约22秒
     /// </summary>
     internal class BigSilkBallBehavior : MonoBehaviour
     {
@@ -19,52 +39,78 @@ namespace AnySilkBoss.Source.Behaviours
         private PhaseControlBehavior? phaseControlBehavior;  // PhaseControl引用
 
         [Header("位置参数")]
-        public Vector3 chestOffset = new Vector3(0f, 2f, 0f);  // 胸前偏移量
+        public Vector3 chestOffset = new Vector3(0f, -1f, 0f);  // 胸前偏移量
 
-        [Header("蓄力参数")]
-        public float chargeDuration = 2.0f;      // 蓄力时长
-        public float initialScale = 0.1f;        // 初始缩放（原版的0.1倍）
-        public float maxScale = 0.25f;           // 最大缩放（原版的0.25倍）
+        [Header("碰撞箱参数")]
+        public float collisionBoxRadius = 5f;    // 碰撞箱半径
+        public float initialScale = 0.1f;        // 初始缩放
+        public float maxScale = 0.7f;            // 最大缩放
 
         [Header("爆炸参数")]
         public string burstAnimationName = "Silk_Cocoon_Intro_Burst";  // 爆炸动画名称
         public float burstDuration = 11.53f;     // 爆炸持续时间（根据动画实际时长）
-        public int burstWaveCount = 8;           // 爆炸引导期间的波数（增加波数以匹配更长的动画）
-        public int ballsPerWave = 3;             // 每波生成的小丝球数量
+        public int ballsPerWave = 3;   
+        [Header("吸收蓄力参数")]
+        public float absorbDuration = 10f;       // 保底持续时间
+        public float absorbSpawnRate = 10f;      // 每秒生成数量
+        public float absorbSpawnRadius = 40f;    // 生成半径
+        public int absorbCountToMax = 30;        // 达到最大需要吸收的数量
+        public float scaleIncreasePerAbsorb = 0.012f; // 每次吸收增量
+        public float lowerHalfProbability = 0.7f;    // 下半部分生成概率
 
-        [Header("最终爆发参数")]
-        public int finalBurstCount = 55;         // 最终爆发的小丝球数量（增加到50-60个）
-        public float finalBurstMinSpeed = 5f;    // 最终爆发最小速度
-        public float finalBurstMaxSpeed = 12f;   // 最终爆发最大速度（增加）
-        public float horizontalSpeedMultiplier = 0.45f;  // 横向速度倍数（增加50%）
-        public float verticalSpeedMultiplier = 2f;  // 向上速度倍数（翻3倍）
-        public int ballsPerBatch = 6;            // 每批生成的丝球数量
-        public int framesPerBatch = 2;           // 每批之间间隔的帧数
-        public float maxSpawnRadius = 3f;        // 最大生成半径（小丝球随机分布在大丝球内部）
-        public float innerSpeedMultiplier = 2.0f;  // 内圈速度倍数（距离中心近的速度更快）
-        public float outerSpeedMultiplier = 0.5f;  // 外圈速度倍数（距离中心远的速度更慢）
-
-        [Header("引导期间小丝球参数")]
-        public float waveSpeed = 8f;             // 引导期间小丝球速度（降低）
-        public float spawnRadius = 2f;           // 生成半径
+        [Header("抛射波次参数")]
+        public float shootSpeed = 23f;           // 抛射基础速度
+        public float shootSpeedRandomRange = 8f; // 速度随机范围（±单位/秒）
+        public float shootAngleRandomRange = 15f; // 角度随机范围（±度）
+        public float shootGravityScale = 0.3f;   // 抛射重力缩放
         
-        [Header("重力参数")]
-        public float[] gravityScales = new float[] { 0.1f, 0.15f, 0.2f, 0.25f, 0.3f, 0.35f, 0.4f };  // 离散重力值（一波波落下，细化为7档）
+        // 7波抛射配置：(生成角度, 生成半径倍数, 抛射角度, 球数量, 波间隔)
+        // 半径基于碰撞箱radius=5
+        private readonly (float spawnAngle, float radiusMult, float shootAngle, int ballCount, float interval)[] _shootWaveConfigs = new[]
+        {
+            (352.5f, 0.5f, 45f, 4, 0.8f),    // 第1波：3.15位置，半径一半，向1.30
+            (0f, 0f, 35f, 4, 0.4f),          // 第2波：中心，向1.50
+            (45f, 0.125f, 40f, 4, 0.6f),     // 第3波：1.30方向，半径1/8，向1.40
+            (130f, 0.5f, 115f, 7, 0.6f),     // 第4波：10.40位置，半径一半，向11.10（左侧+2球）
+            (0f, 0f, 60f, 4, 0.6f),          // 第5波：中心，向1.00
+            (0f, 0f, 145f, 7, 0.6f),         // 第6波：中心，向10.10（左侧+2球）
+            (0f, 0f, 90f, 4, 0.6f)           // 第7波：中心，向正上方
+        };
+
+        [Header("最终爆炸参数")]
+        public int finalBurstRings = 4;          // 圈数
+        public int ballsPerRing = 20;            // 每圈数量
+        public float[] ringRadii = new float[] { 1f, 2f, 3f, 4f };  // 各圈半径
+        public float ringSpawnInterval = 0.5f;   // 圈间隔爆发
+        public float ringBurstDelay = 1.6f;      // 生成完后延迟爆发
+        public float burstSpeed = 18f;           // 爆发速度
+        public float innerRingSpeedMultiplier = 1.2f;  // 内圈速度倍数
+        public float outerRingSpeedMultiplier = 0.8f;  // 外圈速度倍数
+        public float finalBurstGravityScale = 0f;     // 最终爆炸重力缩放（0表示无重力）
         #endregion
 
         #region 组件引用
         private PlayMakerFSM? controlFSM;
         private Animator? animator;
         private Managers.SilkBallManager? silkBallManager;
+        private Managers.BigSilkBallManager? bigSilkBallManager;  // 大丝球管理器引用（用于获取预生成池）
+        
+        [Header("内部引用")]
+        public Transform? heartTransform;  // heart子物品的Transform，用于跟随BOSS（需要public供FSM Action访问）
+        public GameObject? collisionBox;   // 碰撞箱GameObject（Z=0位置，实际碰撞）
+        public Transform? collisionBoxTransform;  // 碰撞箱Transform
+        private BigSilkBallCollisionBox? collisionBoxScript;  // 碰撞箱脚本
+        
+        // 英雄引用（用于碰撞箱位置跟随）
+        private GameObject? heroObject;
+        private float lastHeroX = 0f;
+        private Vector3 collisionBoxBaseLocalPos;  // 碰撞箱的基础本地位置
         #endregion
 
         #region FSM 变量引用
         private FsmGameObject? bossTransformVar;
         private FsmVector3? chestOffsetVar;
-        private FsmFloat? chargeDurationVar;
         private FsmFloat? maxScaleVar;
-        private FsmInt? smallBallCountVar;
-        private FsmFloat? burstSpeedVar;
         #endregion
 
         #region 事件引用
@@ -74,14 +120,24 @@ namespace AnySilkBoss.Source.Behaviours
 
         #region 状态标记
         private bool isInitialized = false;
-        private bool isCharging = false;
-        private float chargeElapsed = 0f;
+        private bool isAbsorbing = false;         // 是否正在吸收
+        private int absorbedCount = 0;            // 已吸收数量
+        private float currentScale = 0.1f;        // 当前缩放
+        private bool shouldStopSpawning = false;  // 是否停止生成
+        
+        // 强制覆盖Animator控制的标志
+        // 只覆盖heart的缩放（蓄力动画），位置（包括Z轴）保持原版
+        private bool forceOverrideScale = false;            // 是否强制覆盖缩放
+        private Vector3 targetHeartScale;                   // 目标缩放（本地缩放）
         #endregion
 
         /// <summary>
         /// 初始化大丝球（从管理器调用）
         /// </summary>
-        public void Initialize(GameObject boss)
+        /// <param name="rootObject">根物品GameObject（用于获取Animator等组件）</param>
+        /// <param name="boss">Boss对象</param>
+        /// <param name="heart">heart子物品Transform（用于位置和缩放操作）</param>
+        public void Initialize(GameObject rootObject, GameObject boss, Transform? heart = null)
         {
             if (isInitialized)
             {
@@ -90,6 +146,14 @@ namespace AnySilkBoss.Source.Behaviours
             }
 
             bossObject = boss;
+            heartTransform = heart;  // 保存heart引用
+            
+            // heart和所有子物品保持原版相对位置（包括Z轴），只通过移动根物品的XY轴跟随BOSS
+            if (heartTransform != null)
+            {
+                Log.Info($"heart保持原版相对位置: {heartTransform.localPosition}");
+                Log.Info($"将只调整根物品XY轴跟随BOSS，Z轴保持原版");
+            }
             
             // 获取PhaseControlBehavior引用
             if (boss != null)
@@ -101,19 +165,33 @@ namespace AnySilkBoss.Source.Behaviours
                 }
             }
             
-            // 获取组件
-            GetComponentReferences();
+            // 获取英雄引用（用于碰撞箱位置跟随）
+            heroObject = HeroController.instance?.gameObject;
+            if (heroObject != null)
+            {
+                lastHeroX = heroObject.transform.position.x;
+                Log.Info($"成功获取英雄引用，初始X位置: {lastHeroX}");
+            }
+            
+            // 从根物品获取组件（Animator等）
+            GetComponentReferences(rootObject);
+
+            // 创建碰撞箱
+            CreateCollisionBox();
 
             // 创建 FSM
             CreateControlFSM();
 
             isInitialized = true;
-            Log.Info("大丝球初始化完成");
+            Log.Info($"大丝球初始化完成，heart引用: {(heartTransform != null ? "已设置" : "未设置")}，碰撞箱: {(collisionBox != null ? "已创建" : "未创建")}");
         }
 
         private void Update()
         {
-            // 蓄力过程的缩放动画在协程中处理，这里不需要
+            // 更新碰撞箱X轴位置，跟随英雄移动
+            UpdateCollisionBoxPosition();
+            
+            // 调试快捷键
             if (Input.GetKeyDown(KeyCode.T))
             {
                 LogBigSilkBallFSMInfo();
@@ -122,6 +200,49 @@ namespace AnySilkBoss.Source.Behaviours
             if (Input.GetKeyDown(KeyCode.Y))
             {
                 AnalyzeAnimator();
+            }
+        }
+        
+        /// <summary>
+        /// 更新碰撞箱X轴位置，跟随英雄移动
+        /// 由于大丝球在Z=57的背景，视角移动会导致显示位置和碰撞箱位置偏差
+        /// </summary>
+        private void UpdateCollisionBoxPosition()
+        {
+            if (collisionBox == null || heroObject == null) return;
+            
+            float currentHeroX = heroObject.transform.position.x;
+            
+            // 定义英雄X轴范围和对应的碰撞箱本地X轴相对偏移
+            // 英雄X轴从 29 到 46 之间，碰撞箱本地X轴从 -2.5 到 6.8 相对偏移
+            float heroMinX = 29f;
+            float heroMaxX = 46f;
+            float collisionBoxRelativeMinX = -2.5f;
+            float collisionBoxRelativeMaxX = 6.8f;
+            
+            // 将当前英雄X轴映射到碰撞箱相对X轴的范围
+            // 使用 Mathf.InverseLerp 将值归一化到 0-1 范围，然后用 Mathf.Lerp 映射到目标范围
+            float t = Mathf.InverseLerp(heroMinX, heroMaxX, currentHeroX);
+            float targetRelativeX = Mathf.Lerp(collisionBoxRelativeMinX, collisionBoxRelativeMaxX, t);
+            
+            Vector3 currentLocalPos = collisionBox.transform.localPosition;
+            currentLocalPos.x = collisionBoxBaseLocalPos.x + targetRelativeX; // 加上基础本地X和计算出的相对偏移
+            collisionBox.transform.localPosition = currentLocalPos;
+            
+        }
+
+        /// <summary>
+        /// LateUpdate在Animator更新之后执行，用于强制覆盖Animator对heart的控制
+        /// 只覆盖缩放，位置（包括Z轴）保持原版，跟随根物品移动
+        /// </summary>
+        private void LateUpdate()
+        {
+            if (heartTransform == null) return;
+
+            // 强制覆盖缩放（蓄力动画），防止Animator重置heart的大小
+            if (forceOverrideScale)
+            {
+                heartTransform.localScale = targetHeartScale;
             }
         }
 
@@ -139,10 +260,11 @@ namespace AnySilkBoss.Source.Behaviours
         /// <summary>
         /// 获取组件引用
         /// </summary>
-        private void GetComponentReferences()
+        /// <param name="rootObject">根物品GameObject（从根物品获取Animator等组件）</param>
+        private void GetComponentReferences(GameObject rootObject)
         {
-            // 获取 Animator
-            animator = GetComponent<Animator>();
+            // 从根物品获取 Animator
+            animator = rootObject.GetComponent<Animator>();
             if (animator == null)
             {
                 Log.Warn("未找到 Animator 组件");
@@ -170,7 +292,7 @@ namespace AnySilkBoss.Source.Behaviours
                 }
             }
 
-            // 获取 SilkBallManager
+            // 获取 SilkBallManager 和 BigSilkBallManager
             var managerObj = GameObject.Find("AnySilkBossManager");
             if (managerObj != null)
             {
@@ -179,11 +301,50 @@ namespace AnySilkBoss.Source.Behaviours
                 {
                     Log.Warn("未找到 SilkBallManager 组件");
                 }
+                
+                bigSilkBallManager = managerObj.GetComponent<Managers.BigSilkBallManager>();
+                if (bigSilkBallManager == null)
+                {
+                    Log.Warn("未找到 BigSilkBallManager 组件");
+                }
+                else
+                {
+                    Log.Info($"成功获取 BigSilkBallManager，预生成池状态: {bigSilkBallManager.IsPoolInitialized()}");
+                }
             }
             else
             {
                 Log.Warn("未找到 AnySilkBossManager 对象");
             }
+        }
+
+        /// <summary>
+        /// 创建碰撞箱GameObject（Z=0位置）
+        /// </summary>
+        private void CreateCollisionBox()
+        {
+            // 在根物品下创建碰撞箱GameObject
+            collisionBox = new GameObject("CollisionBox");
+            collisionBox.transform.parent = transform;
+            
+            // 设置位置：XY跟heart一致(-9.4, -2.9)，Z轴设为0（世界坐标）
+            collisionBoxBaseLocalPos = new Vector3(-6.4f, -5f, -57.4491f);  // 保存基础本地位置
+            collisionBox.transform.localPosition = collisionBoxBaseLocalPos;
+            
+            // 添加碰撞箱脚本
+            collisionBoxScript = collisionBox.AddComponent<BigSilkBallCollisionBox>();
+            collisionBoxScript.parentBehavior = this;
+            
+            // 保存Transform引用
+            collisionBoxTransform = collisionBox.transform;
+            
+            // 设置初始缩放
+            collisionBox.transform.localScale = Vector3.one * initialScale;
+            
+            // 设置Layer
+            collisionBox.layer = LayerMask.NameToLayer("Terrain");
+            
+            Log.Info($"碰撞箱已创建 - 世界位置: {collisionBox.transform.position}, 本地位置: {collisionBox.transform.localPosition}, 初始缩放: {initialScale}");
         }
 
         /// <summary>
@@ -204,9 +365,9 @@ namespace AnySilkBoss.Source.Behaviours
             // 创建所有状态
             var initState = CreateInitState();
             var followBossState = CreateFollowBossState();
-            var chargeState = CreateChargeState();
-            var burstState = CreateBurstState();
-            var spawnSmallBallsState = CreateSpawnSmallBallsState();
+            var absorbChargeState = CreateAbsorbChargeState();
+            var shootWavesState = CreateShootWavesState();
+            var finalBurstState = CreateFinalBurstState();
             var destroyState = CreateDestroyState();
 
             // 设置状态到 FSM
@@ -214,9 +375,9 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 initState,
                 followBossState,
-                chargeState,
-                burstState,
-                spawnSmallBallsState,
+                absorbChargeState,
+                shootWavesState,
+                finalBurstState,
                 destroyState
             };
 
@@ -229,17 +390,17 @@ namespace AnySilkBoss.Source.Behaviours
             // 添加状态动作
             AddInitActions(initState);
             AddFollowBossActions(followBossState);
-            AddChargeActions(chargeState);
-            AddBurstActions(burstState);
-            AddSpawnSmallBallsActions(spawnSmallBallsState);
+            AddAbsorbChargeActions(absorbChargeState);
+            AddShootWavesActions(shootWavesState);
+            AddFinalBurstActions(finalBurstState);
             AddDestroyActions(destroyState);
 
             // 添加状态转换
             AddInitTransitions(initState, followBossState);
-            AddFollowBossTransitions(followBossState, chargeState);
-            AddChargeTransitions(chargeState, burstState);
-            AddBurstTransitions(burstState, spawnSmallBallsState);
-            AddSpawnSmallBallsTransitions(spawnSmallBallsState, destroyState);
+            AddFollowBossTransitions(followBossState, absorbChargeState);
+            AddAbsorbChargeTransitions(absorbChargeState, shootWavesState);
+            AddShootWavesTransitions(shootWavesState, finalBurstState);
+            AddFinalBurstTransitions(finalBurstState, destroyState);
 
             // 初始化 FSM 数据和事件
             controlFSM.Fsm.InitData();
@@ -294,14 +455,11 @@ namespace AnySilkBoss.Source.Behaviours
             controlFSM.FsmVariables.Vector3Variables = new FsmVector3[] { chestOffsetVar };
 
             // Float 变量
-            chargeDurationVar = new FsmFloat("Charge Duration") { Value = chargeDuration };
             maxScaleVar = new FsmFloat("Max Scale") { Value = maxScale };
-            burstSpeedVar = new FsmFloat("Wave Speed") { Value = waveSpeed };
-            controlFSM.FsmVariables.FloatVariables = new FsmFloat[] { chargeDurationVar, maxScaleVar, burstSpeedVar };
+            controlFSM.FsmVariables.FloatVariables = new FsmFloat[] { maxScaleVar };
 
-            // Int 变量
-            smallBallCountVar = new FsmInt("Final Burst Count") { Value = finalBurstCount };
-            controlFSM.FsmVariables.IntVariables = new FsmInt[] { smallBallCountVar };
+            // Int 变量（可以为空）
+            controlFSM.FsmVariables.IntVariables = new FsmInt[] { };
         }
         #endregion
 
@@ -324,30 +482,30 @@ namespace AnySilkBoss.Source.Behaviours
             };
         }
 
-        private FsmState CreateChargeState()
+        private FsmState CreateAbsorbChargeState()
         {
             return new FsmState(controlFSM!.Fsm)
             {
-                Name = "Charge",
-                Description = "蓄力变大"
+                Name = "Absorb Charge",
+                Description = "吸收蓄力"
             };
         }
 
-        private FsmState CreateBurstState()
+        private FsmState CreateShootWavesState()
         {
             return new FsmState(controlFSM!.Fsm)
             {
-                Name = "Burst",
-                Description = "爆炸"
+                Name = "Shoot Waves",
+                Description = "抛射波次"
             };
         }
 
-        private FsmState CreateSpawnSmallBallsState()
+        private FsmState CreateFinalBurstState()
         {
             return new FsmState(controlFSM!.Fsm)
             {
-                Name = "Spawn Small Balls",
-                Description = "分裂小丝球"
+                Name = "Final Burst",
+                Description = "最终爆炸"
             };
         }
 
@@ -393,13 +551,13 @@ namespace AnySilkBoss.Source.Behaviours
             followBossState.Actions = new FsmStateAction[] { followAction };
         }
 
-        private void AddChargeActions(FsmState chargeState)
+        private void AddAbsorbChargeActions(FsmState absorbChargeState)
         {
-            // 1. 蓄力缩放动作（协程）
-            var chargeAction = new CallMethod
+            // 1. 开始吸收蓄力协程
+            var absorbAction = new CallMethod
             {
                 behaviour = new FsmObject { Value = this },
-                methodName = new FsmString("StartChargeCoroutine") { Value = "StartChargeCoroutine" },
+                methodName = new FsmString("StartAbsorbChargeCoroutine") { Value = "StartAbsorbChargeCoroutine" },
                 parameters = new FsmVar[0]
             };
 
@@ -409,11 +567,11 @@ namespace AnySilkBoss.Source.Behaviours
                 bigSilkBallBehavior = this
             };
 
-            // 同时执行：蓄力放大 + 跟随BOSS
-            chargeState.Actions = new FsmStateAction[] { chargeAction, followAction };
+            // 同时执行：吸收蓄力 + 跟随BOSS
+            absorbChargeState.Actions = new FsmStateAction[] { absorbAction, followAction };
         }
 
-        private void AddBurstActions(FsmState burstState)
+        private void AddShootWavesActions(FsmState shootWavesState)
         {
             // 固定位置（停止跟随）
             var fixPositionAction = new CallMethod
@@ -423,35 +581,42 @@ namespace AnySilkBoss.Source.Behaviours
                 parameters = new FsmVar[0]
             };
 
-            // 播放爆炸动画
-            var burstAction = new CallMethod
+            // 开始抛射波次协程
+            var shootAction = new CallMethod
             {
                 behaviour = new FsmObject { Value = this },
-                methodName = new FsmString("PlayBurstAnimation") { Value = "PlayBurstAnimation" },
+                methodName = new FsmString("StartShootWavesCoroutine") { Value = "StartShootWavesCoroutine" },
                 parameters = new FsmVar[0]
             };
 
-            burstState.Actions = new FsmStateAction[] { fixPositionAction, burstAction };
-        }
-
-        private void AddSpawnSmallBallsActions(FsmState spawnSmallBallsState)
-        {
-            // 生成小丝球
-            var spawnAction = new CallMethod
-            {
-                behaviour = new FsmObject { Value = this },
-                methodName = new FsmString("SpawnSmallBalls") { Value = "SpawnSmallBalls" },
-                parameters = new FsmVar[0]
-            };
-
-            // 等待一帧后销毁
+            // 等待射击波次完成（7波抛射总时长 + 缓冲）
             var waitAction = new Wait
             {
-                time = new FsmFloat(0.1f),
+                time = new FsmFloat(6f),  // 4.4秒射击 + 缓冲
                 finishEvent = FsmEvent.Finished
             };
 
-            spawnSmallBallsState.Actions = new FsmStateAction[] { spawnAction, waitAction };
+            shootWavesState.Actions = new FsmStateAction[] { fixPositionAction, shootAction, waitAction };
+        }
+
+        private void AddFinalBurstActions(FsmState finalBurstState)
+        {
+            // 开始最终爆炸协程
+            var burstAction = new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("StartFinalBurstCoroutine") { Value = "StartFinalBurstCoroutine" },
+                parameters = new FsmVar[0]
+            };
+
+            // 等待协程完成（给足够时间让所有小丝球爆发并飞出）
+            var waitAction = new Wait
+            {
+                time = new FsmFloat(8f),  // 等待爆炸完成（实际约2秒 + 6秒缓冲让小丝球飞行和动画播放完整）
+                finishEvent = FsmEvent.Finished
+            };
+
+            finalBurstState.Actions = new FsmStateAction[] { burstAction, waitAction };
         }
 
         private void AddDestroyActions(FsmState destroyState)
@@ -481,48 +646,48 @@ namespace AnySilkBoss.Source.Behaviours
             };
         }
 
-        private void AddFollowBossTransitions(FsmState followBossState, FsmState chargeState)
+        private void AddFollowBossTransitions(FsmState followBossState, FsmState absorbChargeState)
         {
             followBossState.Transitions = new FsmTransition[]
             {
                 new FsmTransition
                 {
                     FsmEvent = startChargeEvent,
-                    toState = "Charge",
-                    toFsmState = chargeState
+                    toState = "Absorb Charge",
+                    toFsmState = absorbChargeState
                 }
             };
         }
 
-        private void AddChargeTransitions(FsmState chargeState, FsmState burstState)
+        private void AddAbsorbChargeTransitions(FsmState absorbChargeState, FsmState shootWavesState)
         {
-            chargeState.Transitions = new FsmTransition[]
+            absorbChargeState.Transitions = new FsmTransition[]
             {
                 new FsmTransition
                 {
                     FsmEvent = FsmEvent.Finished,
-                    toState = "Burst",
-                    toFsmState = burstState
+                    toState = "Shoot Waves",
+                    toFsmState = shootWavesState
                 }
             };
         }
 
-        private void AddBurstTransitions(FsmState burstState, FsmState spawnSmallBallsState)
+        private void AddShootWavesTransitions(FsmState shootWavesState, FsmState finalBurstState)
         {
-            burstState.Transitions = new FsmTransition[]
+            shootWavesState.Transitions = new FsmTransition[]
             {
                 new FsmTransition
                 {
-                    FsmEvent = animationCompleteEvent,
-                    toState = "Spawn Small Balls",
-                    toFsmState = spawnSmallBallsState
+                    FsmEvent = FsmEvent.Finished,
+                    toState = "Final Burst",
+                    toFsmState = finalBurstState
                 }
             };
         }
 
-        private void AddSpawnSmallBallsTransitions(FsmState spawnSmallBallsState, FsmState destroyState)
+        private void AddFinalBurstTransitions(FsmState finalBurstState, FsmState destroyState)
         {
-            spawnSmallBallsState.Transitions = new FsmTransition[]
+            finalBurstState.Transitions = new FsmTransition[]
             {
                 new FsmTransition
                 {
@@ -536,12 +701,20 @@ namespace AnySilkBoss.Source.Behaviours
 
         #region 辅助方法（供FSM调用）
         /// <summary>
-        /// 设置初始缩放
+        /// 设置初始缩放（操作heart而不是根物品）
         /// </summary>
         public void SetInitialScale()
         {
-            transform.localScale = Vector3.one * initialScale;
-            Log.Info($"设置初始缩放: {initialScale}");
+            if (heartTransform != null)
+            {
+                targetHeartScale = Vector3.one * initialScale;
+                forceOverrideScale = true;  // 启用缩放覆盖，防止Animator干扰
+                Log.Info($"设置heart初始缩放: {initialScale}（启用强制覆盖）");
+            }
+            else
+            {
+                Log.Warn("heartTransform为null，无法设置初始缩放");
+            }
         }
 
         /// <summary>
@@ -549,45 +722,77 @@ namespace AnySilkBoss.Source.Behaviours
         /// </summary>
         public void FixPosition()
         {
-            // 什么都不做，仅用于标记进入固定位置状态
-            // 实际位置已经在上一个状态（Charge或Follow Boss）中确定
-            Log.Info($"固定位置: {transform.position}");
-        }
-
-        /// <summary>
-        /// 开始蓄力协程
-        /// </summary>
-        public void StartChargeCoroutine()
-        {
-            Log.Info("StartChargeCoroutine 被调用");
-            StartCoroutine(ChargeCoroutine());
-        }
-
-        /// <summary>
-        /// 蓄力协程
-        /// </summary>
-        private IEnumerator ChargeCoroutine()
-        {
-            isCharging = true;
-            chargeElapsed = 0f;
-            float startScale = initialScale;
-            float targetScale = maxScale;
-
-            Log.Info($"开始蓄力：从 {startScale} 到 {targetScale}，持续 {chargeDuration} 秒");
-
-            while (chargeElapsed < chargeDuration)
+            // 保存当前heart的缩放，防止Animator重置
+            // 根物品停止移动，heart的位置自然跟随根物品，只需要固定缩放
+            
+            if (heartTransform != null)
             {
-                chargeElapsed += Time.deltaTime;
-                float t = chargeElapsed / chargeDuration;
-                float currentScale = Mathf.Lerp(startScale, targetScale, t);
-                transform.localScale = Vector3.one * currentScale;
+                targetHeartScale = heartTransform.localScale;
+                forceOverrideScale = true;     // 继续覆盖heart缩放
+                
+                Log.Info($"固定状态 - 根物品位置: {transform.position}, heart缩放: {targetHeartScale}");
+            }
+            else
+            {
+                Log.Info($"固定根物品位置: {transform.position}");
+            }
+        }
+
+        /// <summary>
+        /// 开始吸收蓄力协程
+        /// </summary>
+        public void StartAbsorbChargeCoroutine()
+        {
+            Log.Info("开始吸收蓄力阶段");
+            StartCoroutine(AbsorbChargeCoroutine());
+        }
+
+        /// <summary>
+        /// 吸收蓄力协程：生成追踪大丝球的小丝球，并等待吸收到最大
+        /// </summary>
+        private IEnumerator AbsorbChargeCoroutine()
+        {
+            isAbsorbing = true;
+            absorbedCount = 0;
+            currentScale = initialScale;
+            shouldStopSpawning = false;
+            
+            // 启用强制覆盖缩放
+            forceOverrideScale = true;
+            targetHeartScale = Vector3.one * currentScale;
+            
+            // 同时更新碰撞箱缩放
+            if (collisionBoxScript != null)
+            {
+                collisionBoxScript.SetScale(currentScale);
+            }
+
+            Log.Info($"吸收蓄力开始 - 初始缩放: {currentScale}, 目标吸收数: {absorbCountToMax}, 每秒生成: {absorbSpawnRate}");
+
+            float elapsed = 0f;
+            float spawnInterval = 1f / absorbSpawnRate;  // 生成间隔
+            float nextSpawnTime = 0f;
+
+            // 持续生成小丝球，直到达到最大或超时
+            while (elapsed < absorbDuration && !shouldStopSpawning)
+            {
+                elapsed += Time.deltaTime;
+                
+                // 定时生成小丝球
+                if (elapsed >= nextSpawnTime)
+                {
+                    SpawnAbsorbBall();
+                    nextSpawnTime = elapsed + spawnInterval;
+                }
+                
                 yield return null;
             }
 
-            transform.localScale = Vector3.one * targetScale;
-            isCharging = false;
+            isAbsorbing = false;
+            Log.Info($"吸收蓄力完成 - 共吸收: {absorbedCount} 个，最终缩放: {currentScale}");
 
-            Log.Info("蓄力完成");
+            // 播放爆炸动画
+            PlayBurstAnimation();
 
             // 通知PhaseControl蓄力完成
             NotifyPhaseControl("ChargeComplete");
@@ -600,24 +805,13 @@ namespace AnySilkBoss.Source.Behaviours
         }
 
         /// <summary>
-        /// 生成小丝球（FSM调用）
-        /// </summary>
-        public void SpawnSmallBalls()
-        {
-            Log.Info("开始生成小丝球（最终爆发）");
-            SpawnFinalBurst();
-        }
-
-        /// <summary>
         /// 播放爆炸动画
         /// </summary>
-        public void PlayBurstAnimation()
+        private void PlayBurstAnimation()
         {
-            Log.Info($"播放爆炸动画: {burstAnimationName}");
-
             if (animator != null)
             {
-                // 尝试播放爆炸动画
+                Log.Info($"播放爆炸动画: {burstAnimationName}");
                 animator.Play(burstAnimationName);
                 
                 // 验证动画是否成功播放
@@ -627,13 +821,11 @@ namespace AnySilkBoss.Source.Behaviours
                     var targetClip = clips.FirstOrDefault(c => c.name == burstAnimationName);
                     if (targetClip != null)
                     {
-                        // 使用实际动画长度更新 burstDuration
-                        burstDuration = targetClip.length;
-                        Log.Info($"动画长度: {burstDuration:F2}s，将根据此时长进行分波生成");
+                        Log.Info($"动画长度: {targetClip.length:F2}s");
                     }
                     else
                     {
-                        Log.Warn($"未找到动画片段: {burstAnimationName}，使用默认时长");
+                        Log.Warn($"未找到动画片段: {burstAnimationName}");
                     }
                 }
             }
@@ -641,177 +833,225 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 Log.Warn("Animator 为 null，无法播放动画");
             }
-
-            // 启动分波生成协程
-            StartCoroutine(BurstSequenceCoroutine());
         }
 
         /// <summary>
-        /// 爆炸序列协程：分波生成小丝球 + 最终爆发
+        /// 处理吸收单个小丝球
         /// </summary>
-        private IEnumerator BurstSequenceCoroutine()
+        public void OnAbsorbBall(SilkBallBehavior silkBall)
         {
-            Log.Info($"开始爆炸序列，总时长: {burstDuration:F2}s，波数: {burstWaveCount}");
-
-            // 前 70% 的时间用于分波生成
-            float wavePhaseTime = burstDuration * 0.7f;
-            float waveInterval = wavePhaseTime / burstWaveCount;
-
-            // 分波生成小丝球（引导期间）
-            for (int wave = 0; wave < burstWaveCount; wave++)
+            // 检查小丝球是否可以被吸收
+            if (silkBall == null || !silkBall.canBeAbsorbed)
             {
-                yield return new WaitForSeconds(waveInterval);
-                SpawnWaveBalls(wave);
-                Log.Info($"生成第 {wave + 1}/{burstWaveCount} 波小丝球（间隔: {waveInterval:F2}s）");
+                Log.Info($"小丝球不可被吸收 (canBeAbsorbed={silkBall?.canBeAbsorbed})");
+                return;
             }
-
-            // 等待一小段时间后触发最终爆发（提前0.5秒）
-            float waitBeforeFinalBurst = burstDuration * 0.05f;  // 等待到75%位置
-            yield return new WaitForSeconds(waitBeforeFinalBurst);
-
-            // 最终爆发：上半部分大量小丝球（在75%位置触发，比原来的85%提前）
-            SpawnFinalBurst();
-            Log.Info($"最终爆发：生成 {finalBurstCount} 个小丝球（在动画{(0.7f + waitBeforeFinalBurst / burstDuration) * 100:F0}%位置）");
-
-            // 等待剩余时间确保动画播放完成
-            float remainingTime = burstDuration * 0.25f - waitBeforeFinalBurst;
-            yield return new WaitForSeconds(remainingTime);
-
-            // 通知PhaseControl爆炸完成
-            NotifyPhaseControl("BurstComplete");
-
-            // 发送动画完成事件到FSM
-            if (controlFSM != null)
+            
+            if (!isAbsorbing)
             {
-                controlFSM.SendEvent("ANIMATION COMPLETE");
+                // 吸收阶段已结束，但仍然销毁还没来得及吸收的小丝球
+                Log.Info("吸收阶段已结束，销毁遗留的可吸收小丝球");
+                Destroy(silkBall.gameObject);
+                return;
             }
-
-            Log.Info("爆炸序列完成");
-        }
-
-        /// <summary>
-        /// 生成每波小丝球（引导期间）
-        /// </summary>
-        private void SpawnWaveBalls(int waveIndex)
-        {
-            if (silkBallManager == null)
+            
+            if (shouldStopSpawning)
             {
-                Log.Error("SilkBallManager 为 null，无法生成小丝球");
+                // 已经达到最大，不再增加缩放（但仍然吸收并销毁小丝球）
+                Log.Info($"已达到最大缩放，吸收但不增长");
+                Destroy(silkBall.gameObject);
                 return;
             }
 
-            Vector3 centerPosition = transform.position;
-
-            for (int i = 0; i < ballsPerWave; i++)
+            // 增加计数
+            absorbedCount++;
+            
+            // 增加缩放
+            currentScale += scaleIncreasePerAbsorb;
+            if (currentScale >= maxScale)
             {
-                // 随机角度，稍微偏向上半部分（-30度到210度）
-                float angle = Random.Range(-30f, 210f);
+                currentScale = maxScale;
+                shouldStopSpawning = true;
+                Log.Info($"达到最大缩放 {maxScale}，停止生成新的小丝球");
+            }
+            
+            // 更新heart缩放
+            targetHeartScale = Vector3.one * currentScale;
+            
+            // 更新碰撞箱缩放
+            if (collisionBoxScript != null)
+            {
+                collisionBoxScript.SetScale(currentScale);
+            }
+            
+            Log.Info($"吸收小丝球 #{absorbedCount} - 当前缩放: {currentScale:F2}");
+            
+            // 销毁小丝球
+            Destroy(silkBall.gameObject);
+        }
+
+        /// <summary>
+        /// 生成追踪大丝球的小丝球
+        /// </summary>
+        private void SpawnAbsorbBall()
+        {
+            if (silkBallManager == null || collisionBoxTransform == null) return;
+
+            // 计算生成位置（半径40范围，70%概率在下半部分）
+            float angle;
+            if (Random.value < lowerHalfProbability)
+            {
+                // 下半部分：-90度到90度
+                angle = Random.Range(-90f, 90f);
+            }
+            else
+            {
+                // 上半部分：90度到270度
+                angle = Random.Range(90f, 270f);
+            }
+            
                 float angleRad = angle * Mathf.Deg2Rad;
                 Vector2 direction = new Vector2(Mathf.Cos(angleRad), Mathf.Sin(angleRad));
 
-                // 生成位置（稍微偏离中心）
-                Vector3 spawnPosition = centerPosition + new Vector3(direction.x, direction.y, 0f) * spawnRadius;
-
-                // 计算初速度（径向）
-                Vector2 initialVelocity = direction * waveSpeed;
-
-                // 生成并初始化小丝球
-                SpawnSingleBall(spawnPosition, initialVelocity);
+            // 生成位置（从碰撞箱的世界位置计算）
+            Vector3 spawnPosition = collisionBoxTransform.position + new Vector3(direction.x, direction.y, 0f) * absorbSpawnRadius;
+            
+            // 生成小丝球
+            var silkBall = silkBallManager.SpawnSilkBall(spawnPosition);
+            if (silkBall != null)
+            {
+                var behavior = silkBall.GetComponent<SilkBallBehavior>();
+                if (behavior != null)
+                {
+                    // 初始化为追踪大丝球碰撞箱，忽略墙壁碰撞
+                    behavior.Initialize(
+                        spawnPosition,
+                        acceleration: 10f,
+                        maxSpeed: 15f,
+                        chaseTime: 100f,  // 长时间追踪
+                        scale: 1f,
+                        enableRotation: true,
+                        customTarget: collisionBoxTransform,  // 追踪碰撞箱
+                        ignoreWall: true  // 忽略墙壁碰撞
+                    );
+                    
+                    // 标记为可被吸收（吸收阶段的小丝球）
+                    behavior.canBeAbsorbed = true;
+                    
+                    // 启动过期销毁机制（15秒后自动销毁，防止遗留）
+                    StartCoroutine(DestroyAbsorbBallAfterTimeout(silkBall, 15f));
+                    
+                    // 延迟释放并开始追踪（等待FSM初始化）
+                    StartCoroutine(ReleaseAbsorbBall(silkBall));
+                }
             }
         }
 
         /// <summary>
-        /// 最终爆发：生成大量上半部分小丝球
+        /// 延迟释放吸收小丝球（等待FSM初始化）
         /// </summary>
-        private void SpawnFinalBurst()
+        private IEnumerator ReleaseAbsorbBall(GameObject silkBall)
         {
-            StartCoroutine(SpawnFinalBurstCoroutine());
+            // 等待几帧确保FSM完全初始化
+            yield return new WaitForSeconds(0.1f);
+            
+            if (silkBall != null)
+            {
+                var fsm = silkBall.GetComponent<PlayMakerFSM>();
+                if (fsm != null)
+                {
+                    fsm.SendEvent("SILK BALL RELEASE");
+                    Log.Info($"小丝球已释放，开始追踪大丝球");
+                }
+            }
         }
 
         /// <summary>
-        /// 最终爆发协程：分批生成小丝球
+        /// 过期销毁吸收小丝球（防止遗留）
         /// </summary>
-        private IEnumerator SpawnFinalBurstCoroutine()
+        private IEnumerator DestroyAbsorbBallAfterTimeout(GameObject silkBall, float timeout)
         {
-            if (silkBallManager == null)
+            yield return new WaitForSeconds(timeout);
+            
+            if (silkBall != null)
             {
-                Log.Error("SilkBallManager 为 null，无法生成小丝球");
-                yield break;
+                Log.Info($"吸收小丝球超时 ({timeout}秒)，自动销毁");
+                Destroy(silkBall);
             }
+        }
 
-            Vector3 centerPosition = transform.position;
-            int spawned = 0;
-            int batchIndex = 0;
+        /// <summary>
+        /// 开始抛射波次协程
+        /// </summary>
+        public void StartShootWavesCoroutine()
+        {
+            Log.Info("开始抛射波次阶段");
+            StartCoroutine(ShootWavesCoroutine());
+        }
 
-            Log.Info($"开始分批生成{finalBurstCount}个小丝球，每批{ballsPerBatch}个，间隔{framesPerBatch}帧");
-
-            while (spawned < finalBurstCount)
+        /// <summary>
+        /// 抛射波次协程：7波定向抛射，每波配置不同
+        /// </summary>
+        private IEnumerator ShootWavesCoroutine()
+        {
+            Log.Info($"抛射波次开始 - 总波数: {_shootWaveConfigs.Length}");
+            yield return new WaitForSeconds(1f);
+            for (int wave = 0; wave < _shootWaveConfigs.Length; wave++)
             {
-                int batchSize = Mathf.Min(ballsPerBatch, finalBurstCount - spawned);
+                var config = _shootWaveConfigs[wave];
                 
-                for (int i = 0; i < batchSize; i++)
+                // 生成这一波的所有小丝球
+                for (int i = 0; i < config.ballCount; i++)
                 {
-                    // 上半部分角度分布：30度到150度（向上为主）
-                    float angle = Random.Range(30f, 150f);
-                    float angleRad = angle * Mathf.Deg2Rad;
-                    
-                    // 径向方向
-                    Vector2 radialDirection = new Vector2(Mathf.Cos(angleRad), Mathf.Sin(angleRad));
-                    
-                    // 随机生成距离（0到maxSpawnRadius之间）- 小丝球随机分布在大丝球内部
-                    float distanceFromCenter = Random.Range(0f, maxSpawnRadius);
-                    
-                    // 根据距离计算速度倍数（距离近=速度快，距离远=速度慢）
-                    // 使用Lerp在innerSpeedMultiplier和outerSpeedMultiplier之间插值
-                    float distanceRatio = distanceFromCenter / maxSpawnRadius;  // 0到1
-                    float speedMultiplierByDistance = Mathf.Lerp(innerSpeedMultiplier, outerSpeedMultiplier, distanceRatio);
-                    
-                    // 随机基础速度
-                    float baseSpeed = Random.Range(finalBurstMinSpeed, finalBurstMaxSpeed);
-                    
-                    // 应用距离倍数得到最终径向速度
-                    float radialSpeed = baseSpeed * speedMultiplierByDistance;
-                    
-                    // 随机横向速度
-                    float horizontalSpeed = Random.Range(-radialSpeed * horizontalSpeedMultiplier, 
-                                                         radialSpeed * horizontalSpeedMultiplier);
-                    
-                    // 向上速度增强
-                    float verticalComponent = radialDirection.y * radialSpeed * verticalSpeedMultiplier;
-                    float horizontalComponent = radialDirection.x * radialSpeed;
-                    
-                    // 合成速度向量
-                    Vector2 initialVelocity = new Vector2(horizontalComponent + horizontalSpeed, verticalComponent);
-
-                    // 生成位置（根据距离随机分布在大丝球内部）
-                    Vector3 spawnPosition = centerPosition + new Vector3(radialDirection.x, radialDirection.y, 0f) * distanceFromCenter;
-
-                    // 生成并初始化小丝球
-                    SpawnSingleBall(spawnPosition, initialVelocity);
-                    
-                    spawned++;
+                    SpawnShootBall(config.spawnAngle, config.radiusMult, config.shootAngle);
                 }
-
-                batchIndex++;
-                Log.Info($"第{batchIndex}批生成完成，已生成{spawned}/{finalBurstCount}个小丝球");
-
-                // 等待指定帧数
-                for (int f = 0; f < framesPerBatch; f++)
-                {
-                    yield return null;
-                }
+                
+                Log.Info($"第 {wave + 1}/{_shootWaveConfigs.Length} 波抛射完成 - 生成{config.ballCount}个球");
+                
+                // 等待间隔
+                yield return new WaitForSeconds(config.interval);
             }
 
-            Log.Info($"所有小丝球生成完成，共{spawned}个");
+            Log.Info("抛射波次完成");
+            
+            // 通知PhaseControl
+            NotifyPhaseControl("ShootComplete");
+
+            // 发送完成事件
+            if (controlFSM != null)
+            {
+                controlFSM.SendEvent("FINISHED");
+            }
         }
 
         /// <summary>
-        /// 生成单个小丝球（重力模式）
+        /// 生成定向抛射的小丝球（带随机偏移）
         /// </summary>
-        private void SpawnSingleBall(Vector3 spawnPosition, Vector2 initialVelocity)
+        /// <param name="spawnAngle">生成位置角度（度，Unity系统：0°=右，90°=上）</param>
+        /// <param name="radiusMult">生成半径倍数（0=中心，1=完整半径5）</param>
+        /// <param name="shootAngle">抛射方向角度（度）</param>
+        private void SpawnShootBall(float spawnAngle, float radiusMult, float shootAngle)
         {
-            if (silkBallManager == null) return;
+            if (silkBallManager == null || collisionBoxTransform == null) return;
 
+            // 计算生成位置（基于碰撞箱半径5）
+            float baseRadius = collisionBoxRadius; // 5f
+            float spawnRadius = baseRadius * radiusMult;
+            float spawnAngleRad = spawnAngle * Mathf.Deg2Rad;
+            Vector2 spawnOffset = new Vector2(Mathf.Cos(spawnAngleRad), Mathf.Sin(spawnAngleRad)) * spawnRadius;
+            Vector3 spawnPosition = collisionBoxTransform.position + new Vector3(spawnOffset.x, spawnOffset.y, 0f);
+            
+            // 添加角度随机偏移（±shootAngleRandomRange度）
+            float angleOffset = Random.Range(-shootAngleRandomRange, shootAngleRandomRange);
+            float finalShootAngle = shootAngle + angleOffset;
+            float shootAngleRad = finalShootAngle * Mathf.Deg2Rad;
+            Vector2 shootDirection = new Vector2(Mathf.Cos(shootAngleRad), Mathf.Sin(shootAngleRad));
+            
+            // 添加速度随机偏移（±shootSpeedRandomRange）
+            float speedOffset = Random.Range(-shootSpeedRandomRange, shootSpeedRandomRange);
+            float finalShootSpeed = shootSpeed + speedOffset;
+            
+            // 生成小丝球
             var silkBall = silkBallManager.SpawnSilkBall(spawnPosition);
             if (silkBall != null)
             {
@@ -820,73 +1060,244 @@ namespace AnySilkBoss.Source.Behaviours
                 
                 if (behavior != null && rb != null)
                 {
-                    // 随机选择离散的重力值（实现一波波落下的效果）
-                    float randomGravity = gravityScales[Random.Range(0, gravityScales.Length)];
-                    
                     // 初始化为重力模式，不追踪玩家
                     behavior.Initialize(
                         spawnPosition,
-                        acceleration: 0f,     // 不追踪玩家
-                        maxSpeed: initialVelocity.magnitude,
-                        chaseTime: 15f,       // 存活时间（增加）
+                        acceleration: 0f,     // 不追踪
+                        maxSpeed: finalShootSpeed,
+                        chaseTime: 10f,
                         scale: 1f,
                         enableRotation: true
                     );
 
-                    // 启用重力并设置重力缩放
-                    rb.gravityScale = randomGravity;
-                    rb.bodyType = RigidbodyType2D.Dynamic;  // 确保是动态刚体
+                    // 设置重力（抛射阶段使用shootGravityScale）
+                    rb.gravityScale = shootGravityScale+Random.Range(-0.1f, 0.1f);
+                    rb.bodyType = RigidbodyType2D.Dynamic;
                     
-                    // 计算距离中心的距离（用于日志）
-                    float distanceFromCenter = Vector3.Distance(spawnPosition, transform.position);
-                    Log.Info($"小丝球生成：距离中心{distanceFromCenter:F2}，速度{initialVelocity.magnitude:F2}，重力{randomGravity:F2}");
+                    // 启动1秒保护时间（避免刚生成就碰到Terrain层的大丝球而消失）
+                    behavior.StartProtectionTime(1f);
                     
-                    // 切换到重力状态
+                    // 切换到重力状态并设置初始速度
                     var fsm = silkBall.GetComponent<PlayMakerFSM>();
                     if (fsm != null)
                     {
-                        fsm.SendEvent("SILK BALL RELEASE");  // 先释放
-                        // 延迟切换到重力状态，并在切换后设置速度
-                        StartCoroutine(SwitchToGravityStateAndSetVelocity(fsm, rb, initialVelocity));
+                        fsm.SendEvent("SILK BALL RELEASE");
+                        StartCoroutine(SetShootBallVelocity(fsm, rb, shootDirection * finalShootSpeed));
                     }
-                }
-                else
-                {
-                    if (behavior == null) Log.Warn("小丝球缺少 SilkBallBehavior 组件");
-                    if (rb == null) Log.Warn("小丝球缺少 Rigidbody2D 组件");
                 }
             }
         }
 
         /// <summary>
-        /// 切换小丝球到重力状态并设置速度
+        /// 设置抛射小丝球的速度
         /// </summary>
-        private IEnumerator SwitchToGravityStateAndSetVelocity(PlayMakerFSM fsm, Rigidbody2D rb, Vector2 velocity)
+        private IEnumerator SetShootBallVelocity(PlayMakerFSM fsm, Rigidbody2D rb, Vector2 velocity)
         {
             yield return new WaitForSeconds(0.1f);
-            
-            // 切换到Has Gravity状态
             fsm.Fsm.SetState("Has Gravity");
-            
-            // 等待一帧确保状态完全切换
             yield return null;
-            
-            // 设置初始速度
             if (rb != null)
             {
                 rb.linearVelocity = velocity;
-                Log.Info($"小丝球速度已设置: {velocity}，当前速度: {rb.linearVelocity}");
             }
         }
 
         /// <summary>
-        /// 切换小丝球到重力状态（旧版本，保留用于引导期间）
+        /// 开始最终爆炸协程
         /// </summary>
-        private IEnumerator SwitchToGravityState(PlayMakerFSM fsm)
+        public void StartFinalBurstCoroutine()
+        {
+            Log.Info("开始最终爆炸阶段");
+            StartCoroutine(FinalBurstCoroutine());
+        }
+
+        /// <summary>
+        /// 最终爆炸协程：4圈同心圆，每圈生成后立即爆发
+        /// </summary>
+        private IEnumerator FinalBurstCoroutine()
+        {
+            Log.Info($"最终爆炸开始 - 圈数: {finalBurstRings}, 每圈数量: {ballsPerRing}");
+            yield return new WaitForSeconds(1.1f);
+            // 1. 先全部生成所有圈的小丝球，保存每一圈
+            var allRingsBalls = new System.Collections.Generic.List<System.Collections.Generic.List<GameObject>>();
+            for (int ring = 0; ring < finalBurstRings && ring < ringRadii.Length; ring++)
+            {
+                float radius = ringRadii[ring];
+                float angleStep = 360f / ballsPerRing;
+                float angleOffset = (ring % 2 == 1) ? (angleStep / 2f) : 0f;
+                var currentRingBalls = new System.Collections.Generic.List<GameObject>();
+                for (int i = 0; i < ballsPerRing; i++)
+                {
+                    float angle = i * angleStep + angleOffset;
+                    var ball = SpawnRingBall(radius, angle, ring);
+                    if (ball != null)
+                    {
+                        currentRingBalls.Add(ball);
+                    }
+                }
+                Log.Info($"第 {ring + 1}/{finalBurstRings} 圈生成完成 - 半径: {radius}, 数量: {currentRingBalls.Count}");
+                allRingsBalls.Add(currentRingBalls);
+                yield return new WaitForSeconds(0.1f);
+            }
+
+            Log.Info($"所有圈静止生成完毕，开始依次爆发");
+            yield return new WaitForSeconds(ringBurstDelay); // 爆发前的统一延迟，可根据需求加/删
+            // 2. 依次爆发每一圈
+            for (int ring = 0; ring < allRingsBalls.Count; ring++)
+            {
+                var currentRingBalls = allRingsBalls[ring];
+                int ballIndex = 0;
+                foreach (var ball in currentRingBalls)
+                {
+                    if (ball != null)
+                    {
+                        BurstRingBall(ball, ring * ballsPerRing + ballIndex);
+                        ballIndex++;
+                    }
+                }
+                Log.Info($"第 {ring + 1}/{finalBurstRings} 圈已爆发");
+                if (ring < allRingsBalls.Count - 1)
+                {
+                    yield return new WaitForSeconds(ringSpawnInterval); // 按原始设定间隔爆发
+                }
+            }
+
+            Log.Info("所有圈已爆发完成");
+            NotifyPhaseControl("BurstComplete");
+            if (controlFSM != null)
+            {
+                controlFSM.SendEvent("FINISHED");
+            }
+        }
+
+        /// <summary>
+        /// 在圆环上生成小丝球（静止状态）
+        /// </summary>
+        /// <returns>生成的小丝球GameObject</returns>
+        private GameObject? SpawnRingBall(float radius, float angle, int ringIndex)
+        {
+            if (silkBallManager == null || collisionBoxTransform == null) return null;
+
+            float angleRad = angle * Mathf.Deg2Rad;
+            Vector2 direction = new Vector2(Mathf.Cos(angleRad), Mathf.Sin(angleRad));
+            
+            // 从碰撞箱位置计算生成位置
+            Vector3 spawnPosition = collisionBoxTransform.position + new Vector3(direction.x, direction.y, 0f) * radius;
+            
+            // 优先从BigSilkBallManager的预生成池获取小丝球，如果池为空则直接生成
+            GameObject? silkBall = null;
+            if (bigSilkBallManager != null && bigSilkBallManager.IsPoolInitialized())
+            {
+                silkBall = bigSilkBallManager.GetPooledSilkBall(spawnPosition);
+            }
+            
+            if (silkBall == null)
+            {
+                // 池为空或未初始化，直接生成新的
+                if (silkBallManager != null)
+                {
+                    silkBall = silkBallManager.SpawnSilkBall(spawnPosition);
+                    if (bigSilkBallManager != null)
+                    {
+                        Log.Warn($"预生成池已用尽，直接生成新的小丝球（剩余: {bigSilkBallManager.GetPoolRemainingCount()}）");
+                    }
+                    else
+                    {
+                        Log.Warn("BigSilkBallManager未找到，直接生成新的小丝球");
+                    }
+                }
+            }
+            
+            if (silkBall != null)
+            {
+                var behavior = silkBall.GetComponent<SilkBallBehavior>();
+                var rb = silkBall.GetComponent<Rigidbody2D>();
+                
+                if (behavior != null && rb != null)
+                {
+                    // 初始化但不立即追踪
+                    behavior.Initialize(
+                        spawnPosition,
+                        acceleration: 0f,
+                        maxSpeed: burstSpeed,
+                        chaseTime: 10f,
+                        scale: 1f,
+                        enableRotation: true
+                    );
+
+                    // 设置重力为0（最终爆炸只需径向速度）
+                    rb.gravityScale = finalBurstGravityScale;
+                    rb.bodyType = RigidbodyType2D.Dynamic;
+                    rb.linearVelocity = Vector2.zero;  // 初始静止
+                    
+                    // 启动1秒保护时间（避免刚生成就碰到Terrain层的大丝球而消失）
+                    behavior.StartProtectionTime(1f);
+                    
+                    // 释放但保持静止
+                    var fsm = silkBall.GetComponent<PlayMakerFSM>();
+                    if (fsm != null)
+                    {
+                        fsm.SendEvent("SILK BALL RELEASE");
+                        StartCoroutine(SetToGravityStateStatic(fsm));
+                    }
+                    
+                    return silkBall;
+                }
+                }
+            
+            return null;
+        }
+
+        /// <summary>
+        /// 设置小丝球到重力状态但保持静止
+        /// </summary>
+        private IEnumerator SetToGravityStateStatic(PlayMakerFSM fsm)
         {
             yield return new WaitForSeconds(0.1f);
-            // 直接设置到 Has Gravity 状态
-            fsm.Fsm.SetState("Has Gravity");
+            
+            // 检查FSM是否还存在（小丝球可能已被销毁）
+            if (fsm != null && fsm.Fsm != null)
+            {
+                fsm.Fsm.SetState("Has Gravity");
+            }
+        }
+
+        /// <summary>
+        /// 给圆环小丝球施加径向速度并启动保护时间
+        /// </summary>
+        private void BurstRingBall(GameObject ball, int index)
+        {
+            if (ball == null || collisionBoxTransform == null) return;
+
+            var rb = ball.GetComponent<Rigidbody2D>();
+            var behavior = ball.GetComponent<SilkBallBehavior>();
+            if (rb == null || behavior == null) return;
+
+            // 计算径向方向
+            Vector3 direction = (ball.transform.position - collisionBoxTransform.position).normalized;
+            
+            // 根据球在哪一圈计算速度倍数
+            // 简单估算：通过距离判断是哪一圈
+            float distance = Vector3.Distance(ball.transform.position, collisionBoxTransform.position);
+            float speedMultiplier = 1f;
+            
+            if (distance <= ringRadii[0] + 0.5f)
+            {
+                // 内圈
+                speedMultiplier = innerRingSpeedMultiplier;
+            }
+            else if (distance >= ringRadii[ringRadii.Length - 1] - 0.5f)
+            {
+                // 外圈
+                speedMultiplier = outerRingSpeedMultiplier;
+            }
+            
+            // 设置速度
+            Vector2 velocity = new Vector2(direction.x, direction.y) * burstSpeed * speedMultiplier;
+            rb.linearVelocity = velocity;
+            
+            // 启动1秒保护时间（在此期间不会因碰到英雄或墙壁消失）
+            behavior.StartProtectionTime(1f);
         }
 
         /// <summary>
@@ -1008,7 +1419,7 @@ namespace AnySilkBoss.Source.Behaviours
                         
                         // 检查是否是爆炸动画
                         if (clip.name.Contains("Burst") || clip.name.Contains("burst") || 
-                            clip.name.Contains("Intro") || clip.name == burstAnimationName)
+                            clip.name.Contains("Intro"))
                         {
                             Log.Info($"    ★ 可能的爆炸动画！");
                         }
@@ -1023,7 +1434,6 @@ namespace AnySilkBoss.Source.Behaviours
             // 当前播放信息
             Log.Info("--- 当前播放状态 ---");
             Log.Info($"Speed: {animator.speed}");
-            Log.Info($"指定的爆炸动画名: {burstAnimationName}");
             
             Log.Info("=== Animator 分析完成 ===");
         }
@@ -1060,10 +1470,17 @@ namespace AnySilkBoss.Source.Behaviours
                 return;
             }
 
-            // 更新位置到Boss胸前
+            // 移动根物品的XY轴到BOSS胸前，Z轴保持原版（57.4491）
             Vector3 bossPosition = bigSilkBallBehavior.bossObject.transform.position;
             Vector3 targetPosition = bossPosition + bigSilkBallBehavior.chestOffset;
-            bigSilkBallBehavior.transform.position = targetPosition;
+            
+            // 根物品XY轴跟随BOSS，Z轴保持原版
+            Vector3 rootPosition = bigSilkBallBehavior.transform.position;
+            rootPosition.x = targetPosition.x;
+            rootPosition.y = targetPosition.y;
+            // Z轴保持原版值（应该已经是57.4491，不需要修改）
+            
+            bigSilkBallBehavior.transform.position = rootPosition;
         }
     }
     #endregion

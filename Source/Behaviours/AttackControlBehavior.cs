@@ -7,6 +7,7 @@ using HutongGames.PlayMaker.Actions;
 using AnySilkBoss.Source.Tools;
 using System;
 using System.Reflection;
+using AnySilkBoss.Source.Managers;
 namespace AnySilkBoss.Source.Behaviours
 {
     /// <summary>
@@ -45,6 +46,8 @@ namespace AnySilkBoss.Source.Behaviours
         private FsmEvent? _orbitAttackEvent;
         private FsmEvent? _orbitStartHandLEvent;
         private FsmEvent? _orbitStartHandREvent;
+
+        private FsmEvent? _nullEvent;
 
         // 丝球环绕攻击相关
         private FsmEvent? _silkBallAttackEvent;
@@ -86,6 +89,10 @@ namespace AnySilkBoss.Source.Behaviours
         private FsmEvent? _silkBallInterruptEvent;
         private FsmEvent? _silkBallRecoverEvent;
 
+        // 丝球释放时的冲击波和音效动作缓存
+        private StartRoarEmitter? _cachedRoarEmitter;
+        private PlayAudioEventRandom? _cachedPlayRoarAudio;
+
         // 坐标常量
         private static readonly Vector3 POS_LEFT_DOWN = new Vector3(25f, 137f, 0f);
         private static readonly Vector3 POS_LEFT_UP = new Vector3(25f, 142.5f, 0f);
@@ -116,7 +123,15 @@ namespace AnySilkBoss.Source.Behaviours
 
             if (Input.GetKeyDown(KeyCode.Y))
             {
-                TestSpawnSilkBall();
+                var managerObj = GameObject.Find("AnySilkBossManager");
+                if (managerObj != null)
+                {
+                    var bigSilkBallManager = managerObj.GetComponent<BigSilkBallManager>();
+                    if (bigSilkBallManager != null)
+                    {
+                        bigSilkBallManager.SpawnBigSilkBall(Vector3.zero, gameObject);
+                    }
+                }
             }
 
             // 移动丝球生成检测
@@ -126,84 +141,6 @@ namespace AnySilkBoss.Source.Behaviours
             }
         }
 
-        /// <summary>
-        /// 测试召唤丝球（快捷键 Y）
-        /// </summary>
-        private void TestSpawnSilkBall()
-        {
-            Log.Info("=== 测试召唤丝球 ===");
-
-            // 获取玩家位置
-            var heroController = FindFirstObjectByType<HeroController>();
-            if (heroController == null)
-            {
-                Log.Error("未找到玩家");
-                return;
-            }
-
-            Vector3 heroPosition = heroController.transform.position;
-            Vector3 spawnPosition = heroPosition + Vector3.up * 10f;
-
-            Log.Info($"玩家位置: {heroPosition}, 生成位置: {spawnPosition}");
-
-            // 获取 SilkBallManager
-            var silkBallManager = FindFirstObjectByType<Managers.SilkBallManager>();
-            if (silkBallManager == null)
-            {
-                Log.Error("未找到 SilkBallManager");
-                return;
-            }
-
-            // 实例化丝球
-            var silkBall = silkBallManager.SpawnSilkBall(spawnPosition);
-            if (silkBall == null)
-            {
-                Log.Error("丝球实例化失败");
-                return;
-            }
-
-            // 获取 SilkBallBehavior 并初始化
-            var silkBallBehavior = silkBall.GetComponent<SilkBallBehavior>();
-            if (silkBallBehavior != null)
-            {
-                // 初始化丝球，使用默认参数或自定义参数
-                // 参数：加速度、最大速度、追逐时长、缩放、自转
-                silkBallBehavior.Initialize(
-                    spawnPosition,
-                    acceleration: 30f,  // 加速度（提高追逐速度）
-                    maxSpeed: 20f,      // 最大速度
-                    chaseTime: 6f,      // 追逐时长
-                    scale: 1f,          // 缩放
-                    enableRotation: true // 启用自转
-                );
-                Log.Info("丝球初始化完成");
-
-                // 延迟1秒后发送释放事件
-                StartCoroutine(DelayedReleaseSilkBall(silkBall));
-            }
-            else
-            {
-                Log.Error("未找到 SilkBallBehavior 组件");
-            }
-        }
-
-        /// <summary>
-        /// 延迟发送释放事件
-        /// </summary>
-        private IEnumerator DelayedReleaseSilkBall(GameObject silkBall)
-        {
-            yield return new WaitForSeconds(1f);
-
-            if (silkBall != null)
-            {
-                var fsm = silkBall.GetComponent<PlayMakerFSM>();
-                if (fsm != null)
-                {
-                    fsm.SendEvent("SILK BALL RELEASE");
-                    Log.Info("发送释放事件: SILK BALL RELEASE");
-                }
-            }
-        }
 
         /// <summary>
         /// 查看Attack Control FSM的所有状态、跳转和全局跳转
@@ -276,6 +213,37 @@ namespace AnySilkBoss.Source.Behaviours
 
             // 初始化手部Behavior组件
             InitializeHandBehaviors();
+
+            // 初始化并缓存丝球释放时的冲击波和音效动作
+            InitializeSilkBallReleaseActions();
+        }
+
+        /// <summary>
+        /// 初始化并缓存丝球释放时的冲击波和音效动作
+        /// </summary>
+        private void InitializeSilkBallReleaseActions()
+        {
+            if (_attackControlFsm == null)
+            {
+                Log.Warn("无法初始化丝球释放动作：_attackControlFsm为null");
+                return;
+            }
+
+            // 克隆并缓存冲击波效果动作
+            _cachedRoarEmitter = CloneAction<StartRoarEmitter>("Roar");
+            if (_cachedRoarEmitter != null)
+            {
+                _cachedRoarEmitter.Fsm = _attackControlFsm.Fsm;
+                _cachedRoarEmitter.Owner = _attackControlFsm.gameObject;
+            }
+
+            // 克隆并缓存尖叫音效动作
+            _cachedPlayRoarAudio = CloneAction<PlayAudioEventRandom>("Roar");
+            if (_cachedPlayRoarAudio != null)
+            {
+                _cachedPlayRoarAudio.Fsm = _attackControlFsm.Fsm;
+                _cachedPlayRoarAudio.Owner = _attackControlFsm.gameObject;
+            }
         }
 
         /// <summary>
@@ -370,7 +338,7 @@ namespace AnySilkBoss.Source.Behaviours
             // 眩晕中断相关事件
             _silkBallInterruptEvent = FsmEvent.GetFsmEvent("SILK BALL INTERRUPT");
             _silkBallRecoverEvent = FsmEvent.GetFsmEvent("SILK BALL RECOVER");
-
+            _nullEvent = FsmEvent.GetFsmEvent("NULL");
             if (_orbitAttackEvent == null)
             {
                 Log.Error("未找到ORBIT ATTACK事件");
@@ -1647,12 +1615,31 @@ namespace AnySilkBoss.Source.Behaviours
         /// </summary>
         public void ReleaseSilkBalls()
         {
+            StartCoroutine(RelSilkBall());
+
+        }
+        private IEnumerator RelSilkBall()
+        {
+            yield return new WaitForSeconds(0.82f);
             Log.Info($"=== 准备释放丝球 ===");
+
+            // 在释放丝球时触发冲击波效果和音效（使用缓存的动作）
+            // 1. 触发冲击波效果
+            if (_cachedRoarEmitter != null)
+            {
+                _cachedRoarEmitter.OnEnter();
+            }
+
+            // 2. 播放尖叫音效
+            if (_cachedPlayRoarAudio != null)
+            {
+                _cachedPlayRoarAudio.OnEnter();
+            }
 
             if (_activeSilkBalls == null || _activeSilkBalls.Count == 0)
             {
                 Log.Warn($"警告：丝球列表为空或null（数量: {_activeSilkBalls?.Count ?? 0}），无法释放！");
-                return;
+                yield break;
             }
 
             Log.Info($"当前丝球列表数量: {_activeSilkBalls.Count}");
@@ -1662,13 +1649,11 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 if (ball != null)
                 {
-                    // Log.Info($"处理丝球: {ball.name}, 位置: {ball.transform.position}");
                     var fsm = ball.GetComponent<PlayMakerFSM>();
                     if (fsm != null)
                     {
                         fsm.SendEvent("SILK BALL RELEASE");
                         successCount++;
-                        // Log.Info($"✓ 成功发送释放事件给丝球 {successCount}: {ball.name}");
                     }
                     else
                     {
@@ -1682,7 +1667,12 @@ namespace AnySilkBoss.Source.Behaviours
             }
 
             _activeSilkBalls.Clear();
-            Log.Info($"=== 所有丝球已释放，成功释放 {successCount} 个 ===");
+            // 等待0.2秒后退出协程
+            yield return new WaitForSeconds(0.2f);
+            if (_cachedRoarEmitter != null)
+            {
+                _cachedRoarEmitter.OnExit();
+            }
         }
         /// <summary>
         /// 创建Silk Ball Cast状态（播放Cast动画并向上移动）
@@ -1721,12 +1711,13 @@ namespace AnySilkBoss.Source.Behaviours
             }
 
             //  播放Cast动画
-            actions.Add(new Tk2dPlayAnimationWithEvents
+            actions.Add(new Tk2dPlayAnimationWithEventsV2
             {
                 gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
                 clipName = new FsmString("Cast") { Value = "Cast" },
                 animationTriggerEvent = FsmEvent.Finished,
-                animationCompleteEvent = FsmEvent.Finished
+                animationCompleteEvent = _nullEvent,
+                animationInterruptedEvent = _nullEvent,
             });
             state.Actions = actions.ToArray();
 
@@ -1761,12 +1752,12 @@ namespace AnySilkBoss.Source.Behaviours
                 actions.Add(decelerate);
             }
 
-            // 3. 监听动画事件完成
-            var watchAnim = CloneAction<Tk2dWatchAnimationEvents>("Web Lift");
-            if (watchAnim != null)
+            actions.Add(new Tk2dWatchAnimationEvents
             {
-                actions.Add(watchAnim);
-            }
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                animationCompleteEvent = _nullEvent,
+                animationTriggerEvent = FsmEvent.Finished,
+            });
 
             // 4. 检查是否到达高度
             var checkHeight = CloneAction<CheckYPositionV2>("Web Lift");
@@ -1824,15 +1815,6 @@ namespace AnySilkBoss.Source.Behaviours
                 parameters = new FsmVar[0],
                 everyFrame = false
             });
-
-            // 3. 等待所有丝球召唤完成（8个丝球 * 0.1秒 = 0.8秒 + 0.1秒缓冲）
-            actions.Add(new Wait
-            {
-                time = new FsmFloat(0.9f),
-                finishEvent = FsmEvent.Finished,
-                realTime = false
-            });
-
             state.Actions = actions.ToArray();
 
             Log.Info("创建Silk Ball Antic状态（在高点召唤）");
@@ -1852,7 +1834,7 @@ namespace AnySilkBoss.Source.Behaviours
 
             var actions = new List<FsmStateAction>();
 
-            // 1. 释放所有丝球
+            // 释放所有丝球（冲击波和音效在协程内触发）
             var releaseBallsAction = new CallMethod
             {
                 behaviour = new FsmObject { Value = this },
@@ -1861,28 +1843,6 @@ namespace AnySilkBoss.Source.Behaviours
                 everyFrame = false
             };
             actions.Add(releaseBallsAction);
-
-            // 2. 触发冲击波效果
-            var roarEmitter = CloneAction<StartRoarEmitter>("Roar");
-            if (roarEmitter != null)
-            {
-                actions.Add(roarEmitter);
-            }
-
-            // 3. 播放尖叫音效
-            var playRoarAudio = CloneAction<PlayAudioEventRandom>("Roar");
-            if (playRoarAudio != null)
-            {
-                actions.Add(playRoarAudio);
-            }
-
-            // 4. 等待0.5秒后跳转
-            actions.Add(new Wait
-            {
-                time = new FsmFloat(0.5f),
-                finishEvent = FsmEvent.Finished,
-                realTime = false
-            });
 
             state.Actions = actions.ToArray();
 
@@ -1902,16 +1862,17 @@ namespace AnySilkBoss.Source.Behaviours
             };
 
             var actions = new List<FsmStateAction>();
-
-            var watchAnim = CloneAction<Tk2dWatchAnimationEventsV3>("Roar End");
-            if (watchAnim != null)
+            actions.Add(new Tk2dWatchAnimationEvents
             {
-                actions.Add(watchAnim);
-            }
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                animationCompleteEvent = FsmEvent.Finished,
+                animationTriggerEvent = _nullEvent,
+            });
+
 
             actions.Add(new Wait
             {
-                time = new FsmFloat(0.5f),
+                time = new FsmFloat(2f),
                 finishEvent = FsmEvent.Finished,
                 realTime = false
             });
@@ -2085,6 +2046,10 @@ namespace AnySilkBoss.Source.Behaviours
 
             Log.Warn($"在状态{sourceStateName}中未找到类型{typeof(T).Name}的第{matchIndex}个匹配动作");
             return null;
+        }
+        public T? CloneActionFromAttackControlFSM<T>(string sourceStateName, int matchIndex = 0, Func<T, bool>? predicate = null) where T : FsmStateAction
+        {
+            return CloneAction<T>(sourceStateName, matchIndex, predicate);
         }
     }
 }
