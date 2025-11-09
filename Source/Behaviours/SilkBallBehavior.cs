@@ -30,12 +30,16 @@ namespace AnySilkBoss.Source.Behaviours
         public bool isActive = false;             // 是否激活
         public bool isChasing = false;            // 是否正在追踪玩家
         public bool isPrepared = false;           // 是否已准备
+        public bool ignoreWallCollision = false;  // 是否忽略墙壁碰撞（用于追踪大丝球的小丝球）
+        private bool isProtected = false;         // 是否处于保护时间内（不会因碰到英雄或墙壁消失）
+        public bool canBeAbsorbed = false;        // 是否可以被大丝球吸收（仅吸收阶段的小丝球为true）
         #endregion
 
         #region 组件引用
         private PlayMakerFSM? controlFSM;          // Control FSM
         private Rigidbody2D? rb2d;                 // 刚体组件
         private Transform? playerTransform;        // 玩家Transform
+        internal Transform? customTarget;          // 自定义追踪目标（可以是大丝球等）
         private DamageHero? damageHero;            // 伤害组件
 
         // 管理器引用
@@ -210,7 +214,9 @@ namespace AnySilkBoss.Source.Behaviours
         /// <summary>
         /// 初始化丝球（从管理器调用）
         /// </summary>
-        public void Initialize(Vector3 spawnPosition, float acceleration = 30f, float maxSpeed = 20f, float chaseTime = 6f, float scale = 1f, bool enableRotation = true)
+        /// <param name="customTarget">自定义追踪目标（null则追踪玩家）</param>
+        /// <param name="ignoreWall">是否忽略墙壁碰撞</param>
+        public void Initialize(Vector3 spawnPosition, float acceleration = 30f, float maxSpeed = 20f, float chaseTime = 6f, float scale = 1f, bool enableRotation = true, Transform? customTarget = null, bool ignoreWall = false)
         {
             transform.position = spawnPosition;
 
@@ -220,6 +226,8 @@ namespace AnySilkBoss.Source.Behaviours
             this.chaseTime = chaseTime;
             this.scale = scale;
             this.enableRotation = enableRotation;
+            this.customTarget = customTarget;
+            this.ignoreWallCollision = ignoreWall;
 
             // 应用缩放
             ApplyScale();
@@ -231,13 +239,11 @@ namespace AnySilkBoss.Source.Behaviours
                 spriteSilk.gameObject.layer = LayerMask.NameToLayer("Enemy Attack");
             }
 
-
             // 创建 FSM
             CreateControlFSM();
 
             // 激活
             isActive = true;
-
         }
 
         /// <summary>
@@ -336,7 +342,7 @@ namespace AnySilkBoss.Source.Behaviours
             }
             // 立即设置初始状态（使用字符串）
             controlFSM.Fsm.SetState(initState.Name);
-            Log.Info($"=== 丝球 Control FSM 创建完成，当前状态: {controlFSM.Fsm.ActiveStateName} ===");
+            //Log.Info($"=== 丝球 Control FSM 创建完成，当前状态: {controlFSM.Fsm.ActiveStateName} ===");
         }
 
         #region FSM 事件和变量注册
@@ -360,7 +366,6 @@ namespace AnySilkBoss.Source.Behaviours
             if (eventsField != null)
             {
                 eventsField.SetValue(controlFSM.Fsm, events.ToArray());
-                Log.Info("FSM 事件注册完成");
             }
         }
 
@@ -465,7 +470,7 @@ namespace AnySilkBoss.Source.Behaviours
 
             var waitAction = new Wait
             {
-                time = new FsmFloat(0.1f),
+                time = new FsmFloat(0.03f),
                 finishEvent = FsmEvent.Finished
             };
 
@@ -1062,7 +1067,7 @@ namespace AnySilkBoss.Source.Behaviours
         public void SetRotation(bool enable)
         {
             enableRotation = enable;
-            Log.Info($"丝球自转已{(enable ? "启用" : "禁用")}");
+            //Log.Info($"丝球自转已{(enable ? "启用" : "禁用")}");
         }
         #endregion
 
@@ -1078,13 +1083,31 @@ namespace AnySilkBoss.Source.Behaviours
                 return;
             }
 
+            // 检查大丝球碰撞箱（追踪大丝球的小丝球会被吸收）
+            var collisionBox = otherObject.GetComponent<BigSilkBallCollisionBox>();
+            if (collisionBox != null)
+            {
+                return;
+            }
+
             // 检查墙壁碰撞（立即消散）
             int terrainLayer = LayerMask.NameToLayer("Terrain");
             int defaultLayer = LayerMask.NameToLayer("Default");
 
             if (otherObject.layer == terrainLayer || otherObject.layer == defaultLayer)
             {
-                Debug.Log($"碰到墙壁: {otherObject.name}, 发送 HIT WALL 事件");
+                // 如果设置了忽略墙壁碰撞，则不处理
+                if (ignoreWallCollision)
+                {
+                    return;
+                }
+                
+                // 如果处于保护时间内，忽略墙壁碰撞
+                if (isProtected)
+                {
+                    return;
+                }
+                
                 controlFSM.SendEvent("HIT WALL");
                 return;
             }
@@ -1092,12 +1115,31 @@ namespace AnySilkBoss.Source.Behaviours
             // 检查玩家碰撞（Hero Box 图层）
             int heroBoxLayer = LayerMask.NameToLayer("Hero Box");
             
-            if ( otherObject.layer == heroBoxLayer)
+            if (otherObject.layer == heroBoxLayer)
             {
+                
                 // Debug.Log($"碰到玩家: {otherObject.name}, 发送 HIT HERO 事件");
                 controlFSM.SendEvent("HIT HERO");
                 return;
             }
+        }
+
+        /// <summary>
+        /// 启动保护时间（在此期间不会因碰到英雄或墙壁消失）
+        /// </summary>
+        public void StartProtectionTime(float duration)
+        {
+            StartCoroutine(ProtectionTimeCoroutine(duration));
+        }
+
+        /// <summary>
+        /// 保护时间协程
+        /// </summary>
+        private IEnumerator ProtectionTimeCoroutine(float duration)
+        {
+            isProtected = true;
+            yield return new WaitForSeconds(duration);
+            isProtected = false;
         }
         #endregion
     }
@@ -1132,15 +1174,25 @@ namespace AnySilkBoss.Source.Behaviours
             }
 
             rb2d = silkBallBehavior.GetComponent<Rigidbody2D>();
-            var heroController = UnityEngine.Object.FindFirstObjectByType<HeroController>();
-            if (heroController != null)
+            
+            // 优先使用自定义目标，否则使用玩家
+            if (silkBallBehavior.customTarget != null)
             {
-                playerTransform = heroController.transform;
+                playerTransform = silkBallBehavior.customTarget;
+                Debug.Log($"SilkBallChaseAction: 使用自定义目标 {playerTransform.gameObject.name}");
+            }
+            else
+            {
+                var heroController = UnityEngine.Object.FindFirstObjectByType<HeroController>();
+                if (heroController != null)
+                {
+                    playerTransform = heroController.transform;
+                }
             }
 
             if (rb2d == null || playerTransform == null)
             {
-                Debug.Log("SilkBallChaseAction: Rigidbody2D 或 Player Transform 为 null");
+                Debug.Log("SilkBallChaseAction: Rigidbody2D 或 Target Transform 为 null");
                 Finish();
                 return;
             }
@@ -1162,7 +1214,7 @@ namespace AnySilkBoss.Source.Behaviours
                 return;
             }
 
-            // 计算朝向玩家的方向
+            // 计算朝向目标的方向
             Vector2 direction = (playerTransform.position - silkBallBehavior.transform.position).normalized;
 
             // 应用加速度
@@ -1198,6 +1250,7 @@ namespace AnySilkBoss.Source.Behaviours
 
         private void OnTriggerEnter2D(Collider2D other)
         {
+            // 转发给HandleCollision处理所有碰撞
             if (parent != null)
             {
                 parent.HandleCollision(other.gameObject);
@@ -1206,6 +1259,7 @@ namespace AnySilkBoss.Source.Behaviours
 
         private void OnCollisionEnter2D(Collision2D collision)
         {
+            // 转发给HandleCollision处理所有碰撞
             if (parent != null)
             {
                 parent.HandleCollision(collision.gameObject);

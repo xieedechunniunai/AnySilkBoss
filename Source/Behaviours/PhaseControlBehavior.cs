@@ -35,6 +35,26 @@ namespace AnySilkBoss.Source.Behaviours
         // 大招事件标记
         private bool _chargeComplete = false;
         private bool _burstComplete = false;
+        
+        // BOSS原始状态（用于大招期间调整和恢复）
+        private float _originalBossZ = 0f;           // BOSS原始Z轴
+        private Vector3 _originalBossScale;          // BOSS原始Scale
+        private GameObject? _bossHaze;
+
+        private GameObject? _bossHaze2;
+        // Hair原始状态（Hair是BOSS的兄弟物体，需要同步调整）
+        private Transform? _hairTransform;           // Hair Transform引用
+        private float _originalHairZ = 0f;           // Hair原始Z轴
+        private Vector3 _originalHairScale;          // Hair原始Scale
+
+        // 新增缓存对象
+        private GameObject? _handLObj;
+        private GameObject? _handRObj;
+        private GameObject[] _allFingerBlades = new GameObject[6];
+
+        // 攻击控制器引用
+        private PlayMakerFSM? _attackControl;
+        private AttackControlBehavior? _attackControlBehavior;
 
         private void Awake()
         {
@@ -122,6 +142,59 @@ namespace AnySilkBoss.Source.Behaviours
             else
             {
                 Log.Info("找到现有FSM变量: BossPhaseIndex");
+            }
+            // 从Boss子物品中查找haze对象（不使用全局查找）
+            var haze1Transform = gameObject.transform.Find("haze2 (7)");
+            if (haze1Transform != null)
+            {
+                _bossHaze = haze1Transform.gameObject;
+            }
+            else
+            {
+                Log.Warn("未找到子物品 haze2 (7)");
+            }
+
+            var haze2Transform = gameObject.transform.Find("haze2 (8)");
+            if (haze2Transform != null)
+            {
+                _bossHaze2 = haze2Transform.gameObject;
+            }
+            else
+            {
+                Log.Warn("未找到子物品 haze2 (8)");
+            }
+            // ---新增Hand和FingerBlade初始化---
+            _handLObj = GameObject.Find("Hand L");
+            _handRObj = GameObject.Find("Hand R");
+            if (_handLObj != null)
+            {
+                int idx=0;
+                foreach (string bladeName in new[]{"Finger Blade L", "Finger Blade M", "Finger Blade R"})
+                {
+                    var bladeTf = _handLObj.transform.Find(bladeName);
+                    if (bladeTf != null && idx<3) _allFingerBlades[idx++] = bladeTf.gameObject;
+                }
+            }
+            if (_handRObj != null)
+            {
+                int idx=3;
+                foreach (string bladeName in new[]{"Finger Blade L", "Finger Blade M", "Finger Blade R"})
+                {
+                    var bladeTf = _handRObj.transform.Find(bladeName);
+                    if (bladeTf != null && idx<6) _allFingerBlades[idx++] = bladeTf.gameObject;
+                }
+            }
+            Log.Info($"PhaseControlBehavior已收集FingerBlades: {_allFingerBlades.Count(o=>o!=null)}");
+
+            // 获取 AttackControl FSM 引用（延迟获取 AttackControlBehavior，避免初始化顺序问题）
+            _attackControl = FSMUtility.LocateMyFSM(gameObject, "Attack Control");
+            if (_attackControl == null)
+            {
+                Log.Error("未找到 AttackControl FSM");
+            }
+            else
+            {
+                Log.Info("成功获取 AttackControl FSM");
             }
         }
 
@@ -214,6 +287,15 @@ namespace AnySilkBoss.Source.Behaviours
                 "Set P3 Web Strand" => 3,
                 "P3" => 3,
                 "HP Check 3" => 3,
+                "HP Check 2.5" => 2,
+                "Big Silk Ball Prepare" => 3,
+                "Big Silk Ball Move To Center" => 3,
+                "Big Silk Ball Spawn" => 3,
+                "Big Silk Ball Wait" => 3,
+                "Big Silk Ball End" => 3,
+                "Big Silk Ball Return" => 3,
+                "Big Silk Ball Roar" => 3, // 新增怒吼状态
+                "Big Silk Ball Roar To Center" => 3, // 新增怒吼后移动状态
                 "MID STAGGER" => 4,
                 "Mid Stagger" => 4,
                 "Stagger Hit" => 4,
@@ -518,81 +600,6 @@ namespace AnySilkBoss.Source.Behaviours
             return _bossPhaseIndex?.Value ?? 0;
         }
         
-        /// <summary>
-        /// 获取当前阶段名称（供其他组件使用）
-        /// </summary>
-        public string GetCurrentPhaseName()
-        {
-            if (_phaseControl == null) return "Unknown";
-            return _phaseControl.ActiveStateName;
-        }
-        
-        /// <summary>
-        /// 检查是否处于指定阶段（供其他组件使用）
-        /// </summary>
-        public bool IsInPhase(int phaseIndex)
-        {
-            return GetCurrentPhaseIndex() == phaseIndex;
-        }
-        
-        /// <summary>
-        /// 检查是否处于战斗阶段（P1-P3）
-        /// </summary>
-        public bool IsInCombatPhase()
-        {
-            int currentPhase = GetCurrentPhaseIndex();
-            return currentPhase >= 1 && currentPhase <= 3;
-        }
-
-        /// <summary>
-        /// 检查是否处于硬直阶段
-        /// </summary>
-        public bool IsInStaggerPhase()
-        {
-            return GetCurrentPhaseIndex() == 4;
-        }
-
-        /// <summary>
-        /// 检查是否处于背景破坏阶段
-        /// </summary>
-        public bool IsInBackgroundBreakPhase()
-        {
-            return GetCurrentPhaseIndex() == 5;
-        }
-
-        /// <summary>
-        /// 检查是否处于P4阶段
-        /// </summary>
-        public bool IsInPhase4()
-        {
-            return GetCurrentPhaseIndex() == 6;
-        }
-
-        /// <summary>
-        /// 检查是否处于P5阶段
-        /// </summary>
-        public bool IsInPhase5()
-        {
-            return GetCurrentPhaseIndex() == 7;
-        }
-
-        /// <summary>
-        /// 检查是否处于P6阶段
-        /// </summary>
-        public bool IsInPhase6()
-        {
-            return GetCurrentPhaseIndex() == 8;
-        }
-
-        /// <summary>
-        /// 检查是否处于后期阶段（P4-P6）
-        /// </summary>
-        public bool IsInLatePhase()
-        {
-            int currentPhase = GetCurrentPhaseIndex();
-            return currentPhase >= 6 && currentPhase <= 8;
-        }
-
         #region 大丝球大招相关
         /// <summary>
         /// 获取BigSilkBallManager引用
@@ -651,11 +658,14 @@ namespace AnySilkBoss.Source.Behaviours
             var hpCheck25State = CreateHPCheck25State();
 
             // 创建大招状态序列
+            var bigSilkBallRoarState = CreateBigSilkBallRoarState();
+            var bigSilkBallRoarEndState = CreateBigSilkBallRoarEndState();
             var bigSilkBallPrepareState = CreateBigSilkBallPrepareState();
             var bigSilkBallMoveToCenterState = CreateBigSilkBallMoveToCenterState();
             var bigSilkBallSpawnState = CreateBigSilkBallSpawnState();
             var bigSilkBallWaitState = CreateBigSilkBallWaitState();
             var bigSilkBallEndState = CreateBigSilkBallEndState();
+            var bigSilkBallReturnState = CreateBigSilkBallReturnState();  // 新增：BOSS返回前景状态
 
             // 添加状态到FSM
             var states = _phaseControl.Fsm.States.ToList();
@@ -666,6 +676,9 @@ namespace AnySilkBoss.Source.Behaviours
             states.Add(bigSilkBallSpawnState);
             states.Add(bigSilkBallWaitState);
             states.Add(bigSilkBallEndState);
+            states.Add(bigSilkBallReturnState);  // 新增：BOSS返回前景状态
+            states.Add(bigSilkBallRoarState);
+            states.Add(bigSilkBallRoarEndState);
             _phaseControl.Fsm.States = states.ToArray();
 
             // 修改 Set P3 Web Strand 的跳转：改为跳到P2.5
@@ -674,23 +687,30 @@ namespace AnySilkBoss.Source.Behaviours
             // 添加状态动作
             AddP25Actions(p25State);
             AddHPCheck25Actions(hpCheck25State);
+            // AddBigSilkBallRoarActions 延迟执行，等待 AttackControlBehavior 初始化
+            AddBigSilkBallRoarEndActions(bigSilkBallRoarEndState);
             AddBigSilkBallPrepareActions(bigSilkBallPrepareState);
             AddBigSilkBallMoveToCenterActions(bigSilkBallMoveToCenterState);
             AddBigSilkBallSpawnActions(bigSilkBallSpawnState);
             AddBigSilkBallWaitActions(bigSilkBallWaitState);
             AddBigSilkBallEndActions(bigSilkBallEndState);
+            AddBigSilkBallReturnActions(bigSilkBallReturnState);  // 新增：返回状态的Actions
 
             // 添加状态转换
             AddP25Transitions(p25State, hpCheck25State);
-            AddHPCheck25Transitions(hpCheck25State, p25State, bigSilkBallPrepareState);
+            AddHPCheck25Transitions(hpCheck25State, p25State, bigSilkBallRoarState); // 修改为跳转到怒吼状态
             AddBigSilkBallTransitions(bigSilkBallPrepareState, bigSilkBallMoveToCenterState, 
-                bigSilkBallSpawnState, bigSilkBallWaitState, bigSilkBallEndState, p3State);
+                bigSilkBallSpawnState, bigSilkBallWaitState, bigSilkBallEndState, bigSilkBallReturnState, p3State,
+                bigSilkBallRoarState, bigSilkBallRoarEndState);
 
 
 
             // 重新初始化FSM
             _phaseControl.Fsm.InitData();
             _phaseControl.Fsm.InitEvents();
+
+            // 延迟添加 Big Silk Ball Roar 状态的动作（等待 AttackControlBehavior 初始化）
+            StartCoroutine(DelayedAddBigSilkBallRoarActions(bigSilkBallRoarState));
 
             Log.Info("=== 大丝球大招状态序列添加完成 ===");
         }
@@ -775,7 +795,43 @@ namespace AnySilkBoss.Source.Behaviours
             return new FsmState(_phaseControl.Fsm)
             {
                 Name = "Big Silk Ball End",
-                Description = "大招结束：恢复正常、进入下一阶段"
+                Description = "大招结束：清理和恢复Layer"
+            };
+        }
+
+        /// <summary>
+        /// 创建BOSS返回前景状态
+        /// </summary>
+        private FsmState CreateBigSilkBallReturnState()
+        {
+            return new FsmState(_phaseControl.Fsm)
+            {
+                Name = "Big Silk Ball Return",
+                Description = "BOSS从背景返回前景"
+            };
+        }
+
+        /// <summary>
+        /// 创建大招怒吼状态
+        /// </summary>
+        private FsmState CreateBigSilkBallRoarState()
+        {
+            return new FsmState(_phaseControl.Fsm)
+            {
+                Name = "Big Silk Ball Roar",
+                Description = "大招前怒吼"
+            };
+        }
+
+        /// <summary>
+        /// 创建大招怒吼后移动到中心状态
+        /// </summary>
+        private FsmState CreateBigSilkBallRoarEndState()
+        {
+            return new FsmState(_phaseControl.Fsm)
+            {
+                Name = "Big Silk Ball Roar To Center",
+                Description = "大招怒吼后移动到中心"
             };
         }
 
@@ -851,7 +907,7 @@ namespace AnySilkBoss.Source.Behaviours
         /// <summary>
         /// 添加HP Check 2.5状态的转换
         /// </summary>
-        private void AddHPCheck25Transitions(FsmState hpCheck25State, FsmState p25State, FsmState bigSilkBallPrepareState)
+        private void AddHPCheck25Transitions(FsmState hpCheck25State, FsmState p25State, FsmState bigSilkBallRoarState)
         {
             // FINISHED -> P3 (血量>200)
             // NEXT -> Big Silk Ball Prepare (血量<=200，触发大招)
@@ -866,8 +922,8 @@ namespace AnySilkBoss.Source.Behaviours
                 new FsmTransition
                 {
                     FsmEvent = FsmEvent.GetFsmEvent("START BIG SILK BALL"),
-                    toState = "Big Silk Ball Prepare",
-                    toFsmState = bigSilkBallPrepareState
+                    toState = "Big Silk Ball Roar",
+                    toFsmState = bigSilkBallRoarState
                 }
             };
         }
@@ -884,6 +940,14 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 behaviour = new FsmObject { Value = this },
                 methodName = new FsmString("SaveOriginalLayer") { Value = "SaveOriginalLayer" },
+                parameters = new FsmVar[0]
+            });
+
+            // 0.5. 禁用haze子物品
+            actions.Add(new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("DisableBossHaze") { Value = "DisableBossHaze" },
                 parameters = new FsmVar[0]
             });
 
@@ -950,6 +1014,12 @@ namespace AnySilkBoss.Source.Behaviours
                 finishEvent = FsmEvent.Finished
             });
 
+
+            actions.Insert(0, new CallMethod {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("SendSilkStunnedToAllFingerBlades") { Value = "SendSilkStunnedToAllFingerBlades" },
+                parameters = new FsmVar[]{}
+            });
             prepareState.Actions = actions.ToArray();
         }
 
@@ -959,6 +1029,14 @@ namespace AnySilkBoss.Source.Behaviours
         private void AddBigSilkBallMoveToCenterActions(FsmState moveToCenterState)
         {
             var actions = new List<FsmStateAction>();
+
+            // 1. 保存BOSS原始Z轴和Scale
+            actions.Add(new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("SaveBossOriginalState") { Value = "SaveBossOriginalState" },
+                parameters = new FsmVar[0]
+            });
 
             // 2. 设置速度为0（防止重力影响）
             actions.Add(new SetVelocity2d
@@ -993,11 +1071,11 @@ namespace AnySilkBoss.Source.Behaviours
                 realTime = false
             });
 
-            // 5. 移动到高处Y位置（24）
+            // 5. 移动到高处Y位置（上移5单位）
             actions.Add(new AnimateYPositionTo
             {
                 GameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
-                ToValue = new FsmFloat(142.5f),    // 高处Y
+                ToValue = new FsmFloat(147.5f),    // 高处Y（上移5单位）
                 localSpace = false,
                 time = new FsmFloat(1.0f), 
                 speed = new FsmFloat(5f),      
@@ -1006,6 +1084,15 @@ namespace AnySilkBoss.Source.Behaviours
                 reverse = new FsmBool(false),
                 realTime = false,
             });
+            
+            // 6. 启动BOSS Z轴和Scale的渐变协程（同步进行）
+            actions.Add(new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("StartBossTransformAnimation") { Value = "StartBossTransformAnimation" },
+                parameters = new FsmVar[0]
+            });
+            
             actions.Add(new Wait
             {
                 time = new FsmFloat(1.2f),
@@ -1059,20 +1146,63 @@ namespace AnySilkBoss.Source.Behaviours
         }
 
         /// <summary>
-        /// 添加结束状态的动作
+        /// 添加结束状态的动作（只做必要的清理）
         /// </summary>
         private void AddBigSilkBallEndActions(FsmState endState)
         {
             var actions = new List<FsmStateAction>();
 
             // 1. 恢复Boss的Layer（从Invincible恢复到原始图层）
+
+            actions.Add(new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("RestoreBossTransform") { Value = "RestoreBossTransform" },
+                parameters = new FsmVar[0]
+            });
+            // --- 在结尾前加注入 ---
+            actions.Insert(actions.Count, new CallMethod {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("SendBladesReturnToAllFingerBlades") { Value = "SendBladesReturnToAllFingerBlades" },
+                parameters = new FsmVar[]{  }
+            });
+
+            actions.Add(new Wait
+            {
+                time = new FsmFloat(2f),
+                finishEvent = FsmEvent.Finished
+            });
+
+            endState.Actions = actions.ToArray();
+        }
+
+        /// <summary>
+        /// 添加返回状态的动作（3秒恢复期：前2秒BOSS返回前景，再等1秒）
+        /// </summary>
+        private void AddBigSilkBallReturnActions(FsmState returnState)
+        {
+            var actions = new List<FsmStateAction>();
+
             actions.Add(new SetLayer
             {
                 gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
                 layer = LayerMask.NameToLayer("Enemies")  // 恢复到敌人层
             });
+                        // 恢复haze子物品
+            actions.Add(new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("EnableBossHaze") { Value = "EnableBossHaze" },
+                parameters = new FsmVar[0]
+            });
+            // 2. 等待2秒（BOSS返回前景的时间）+ 额外1秒缓冲
+            actions.Add(new Wait
+            {
+                time = new FsmFloat(1f),
+                finishEvent = FsmEvent.Finished
+            });
 
-            // 2. 解锁Boss（发送BIG SILK BALL UNLOCK到Boss Control FSM）
+            // 3. 解锁Boss（发送BIG SILK BALL UNLOCK到Boss Control FSM）
             actions.Add(new SendEventByName
             {
                 eventTarget = new FsmEventTarget
@@ -1087,7 +1217,7 @@ namespace AnySilkBoss.Source.Behaviours
                 everyFrame = false
             });
 
-            // 3. 恢复攻击（发送ATTACK START到Attack Control FSM）
+            // 4. 恢复攻击（发送ATTACK START到Attack Control FSM）
             actions.Add(new SendEventByName
             {
                 eventTarget = new FsmEventTarget
@@ -1102,30 +1232,150 @@ namespace AnySilkBoss.Source.Behaviours
                 everyFrame = false
             });
 
-            // 4. 日志记录
-            actions.Add(new CallMethod
+            returnState.Actions = actions.ToArray();
+        }
+
+        /// <summary>
+        /// 添加怒吼状态的动作
+        /// </summary>
+        private void AddBigSilkBallRoarActions(FsmState roarState)
+        {
+            var actions = new List<FsmStateAction>();
+
+            // 1. 播放Tk2d动画 "Roar"
+            actions.Add(new Tk2dPlayAnimationWithEvents
             {
-                behaviour = new FsmObject { Value = this },
-                methodName = new FsmString("LogBigSilkBallEnd") { Value = "LogBigSilkBallEnd" },
-                parameters = new FsmVar[0]
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                clipName = new FsmString("Roar") { Value = "Roar" }, 
+                animationTriggerEvent = FsmEvent.Finished
+            });
+            
+            // 2. 直接克隆怒吼音效动作（从Attack Control FSM的Roar状态）
+            var playRoarAudio = _attackControlBehavior?.CloneActionFromAttackControlFSM<PlayAudioEventRandom>("Roar");
+            if (playRoarAudio != null)
+            {
+                actions.Add(playRoarAudio);
+            }
+            else
+            {
+                Log.Warn("无法克隆PlayAudioEventRandom动作，使用默认配置");
+            }
+            
+            // 4. 发送事件
+            if (_hairTransform != null)
+            {
+                actions.Add(new SendEventByName
+                {
+                    eventTarget = new FsmEventTarget
+                    {
+                        target = FsmEventTarget.EventTarget.GameObject,
+                        gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.SpecifyGameObject, gameObject = new FsmGameObject { Value = _hairTransform.gameObject } },
+                    },
+                    sendEvent = new FsmString("ROAR") { Value = "ROAR" }, 
+                    delay = new FsmFloat(0f),
+                    everyFrame = false
+                });
+            }
+            
+            roarState.Actions = actions.ToArray();
+        }
+
+        /// <summary>
+        /// 延迟添加 Big Silk Ball Roar 状态的动作（等待 AttackControlBehavior 初始化）
+        /// </summary>
+        private IEnumerator DelayedAddBigSilkBallRoarActions(FsmState roarState)
+        {
+            // 等待1秒，确保 AttackControlBehavior 已初始化
+            yield return new WaitForSeconds(1f);
+            
+            // 确保 AttackControlBehavior 已获取
+            if (_attackControlBehavior == null)
+            {
+                _attackControlBehavior = gameObject.GetComponent<AttackControlBehavior>();
+            }
+            
+            // 如果仍然为 null，继续等待
+            int retryCount = 0;
+            while (_attackControlBehavior == null && retryCount < 10)
+            {
+                yield return new WaitForSeconds(0.1f);
+                _attackControlBehavior = gameObject.GetComponent<AttackControlBehavior>();
+                retryCount++;
+            }
+            
+            if (_attackControlBehavior == null)
+            {
+                Log.Error("延迟1秒后仍无法获取 AttackControlBehavior，Big Silk Ball Roar 状态可能缺少音效动作");
+                yield break;
+            }
+            
+            // 现在安全地添加动作
+            Log.Info("延迟添加 Big Silk Ball Roar 状态的动作");
+            AddBigSilkBallRoarActions(roarState);
+        }
+
+        /// <summary>
+        /// 添加怒吼后移动到中心状态的动作
+        /// </summary>
+        private void AddBigSilkBallRoarEndActions(FsmState roarEndState)
+        {
+            var actions = new List<FsmStateAction>();
+
+            // 1. 设置速度为0（防止重力影响）
+            actions.Add(new SetVelocity2d
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                vector = new Vector2(0f, 0f),
+                x = new FsmFloat { UseVariable = false },
+                y = new FsmFloat(0f),
+                everyFrame = false
+            });
+            actions.Add(new SetScale{
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                x = new FsmFloat { Value = 1f },
+                y = new FsmFloat { Value = 1f },
+                z = new FsmFloat { Value = 1f },
+                everyFrame = false,
+            });
+            actions.Add(new Tk2dWatchAnimationEvents
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                animationCompleteEvent = FsmEvent.Finished,
+                animationTriggerEvent = FsmEvent.Finished,
             });
 
-            // 5. 等待1.5秒后跳转到P3（让BOSS在大招完成后多停留一会）
             actions.Add(new Wait
             {
-                time = new FsmFloat(1.5f),
+                time = new FsmFloat(0.5f),
                 finishEvent = FsmEvent.Finished
             });
-
-            endState.Actions = actions.ToArray();
+            roarEndState.Actions = actions.ToArray();
         }
 
         /// <summary>
         /// 添加大招状态之间的转换
         /// </summary>
         private void AddBigSilkBallTransitions(FsmState prepareState, FsmState moveToCenterState,
-            FsmState spawnState, FsmState waitState, FsmState endState, FsmState p3State)
-        {
+            FsmState spawnState, FsmState waitState, FsmState endState, FsmState returnState, FsmState p3State,
+            FsmState bigSilkBallRoarState, FsmState bigSilkBallRoarEndState)
+        {bigSilkBallRoarState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.Finished,
+                    toState = "Big Silk Ball Roar End",
+                    toFsmState = bigSilkBallRoarEndState
+                }
+            };
+            bigSilkBallRoarEndState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.Finished,
+                    toState = "Big Silk Ball Prepare",
+                    toFsmState = prepareState
+                }
+            };
             // Prepare -> Move To Center
             prepareState.Transitions = new FsmTransition[]
             {
@@ -1170,8 +1420,19 @@ namespace AnySilkBoss.Source.Behaviours
                 }
             };
 
-            // End -> P3（大招完成后返回P3继续战斗）
+            // End -> Return（大招结束后进入返回状态）
             endState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.Finished,
+                    toState = "Big Silk Ball Return",
+                    toFsmState = returnState
+                }
+            };
+
+            // Return -> P3（返回前景完成后继续战斗）
+            returnState.Transitions = new FsmTransition[]
             {
                 new FsmTransition
                 {
@@ -1181,7 +1442,7 @@ namespace AnySilkBoss.Source.Behaviours
                 }
             };
             
-            Log.Info("已设置 Big Silk Ball End -> P3");
+            Log.Info("已设置 Big Silk Ball End -> Return -> P3");
         }
 
         /// <summary>
@@ -1226,6 +1487,38 @@ namespace AnySilkBoss.Source.Behaviours
             Log.Info("大招事件注册完成（START, COMPLETE, LOCK, UNLOCK）");
         }
 
+        /// <summary>
+        /// 向所有六根针发送事件，参数为object，提升PlayMaker CallMethod兼容性
+        /// </summary>
+        public void SendEventToAllFingerBlades(object eventNameObj)
+        {
+            string eventName = eventNameObj?.ToString() ?? "";
+            Log.Info($"接收到参数: {eventNameObj}, 转换为字符串: {eventName}");
+            foreach(var bladeObj in _allFingerBlades)
+            {
+                if(bladeObj!=null)
+                {
+                    var fsm = bladeObj.GetComponent<PlayMakerFSM>();
+                    if(fsm!=null){ fsm.SendEvent(eventName); Log.Info($"向{bladeObj.name}发送:{eventName}"); }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 向所有六根针发送SILK STUNNED事件（供FSM CallMethod无参数调用）
+        /// </summary>
+        public void SendSilkStunnedToAllFingerBlades()
+        {
+            SendEventToAllFingerBlades("SILK STUNNED");
+        }
+
+        /// <summary>
+        /// 向所有六根针发送BLADES RETURN事件（供FSM CallMethod无参数调用）
+        /// </summary>
+        public void SendBladesReturnToAllFingerBlades()
+        {
+            SendEventToAllFingerBlades("BLADES RETURN");
+        }
 
         /// <summary>
         /// 保存Boss原始图层
@@ -1399,15 +1692,237 @@ namespace AnySilkBoss.Source.Behaviours
             }
         }
 
+        
         /// <summary>
-        /// 大招结束日志
+        /// 保存BOSS原始状态（Z轴和Scale），同时保存Hair的状态
         /// </summary>
-        public void LogBigSilkBallEnd()
+        public void SaveBossOriginalState()
         {
-            Log.Info("=== 大招序列结束 ===");
-            Log.Info($"Boss位置: {transform.position}");
-            Log.Info($"Boss Layer: {gameObject.layer}");
-            Log.Info($"即将进入硬直阶段（Stagger Hit）然后进入P4");
+            // 保存BOSS状态
+            _originalBossZ = transform.position.z;
+            _originalBossScale = transform.localScale;
+            Log.Info($"保存BOSS原始状态 - Z轴: {_originalBossZ:F4}, Scale: {_originalBossScale}");
+            
+            // 查找并保存Hair状态（Hair是BOSS的兄弟物体，在同一父级下）
+            if (_hairTransform == null && transform.parent != null)
+            {
+                _hairTransform = transform.parent.Find("Silk_Hair");
+                if (_hairTransform == null)
+                {
+                    Log.Warn("未找到 Silk_Hair 物体（可能名称不同或不存在）");
+                }
+            }
+            
+            if (_hairTransform != null)
+            {
+                _originalHairZ = _hairTransform.position.z;
+                _originalHairScale = _hairTransform.localScale;
+                Log.Info($"保存Hair原始状态 - Z轴: {_originalHairZ:F4}, Scale: {_originalHairScale}");
+            }
+        }
+        
+        /// <summary>
+        /// 启动BOSS Transform渐变动画（Z轴和Scale）
+        /// </summary>
+        public void StartBossTransformAnimation()
+        {
+            StartCoroutine(AnimateBossTransform());
+        }
+        
+        /// <summary>
+        /// BOSS Transform渐变协程（Z轴移到后面，Scale放大补偿），同时调整Hair
+        /// </summary>
+        private IEnumerator AnimateBossTransform()
+        {
+            float duration = 1.0f;  // 渐变时长1秒，与XY位置移动同步
+            float targetZ = 60f;  // 目标Z轴（调整到更深的背景）
+            float targetScale = 1.8f;   // 目标Scale倍数（补偿Z轴后移）
+            
+            Log.Info($"开始BOSS Transform渐变 - 从Z={_originalBossZ:F4}到{targetZ:F4}, Scale从{_originalBossScale}到{_originalBossScale * targetScale}");
+            
+            float elapsed = 0f;
+            Vector3 bossStartScale = _originalBossScale.Abs();
+            transform.localScale = bossStartScale;
+            Vector3 bossEndScale = _originalBossScale.Abs() * targetScale;
+            
+            // Hair的渐变参数
+            Vector3 hairStartScale = _originalHairScale;
+            Vector3 hairEndScale = _originalHairScale * targetScale;
+            
+            if (_hairTransform != null)
+            {
+                Log.Info($"开始Hair Transform渐变 - 从Z={_originalHairZ:F4}到{targetZ:F4}, Scale从{_originalHairScale}到{hairEndScale}");
+            }
+            
+            while (elapsed < duration)
+            {
+                elapsed += Time.deltaTime;
+                float t = elapsed / duration;
+                
+                // Lerp BOSS Z轴和Scale
+                Vector3 bossPos = transform.position;
+                bossPos.z = Mathf.Lerp(_originalBossZ, targetZ, t);
+                transform.position = bossPos;
+                transform.localScale = Vector3.Lerp(bossStartScale, bossEndScale, t);
+                
+                // Lerp Hair Z轴和Scale
+                if (_hairTransform != null)
+                {
+                    Vector3 hairPos = _hairTransform.position;
+                    hairPos.z = Mathf.Lerp(_originalHairZ, targetZ, t);
+                    _hairTransform.position = hairPos;
+                    _hairTransform.localScale = Vector3.Lerp(hairStartScale, hairEndScale, t);
+                }
+                
+                yield return null;
+            }
+            
+            // 确保最终值精确
+            Vector3 bossFinalPos = transform.position;
+            bossFinalPos.z = targetZ;
+            transform.position = bossFinalPos;
+            transform.localScale = bossEndScale;
+            
+            if (_hairTransform != null)
+            {
+                Vector3 hairFinalPos = _hairTransform.position;
+                hairFinalPos.z = targetZ;
+                _hairTransform.position = hairFinalPos;
+                _hairTransform.localScale = hairEndScale;
+                Log.Info($"Hair Transform渐变完成 - Z={_hairTransform.position.z:F4}, Scale={_hairTransform.localScale}");
+            }
+            
+            Log.Info($"BOSS Transform渐变完成 - Z={transform.position.z:F4}, Scale={transform.localScale}");
+        }
+        
+        /// <summary>
+        /// 恢复BOSS原始Transform（大招结束后调用）
+        /// </summary>
+        public void RestoreBossTransform()
+        {
+            StartCoroutine(RestoreBossTransformCoroutine());
+        }
+        
+        /// <summary>
+        /// 禁用Boss的haze子物品（大招期间）
+        /// </summary>
+        public void DisableBossHaze()
+        {
+            if (_bossHaze != null)
+            {
+                _bossHaze.SetActive(false);
+                Log.Info("已禁用 haze2 (7)");
+            }
+            else
+            {
+                Log.Warn("_bossHaze 为 null，无法禁用");
+            }
+
+            if (_bossHaze2 != null)
+            {
+                _bossHaze2.SetActive(false);
+                Log.Info("已禁用 haze2 (8)");
+            }
+            else
+            {
+                Log.Warn("_bossHaze2 为 null，无法禁用");
+            }
+        }
+
+        /// <summary>
+        /// 恢复Boss的haze子物品（大招结束后）
+        /// </summary>
+        public void EnableBossHaze()
+        {
+            if (_bossHaze != null)
+            {
+                _bossHaze.SetActive(true);
+                Log.Info("已恢复 haze2 (7)");
+            }
+            else
+            {
+                Log.Warn("_bossHaze 为 null，无法恢复");
+            }
+
+            if (_bossHaze2 != null)
+            {
+                _bossHaze2.SetActive(true);
+                Log.Info("已恢复 haze2 (8)");
+            }
+            else
+            {
+                Log.Warn("_bossHaze2 为 null，无法恢复");
+            }
+        }
+
+        /// <summary>
+        /// 恢复BOSS Transform的协程（渐变过程），同时恢复Hair
+        /// </summary>
+        private IEnumerator RestoreBossTransformCoroutine()
+        {
+            float duration = 2.0f;  // 恢复时间（2秒，让玩家看清BOSS从背景返回）
+            
+            // BOSS当前状态
+            Vector3 bossCurrentPos = transform.position;
+            Vector3 bossCurrentScale = transform.localScale;
+            float bossStartZ = bossCurrentPos.z;
+            
+            Log.Info($"开始恢复BOSS Transform - 从Z={bossCurrentPos.z:F4}到{_originalBossZ:F4}, Scale从{bossCurrentScale}到(1,1,1)");
+            
+            // Hair当前状态
+            Vector3 hairCurrentPos = Vector3.zero;
+            Vector3 hairCurrentScale = Vector3.one;
+            float hairStartZ = 0f;
+            
+            if (_hairTransform != null)
+            {
+                hairCurrentPos = _hairTransform.position;
+                hairCurrentScale = _hairTransform.localScale;
+                hairStartZ = hairCurrentPos.z;
+                Log.Info($"开始恢复Hair Transform - 从Z={hairCurrentPos.z:F4}到{_originalHairZ:F4}, Scale从{hairCurrentScale}到(1,1,1)");
+            }
+            
+            float elapsed = 0f;
+            
+            while (elapsed < duration)
+            {
+                elapsed += Time.deltaTime;
+                float t = elapsed / duration;
+                
+                // Lerp BOSS Z轴和Scale（Scale恢复到(1,1,1)）
+                Vector3 bossPos = transform.position;
+                bossPos.z = Mathf.Lerp(bossStartZ, _originalBossZ, t);
+                transform.position = bossPos;
+                transform.localScale = Vector3.Lerp(bossCurrentScale, Vector3.one, t);
+                
+                // Lerp Hair Z轴和Scale（Scale恢复到(1,1,1)）
+                if (_hairTransform != null)
+                {
+                    Vector3 hairPos = _hairTransform.position;
+                    hairPos.z = Mathf.Lerp(hairStartZ, _originalHairZ, t);
+                    _hairTransform.position = hairPos;
+                    _hairTransform.localScale = Vector3.Lerp(hairCurrentScale, Vector3.one, t);
+                }
+                
+                yield return null;
+            }
+            
+            // 确保最终值精确
+            Vector3 bossFinalPos = transform.position;
+            bossFinalPos.z = _originalBossZ;
+            transform.position = bossFinalPos;
+            transform.localScale = Vector3.one;  // 强制恢复为(1,1,1)
+            
+            if (_hairTransform != null)
+            {
+                Vector3 hairFinalPos = _hairTransform.position;
+                hairFinalPos.z = _originalHairZ;
+                _hairTransform.position = hairFinalPos;
+                _hairTransform.localScale = Vector3.one;  // 强制恢复为(1,1,1)
+                Log.Info($"Hair Transform恢复完成 - Z={_hairTransform.position.z:F4}, Scale={_hairTransform.localScale}");
+            }
+            
+            Log.Info($"BOSS Transform恢复完成 - Z={transform.position.z:F4}, Scale={transform.localScale}");
         }
         #endregion
     }
