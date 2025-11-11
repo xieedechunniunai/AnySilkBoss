@@ -56,6 +56,12 @@ namespace AnySilkBoss.Source.Behaviours
         private PlayMakerFSM? _attackControl;
         private AttackControlBehavior? _attackControlBehavior;
 
+        // 爬升阶段相关标志
+        private bool _climbCompleteEventSent = false;
+        
+        // Boss Control FSM引用
+        private PlayMakerFSM? _bossControl;
+
         private void Awake()
         {
             // 初始化在Start中进行
@@ -103,9 +109,13 @@ namespace AnySilkBoss.Source.Behaviours
         {
             GetComponents();
             GetBigSilkBallManager();
+            GetBossControlFSM();
             ModifyPhaseBehavior();
             AddBigSilkBallStates();
+            AddClimbPhaseStates();
             Log.Info("阶段控制器行为初始化完成");
+            _phaseControl.Fsm.InitData();
+            _phaseControl.Fsm.InitEvents();
             yield return null;
         }
 
@@ -703,11 +713,6 @@ namespace AnySilkBoss.Source.Behaviours
                 bigSilkBallSpawnState, bigSilkBallWaitState, bigSilkBallEndState, bigSilkBallReturnState, p3State,
                 bigSilkBallRoarState, bigSilkBallRoarEndState);
 
-
-
-            // 重新初始化FSM
-            _phaseControl.Fsm.InitData();
-            _phaseControl.Fsm.InitEvents();
 
             // 延迟添加 Big Silk Ball Roar 状态的动作（等待 AttackControlBehavior 初始化）
             StartCoroutine(DelayedAddBigSilkBallRoarActions(bigSilkBallRoarState));
@@ -1923,6 +1928,636 @@ namespace AnySilkBoss.Source.Behaviours
             }
             
             Log.Info($"BOSS Transform恢复完成 - Z={transform.position.z:F4}, Scale={transform.localScale}");
+        }
+        #endregion
+
+        #region 爬升阶段相关
+        /// <summary>
+        /// 获取 Boss Control FSM 引用
+        /// </summary>
+        private void GetBossControlFSM()
+        {
+            _bossControl = FSMUtility.LocateMyFSM(gameObject, "Control");
+            if (_bossControl == null)
+            {
+                Log.Error("未找到 Boss Control FSM");
+            }
+            else
+            {
+                Log.Info("成功获取 Boss Control FSM");
+            }
+        }
+
+        /// <summary>
+        /// 添加爬升阶段状态序列
+        /// </summary>
+        private void AddClimbPhaseStates()
+        {
+            if (_phaseControl == null)
+            {
+                Log.Error("Phase Control FSM 未初始化，无法添加爬升阶段");
+                return;
+            }
+
+            Log.Info("=== 开始添加爬升阶段状态序列 ===");
+
+            // 找到关键状态
+            var staggerPauseState = _phaseControl.FsmStates.FirstOrDefault(s => s.Name == "Stagger Pause");
+            var setP4State = _phaseControl.FsmStates.FirstOrDefault(s => s.Name == "Set P4");
+            
+            if (staggerPauseState == null)
+            {
+                Log.Error("未找到 Stagger Pause 状态");
+                return;
+            }
+            if (setP4State == null)
+            {
+                Log.Error("未找到 Set P4 状态");
+                return;
+            }
+
+            // 注册新事件
+            RegisterClimbPhaseEvents();
+            
+            // 创建新变量
+            CreateClimbPhaseVariables();
+
+            // 创建爬升阶段状态
+            var climbInitState = CreateClimbPhaseInitState();
+            var climbPlayerControlState = CreateClimbPhasePlayerControlState();
+            var climbBossActiveState = CreateClimbPhaseBossActiveState();
+            var climbCompleteState = CreateClimbPhaseCompleteState();
+
+            // 添加状态到FSM
+            var states = _phaseControl.Fsm.States.ToList();
+            states.Add(climbInitState);
+            states.Add(climbPlayerControlState);
+            states.Add(climbBossActiveState);
+            states.Add(climbCompleteState);
+            _phaseControl.Fsm.States = states.ToArray();
+
+            // 修改 Stagger Pause 的跳转
+            ModifyStaggerPauseTransition(staggerPauseState, climbInitState);
+
+            // 添加状态动作
+            AddClimbPhaseInitActions(climbInitState);
+            AddClimbPhasePlayerControlActions(climbPlayerControlState);
+            AddClimbPhaseBossActiveActions(climbBossActiveState);
+            AddClimbPhaseCompleteActions(climbCompleteState);
+
+            // 添加状态转换
+            AddClimbPhaseTransitions(climbInitState, climbPlayerControlState, 
+                climbBossActiveState, climbCompleteState, setP4State);
+
+            // 重新初始化FSM
+            _phaseControl.Fsm.InitData();
+            _phaseControl.Fsm.InitEvents();
+
+            Log.Info("=== 爬升阶段状态序列添加完成 ===");
+        }
+
+        /// <summary>
+        /// 注册爬升阶段事件
+        /// </summary>
+        private void RegisterClimbPhaseEvents()
+        {
+            var events = _phaseControl.Fsm.Events.ToList();
+            
+            // 爬升阶段事件
+            if (!events.Any(e => e.Name == "CLIMB PHASE START"))
+                events.Add(new FsmEvent("CLIMB PHASE START"));
+            
+            if (!events.Any(e => e.Name == "CLIMB PHASE END"))
+                events.Add(new FsmEvent("CLIMB PHASE END"));
+            
+            if (!events.Any(e => e.Name == "CLIMB PHASE ATTACK"))
+                events.Add(new FsmEvent("CLIMB PHASE ATTACK"));
+            
+            if (!events.Any(e => e.Name == "CLIMB COMPLETE"))
+                events.Add(new FsmEvent("CLIMB COMPLETE"));
+            
+            _phaseControl.Fsm.Events = events.ToArray();
+            Log.Info("爬升阶段事件注册完成");
+        }
+
+        /// <summary>
+        /// 创建爬升阶段变量
+        /// </summary>
+        private void CreateClimbPhaseVariables()
+        {
+            var boolVars = _phaseControl.FsmVariables.BoolVariables.ToList();
+            
+            // 检查是否已存在
+            if (!boolVars.Any(v => v.Name == "Climb Phase Active"))
+            {
+                var climbPhaseActive = new FsmBool("Climb Phase Active") { Value = false };
+                boolVars.Add(climbPhaseActive);
+                _phaseControl.FsmVariables.BoolVariables = boolVars.ToArray();
+                Log.Info("创建 Climb Phase Active 变量");
+            }
+        }
+
+        /// <summary>
+        /// 创建 Climb Phase Init 状态
+        /// </summary>
+        private FsmState CreateClimbPhaseInitState()
+        {
+            return new FsmState(_phaseControl.Fsm)
+            {
+                Name = "Climb Phase Init",
+                Description = "爬升阶段初始化"
+            };
+        }
+
+        /// <summary>
+        /// 创建 Climb Phase Player Control 状态
+        /// </summary>
+        private FsmState CreateClimbPhasePlayerControlState()
+        {
+            return new FsmState(_phaseControl.Fsm)
+            {
+                Name = "Climb Phase Player Control",
+                Description = "玩家动画控制"
+            };
+        }
+
+        /// <summary>
+        /// 创建 Climb Phase Boss Active 状态
+        /// </summary>
+        private FsmState CreateClimbPhaseBossActiveState()
+        {
+            return new FsmState(_phaseControl.Fsm)
+            {
+                Name = "Climb Phase Boss Active",
+                Description = "Boss漫游+玩家进度监控"
+            };
+        }
+
+        /// <summary>
+        /// 创建 Climb Phase Complete 状态
+        /// </summary>
+        private FsmState CreateClimbPhaseCompleteState()
+        {
+            return new FsmState(_phaseControl.Fsm)
+            {
+                Name = "Climb Phase Complete",
+                Description = "爬升阶段完成"
+            };
+        }
+
+        /// <summary>
+        /// 修改 Stagger Pause 的跳转
+        /// </summary>
+        private void ModifyStaggerPauseTransition(FsmState staggerPauseState, FsmState climbInitState)
+        {
+            // 找到所有跳转到 BG Break Sequence 的转换，改为跳转到 Climb Phase Init
+            foreach (var transition in staggerPauseState.Transitions)
+            {
+                if (transition.toState == "BG Break Sequence")
+                {
+                    transition.toState = "Climb Phase Init";
+                    transition.toFsmState = climbInitState;
+                    Log.Info("已修改 Stagger Pause -> Climb Phase Init");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 添加 Climb Phase Init 动作
+        /// </summary>
+        private void AddClimbPhaseInitActions(FsmState initState)
+        {
+            var actions = new List<FsmStateAction>();
+
+            // 停止所有攻击
+            actions.Add(new SendEventByName
+            {
+                eventTarget = new FsmEventTarget
+                {
+                    target = FsmEventTarget.EventTarget.GameObjectFSM,
+                    excludeSelf = new FsmBool(false),
+                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    fsmName = new FsmString("Attack Control") { Value = "Attack Control" }
+                },
+                sendEvent = new FsmString("ATTACK STOP") { Value = "ATTACK STOP" },
+                delay = new FsmFloat(0f),
+                everyFrame = false
+            });
+
+            // 停止Boss移动
+            actions.Add(new SendEventByName
+            {
+                eventTarget = new FsmEventTarget
+                {
+                    target = FsmEventTarget.EventTarget.GameObjectFSM,
+                    excludeSelf = new FsmBool(false),
+                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    fsmName = new FsmString("Control") { Value = "Control" }
+                },
+                sendEvent = new FsmString("MOVE STOP") { Value = "MOVE STOP" },
+                delay = new FsmFloat(0f),
+                everyFrame = false
+            });
+
+            // 设置Boss无敌
+            actions.Add(new SetLayer
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                layer = 2  // Invincible
+            });
+
+            // 设置阶段标志
+            actions.Add(new SetFsmBool
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                fsmName = new FsmString("Phase Control") { Value = "Phase Control" },
+                variableName = new FsmString("Climb Phase Active") { Value = "Climb Phase Active" },
+                setValue = new FsmBool(true),
+                everyFrame = false
+            });
+
+            // 禁用玩家输入
+            actions.Add(new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("DisablePlayerInput") { Value = "DisablePlayerInput" },
+                parameters = new FsmVar[0],
+                everyFrame = false
+            });
+
+            // 等待0.5秒
+            actions.Add(new Wait
+            {
+                time = new FsmFloat(0.5f),
+                finishEvent = FsmEvent.Finished
+            });
+
+            initState.Actions = actions.ToArray();
+        }
+
+        /// <summary>
+        /// 添加 Climb Phase Player Control 动作
+        /// </summary>
+        private void AddClimbPhasePlayerControlActions(FsmState playerControlState)
+        {
+            var actions = new List<FsmStateAction>();
+
+            // 调用协程控制玩家动画
+            actions.Add(new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("StartClimbPhasePlayerAnimation") { Value = "StartClimbPhasePlayerAnimation" },
+                parameters = new FsmVar[0]
+            });
+
+            // 延后跳转，等待玩家稳定（避免玩家跳跃导致检测错误）
+            actions.Add(new Wait
+            {
+                time = new FsmFloat(0.5f),
+                finishEvent = FsmEvent.Finished
+            });
+
+            playerControlState.Actions = actions.ToArray();
+        }
+
+        /// <summary>
+        /// 添加 Climb Phase Boss Active 动作
+        /// </summary>
+        private void AddClimbPhaseBossActiveActions(FsmState bossActiveState)
+        {
+            var actions = new List<FsmStateAction>();
+
+            // 通知Boss Control进入漫游模式
+            actions.Add(new SendEventByName
+            {
+                eventTarget = new FsmEventTarget
+                {
+                    target = FsmEventTarget.EventTarget.GameObjectFSM,
+                    excludeSelf = new FsmBool(false),
+                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    fsmName = new FsmString("Control") { Value = "Control" }
+                },
+                sendEvent = new FsmString("CLIMB PHASE START") { Value = "CLIMB PHASE START" },
+                delay = new FsmFloat(0f),
+                everyFrame = false
+            });
+
+            // 通知Attack Control开始爬升阶段攻击
+            actions.Add(new SendEventByName
+            {
+                eventTarget = new FsmEventTarget
+                {
+                    target = FsmEventTarget.EventTarget.GameObjectFSM,
+                    excludeSelf = new FsmBool(false),
+                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    fsmName = new FsmString("Attack Control") { Value = "Attack Control" }
+                },
+                sendEvent = new FsmString("CLIMB PHASE ATTACK") { Value = "CLIMB PHASE ATTACK" },
+                delay = new FsmFloat(0f),
+                everyFrame = false
+            });
+
+            // 每帧监控玩家Y位置
+            actions.Add(new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("MonitorPlayerClimbProgress") { Value = "MonitorPlayerClimbProgress" },
+                parameters = new FsmVar[0],
+                everyFrame = true
+            });
+
+            bossActiveState.Actions = actions.ToArray();
+        }
+
+        /// <summary>
+        /// 添加 Climb Phase Complete 动作
+        /// </summary>
+        private void AddClimbPhaseCompleteActions(FsmState completeState)
+        {
+            var actions = new List<FsmStateAction>();
+
+            // 恢复Boss正常图层
+            actions.Add(new SetLayer
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                layer = 11  // Enemies
+            });
+
+            // 清除阶段标志
+            actions.Add(new SetFsmBool
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                fsmName = new FsmString("Phase Control") { Value = "Phase Control" },
+                variableName = new FsmString("Climb Phase Active") { Value = "Climb Phase Active" },
+                setValue = new FsmBool(false),
+                everyFrame = false
+            });
+
+            // 通知Boss Control结束漫游
+            actions.Add(new SendEventByName
+            {
+                eventTarget = new FsmEventTarget
+                {
+                    target = FsmEventTarget.EventTarget.GameObjectFSM,
+                    excludeSelf = new FsmBool(false),
+                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    fsmName = new FsmString("Control") { Value = "Control" }
+                },
+                sendEvent = new FsmString("CLIMB PHASE END") { Value = "CLIMB PHASE END" },
+                delay = new FsmFloat(0f),
+                everyFrame = false
+            });
+
+            // 通知Attack Control结束爬升攻击
+            actions.Add(new SendEventByName
+            {
+                eventTarget = new FsmEventTarget
+                {
+                    target = FsmEventTarget.EventTarget.GameObjectFSM,
+                    excludeSelf = new FsmBool(false),
+                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    fsmName = new FsmString("Attack Control") { Value = "Attack Control" }
+                },
+                sendEvent = new FsmString("CLIMB PHASE END") { Value = "CLIMB PHASE END" },
+                delay = new FsmFloat(0f),
+                everyFrame = false
+            });
+
+            // 重置C#端标志
+            actions.Add(new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("ResetClimbPhaseFlags") { Value = "ResetClimbPhaseFlags" },
+                parameters = new FsmVar[0]
+            });
+
+            // 等待0.5秒
+            actions.Add(new Wait
+            {
+                time = new FsmFloat(0.5f),
+                finishEvent = FsmEvent.Finished
+            });
+
+            completeState.Actions = actions.ToArray();
+        }
+
+        /// <summary>
+        /// 添加爬升阶段转换
+        /// </summary>
+        private void AddClimbPhaseTransitions(FsmState initState, FsmState playerControlState,
+            FsmState bossActiveState, FsmState completeState, FsmState setP4State)
+        {
+            // Init -> Player Control
+            initState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.Finished,
+                    toState = "Climb Phase Player Control",
+                    toFsmState = playerControlState
+                }
+            };
+
+            // Player Control -> Boss Active (延迟跳转，等待玩家稳定)
+            playerControlState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.Finished,
+                    toState = "Climb Phase Boss Active",
+                    toFsmState = bossActiveState
+                }
+            };
+
+            // Boss Active -> Complete (通过 CLIMB COMPLETE 事件)
+            bossActiveState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.GetFsmEvent("CLIMB COMPLETE"),
+                    toState = "Climb Phase Complete",
+                    toFsmState = completeState
+                }
+            };
+
+            // Complete -> Set P4
+            completeState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.Finished,
+                    toState = "Set P4",
+                    toFsmState = setP4State
+                }
+            };
+
+            Log.Info("爬升阶段转换设置完成");
+        }
+
+        /// <summary>
+        /// 禁用玩家输入
+        /// </summary>
+        public void DisablePlayerInput()
+        {
+            var hero = HeroController.instance;
+            if (hero != null)
+            {
+                hero.StopAnimationControl();
+                hero.RelinquishControl();
+                Log.Info("禁用玩家输入和控制");
+            }
+        }
+
+        /// <summary>
+        /// 启动玩家动画控制协程
+        /// </summary>
+        public void StartClimbPhasePlayerAnimation()
+        {
+            StartCoroutine(ClimbPhasePlayerAnimationCoroutine());
+        }
+
+        /// <summary>
+        /// 玩家动画控制协程
+        /// </summary>
+        private IEnumerator ClimbPhasePlayerAnimationCoroutine()
+        {
+            var hero = HeroController.instance;
+            if (hero == null)
+            {
+                Log.Error("HeroController 未找到");
+                yield break;
+            }
+
+            var tk2dAnimator = hero.GetComponent<tk2dSpriteAnimator>();
+            var rb = hero.GetComponent<Rigidbody2D>();
+            
+            // 等待一帧确保输入被禁用
+            yield return null;
+            
+            // 2. 禁用玩家控制和动画控制（使用优雅的方式）
+            hero.RelinquishControl();
+            hero.StopAnimationControl();
+            
+            // 3. 保存原始图层和当前位置
+            int originalLayer = hero.gameObject.layer;
+            Vector3 currentPos = hero.transform.position;
+            
+            // 4. 设置穿墙图层
+            hero.gameObject.layer = LayerMask.NameToLayer("Ignore Raycast");
+            
+            // 5. 设置玩家无敌
+            bool originalInvincible = PlayerData.instance.isInvincible;
+            PlayerData.instance.isInvincible = true;
+            
+            // 6. 计算X轴速度让玩家落到目标位置（X=40）
+            if (rb != null)
+            {
+                float targetX = 40f;
+                float currentX = currentPos.x;
+                float fallTime = 2.3f; // 实测下落时间
+                
+                // 计算所需的X轴速度: vx = deltaX / t
+                float deltaX = targetX - currentX;
+                float velocityX = deltaX / fallTime;
+                
+                // 保持Y轴速度不变，只设置X轴速度
+                rb.linearVelocity = new Vector2(velocityX, rb.linearVelocity.y);
+                
+                Log.Info($"玩家下落计算 - 当前位置:({currentX:F2}, {currentPos.y:F2}), 目标X:{targetX}, 下落时间:{fallTime}s, X轴速度:{velocityX:F2}");
+            }
+            
+            // 7. 播放 Weak Fall 动画
+            if (tk2dAnimator != null)
+                tk2dAnimator.Play("Weak Fall");
+            
+            
+            // 8. 监控 Y 轴，当 Y < 57 时恢复原始图层和无敌状态（此时还未落地）
+            while (hero.transform.position.y >= 57f)
+            {
+                yield return null;
+            }
+            
+            // 8. 恢复原始图层和无敌状态（玩家继续下落但不再穿墙）
+            hero.gameObject.layer = originalLayer;
+            PlayerData.instance.isInvincible = originalInvincible;
+            Log.Info($"玩家 Y < 57，恢复原始图层: {originalLayer}，恢复无敌状态: {originalInvincible}，当前位置: {hero.transform.position.y}");
+            
+            // 9. 等待落地（Y <= 53.8）
+            while (hero.transform.position.y > 53.8f)
+            {
+                yield return null;
+            }
+            
+            Log.Info($"玩家落地，最终位置: {hero.transform.position.y}");
+            
+            
+            // 11. 播放恢复动画序列
+            if (tk2dAnimator != null)
+            {
+                tk2dAnimator.Play("FallToProstrate");
+                yield return new WaitForSeconds(0.5f);
+                
+                tk2dAnimator.Play("ProstrateRiseToKneel");
+                yield return new WaitForSeconds(0.5f);
+                
+                tk2dAnimator.Play("GetUpToIdle");
+                yield return new WaitForSeconds(0.5f);
+            }
+            
+            // 12. 恢复玩家控制和动画控制
+            hero.RegainControl();
+            hero.StartAnimationControl();
+            
+            Log.Info("玩家动画控制完成，恢复控制权和输入");
+        }
+
+        /// <summary>
+        /// 监控玩家爬升进度
+        /// </summary>
+        public void MonitorPlayerClimbProgress()
+        {
+            if (_climbCompleteEventSent) return;
+            
+            var hero = HeroController.instance;
+            if (hero == null) return;
+            
+            // 边界限制：X轴范围 [2, 78]
+            Vector3 pos = hero.transform.position;
+            if (pos.x < 2f)
+            {
+                hero.transform.position = new Vector3(2f, pos.y, pos.z);
+                var rb = hero.GetComponent<Rigidbody2D>();
+                if (rb != null && rb.linearVelocity.x < 0)
+                {
+                    rb.linearVelocity = new Vector2(0f, rb.linearVelocity.y);
+                }
+            }
+            else if (pos.x > 78f)
+            {
+                hero.transform.position = new Vector3(78f, pos.y, pos.z);
+                var rb = hero.GetComponent<Rigidbody2D>();
+                if (rb != null && rb.linearVelocity.x > 0)
+                {
+                    rb.linearVelocity = new Vector2(0f, rb.linearVelocity.y);
+                }
+            }
+            
+            // 检测玩家是否到达目标高度
+            if (pos.y >= 133.5f)
+            {
+                _climbCompleteEventSent = true;
+                _phaseControl.SendEvent("CLIMB COMPLETE");
+                Log.Info("玩家到达目标高度，发送 CLIMB COMPLETE 事件");
+            }
+        }
+
+        /// <summary>
+        /// 重置爬升阶段标志
+        /// </summary>
+        public void ResetClimbPhaseFlags()
+        {
+            _climbCompleteEventSent = false;
+            Log.Info("爬升阶段标志已重置");
         }
         #endregion
     }

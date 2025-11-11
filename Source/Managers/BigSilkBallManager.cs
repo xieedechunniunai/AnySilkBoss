@@ -423,6 +423,11 @@ namespace AnySilkBoss.Source.Managers
                     Log.Info($"  删除子物体: {child.name}");
                     Object.Destroy(child.gameObject);
                 }
+                else if (child.name == "loom_threads")
+                {
+                    Log.Info($"  删除子物体: {child.name}");
+                    Object.Destroy(child.gameObject);
+                }
             }
             
             // 删除heart下的heart_shadow
@@ -442,7 +447,7 @@ namespace AnySilkBoss.Source.Managers
             // heart(9层) - 核心心脏（保留，但删除其中的heart_shadow）
             // burst(13层) - 爆炸效果（保留）
             // tendrils(5层) - 触须（已删除）
-            // loom_threads(2层) - 织网线（保留）
+            // loom_threads(2层) - 织网线（删除）
             // Audio Heartbeat - 心跳音效（保留）
 
             // 记录所有保留的子物体

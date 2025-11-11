@@ -70,11 +70,11 @@ namespace AnySilkBoss.Source.Behaviours
         {
             (352.5f, 0.5f, 45f, 4, 0.8f),    // 第1波：3.15位置，半径一半，向1.30
             (0f, 0f, 35f, 4, 0.4f),          // 第2波：中心，向1.50
-            (45f, 0.125f, 40f, 4, 0.6f),     // 第3波：1.30方向，半径1/8，向1.40
+            (45f, 0.125f, 40f, 4, 0.4f),     // 第3波：1.30方向，半径1/8，向1.40
             (130f, 0.5f, 115f, 7, 0.6f),     // 第4波：10.40位置，半径一半，向11.10（左侧+2球）
-            (0f, 0f, 60f, 4, 0.6f),          // 第5波：中心，向1.00
-            (0f, 0f, 145f, 7, 0.6f),         // 第6波：中心，向10.10（左侧+2球）
-            (0f, 0f, 90f, 4, 0.6f)           // 第7波：中心，向正上方
+            (0f, 0f, 60f, 4, 0.4f),          // 第5波：中心，向1.00
+            (0f, 0f, 145f, 7, 1.3f),         // 第6波：中心，向10.10（左侧+2球）
+            (0f, 0f, 90f, 14, 0.6f)           // 第7波：中心，向正上方
         };
 
         [Header("最终爆炸参数")]
@@ -1117,7 +1117,7 @@ namespace AnySilkBoss.Source.Behaviours
         private IEnumerator FinalBurstCoroutine()
         {
             Log.Info($"最终爆炸开始 - 圈数: {finalBurstRings}, 每圈数量: {ballsPerRing}");
-            yield return new WaitForSeconds(1.1f);
+            yield return new WaitForSeconds(2f);
             // 1. 先全部生成所有圈的小丝球，保存每一圈
             var allRingsBalls = new System.Collections.Generic.List<System.Collections.Generic.List<GameObject>>();
             for (int ring = 0; ring < finalBurstRings && ring < ringRadii.Length; ring++)

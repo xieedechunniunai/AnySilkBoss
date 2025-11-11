@@ -210,6 +210,9 @@ internal class BossBehavior : MonoBehaviour
         // 添加大丝球大招锁定状态
         CreateBigSilkBallLockState();
         
+        // 添加爬升阶段漫游状态
+        CreateClimbRoamStates();
+        
         // 添加全局事件监听
         AddGlobalEventListeners();
 
@@ -1099,6 +1102,413 @@ internal class BossBehavior : MonoBehaviour
         else
         {
             Log.Warn("未找到AnySilkBossManager GameObject");
+        }
+    }
+
+    #endregion
+
+    #region 爬升阶段漫游系统
+    
+    // 漫游相关变量
+    private Vector3 _currentRoamTarget;
+    private float _roamMoveStartTime;
+    private bool _roamMoveComplete = false;
+
+    /// <summary>
+    /// 创建爬升阶段漫游状态链
+    /// </summary>
+    private void CreateClimbRoamStates()
+    {
+        if (_bossControlFsm == null) return;
+
+        Log.Info("=== 开始创建爬升阶段漫游状态链 ===");
+
+        // 创建四个漫游状态
+        var climbRoamInit = CreateClimbRoamInitState();
+        var climbRoamSelectTarget = CreateClimbRoamSelectTargetState();
+        var climbRoamMove = CreateClimbRoamMoveState();
+        var climbRoamIdle = CreateClimbRoamIdleState();
+
+        // 找到Idle状态用于转换
+        var idleState = _bossControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Idle");
+        
+        // 添加状态到FSM
+        var states = _bossControlFsm.FsmStates.ToList();
+        states.Add(climbRoamInit);
+        states.Add(climbRoamSelectTarget);
+        states.Add(climbRoamMove);
+        states.Add(climbRoamIdle);
+        _bossControlFsm.Fsm.States = states.ToArray();
+
+        // 添加动作
+        AddClimbRoamInitActions(climbRoamInit);
+        AddClimbRoamSelectTargetActions(climbRoamSelectTarget);
+        AddClimbRoamMoveActions(climbRoamMove);
+        AddClimbRoamIdleActions(climbRoamIdle);
+
+        // 添加转换
+        AddClimbRoamTransitions(climbRoamInit, climbRoamSelectTarget, 
+            climbRoamMove, climbRoamIdle);
+
+        // 添加全局转换
+        AddClimbPhaseGlobalTransitions(climbRoamInit, idleState);
+
+        // 初始化FSM
+        _bossControlFsm.Fsm.InitData();
+        _bossControlFsm.Fsm.InitEvents();
+
+        Log.Info("=== 爬升阶段漫游状态链创建完成 ===");
+    }
+
+    private FsmState CreateClimbRoamInitState()
+    {
+        return new FsmState(_bossControlFsm!.Fsm)
+        {
+            Name = "Climb Roam Init",
+            Description = "漫游初始化"
+        };
+    }
+
+    private FsmState CreateClimbRoamSelectTargetState()
+    {
+        return new FsmState(_bossControlFsm!.Fsm)
+        {
+            Name = "Climb Roam Select Target",
+            Description = "选择漫游目标"
+        };
+    }
+
+    private FsmState CreateClimbRoamMoveState()
+    {
+        return new FsmState(_bossControlFsm!.Fsm)
+        {
+            Name = "Climb Roam Move",
+            Description = "移动到目标"
+        };
+    }
+
+    private FsmState CreateClimbRoamIdleState()
+    {
+        return new FsmState(_bossControlFsm!.Fsm)
+        {
+            Name = "Climb Roam Idle",
+            Description = "短暂停留"
+        };
+    }
+
+    private void AddClimbRoamInitActions(FsmState initState)
+    {
+        var actions = new List<FsmStateAction>();
+
+        // 停止当前速度
+        actions.Add(new SetVelocity2d
+        {
+            gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+            vector = new Vector2(0f, 0f),
+            x = new FsmFloat { UseVariable = false },
+            y = new FsmFloat(0f),
+            everyFrame = false
+        });
+
+        // 初始化漫游参数
+        actions.Add(new CallMethod
+        {
+            behaviour = new FsmObject { Value = this },
+            methodName = new FsmString("InitClimbRoamParameters") { Value = "InitClimbRoamParameters" },
+            parameters = new FsmVar[0]
+        });
+
+        // 等待0.2秒
+        actions.Add(new Wait
+        {
+            time = new FsmFloat(0.2f),
+            finishEvent = FsmEvent.Finished
+        });
+
+        initState.Actions = actions.ToArray();
+    }
+
+    private void AddClimbRoamSelectTargetActions(FsmState selectState)
+    {
+        var actions = new List<FsmStateAction>();
+
+        // 计算下一个漫游点
+        actions.Add(new CallMethod
+        {
+            behaviour = new FsmObject { Value = this },
+            methodName = new FsmString("CalculateClimbRoamTarget") { Value = "CalculateClimbRoamTarget" },
+            parameters = new FsmVar[0]
+        });
+
+        // 等待0.1秒
+        actions.Add(new Wait
+        {
+            time = new FsmFloat(0.1f),
+            finishEvent = FsmEvent.Finished
+        });
+
+        selectState.Actions = actions.ToArray();
+    }
+
+    private void AddClimbRoamMoveActions(FsmState moveState)
+    {
+        var actions = new List<FsmStateAction>();
+
+        // 选择动画
+        actions.Add(new CallMethod
+        {
+            behaviour = new FsmObject { Value = this },
+            methodName = new FsmString("SelectRoamAnimation") { Value = "SelectRoamAnimation" },
+            parameters = new FsmVar[0]
+        });
+
+        // 每帧移动
+        actions.Add(new CallMethod
+        {
+            behaviour = new FsmObject { Value = this },
+            methodName = new FsmString("MoveToRoamTarget") { Value = "MoveToRoamTarget" },
+            parameters = new FsmVar[0],
+            everyFrame = true
+        });
+
+        // 超时检测
+        actions.Add(new CallMethod
+        {
+            behaviour = new FsmObject { Value = this },
+            methodName = new FsmString("CheckRoamMoveTimeout") { Value = "CheckRoamMoveTimeout" },
+            parameters = new FsmVar[0],
+            everyFrame = true
+        });
+
+        moveState.Actions = actions.ToArray();
+    }
+
+    private void AddClimbRoamIdleActions(FsmState idleState)
+    {
+        var actions = new List<FsmStateAction>();
+
+        // 面向英雄
+        if (HeroController.instance != null)
+        {
+            actions.Add(new FaceObjectV2
+            {
+                objectA = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                objectB = new FsmGameObject { Value = HeroController.instance.gameObject },
+                spriteFacesRight = false,
+                playNewAnimation = false,
+                newAnimationClip = new FsmString("") { Value = "" },
+                resetFrame = false,
+                pauseBetweenTurns = 0.5f,
+                everyFrame = false
+            });
+        }
+
+        // 播放Idle动画
+        actions.Add(new Tk2dPlayAnimation
+        {
+            gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+            animLibName = new FsmString("") { Value = "" },
+            clipName = new FsmString("Idle") { Value = "Idle" }
+        });
+
+        // 等待1-2秒随机
+        actions.Add(new WaitRandom
+        {
+            timeMin = new FsmFloat(1f),
+            timeMax = new FsmFloat(2f),
+            finishEvent = FsmEvent.Finished
+        });
+
+        idleState.Actions = actions.ToArray();
+    }
+
+    private void AddClimbRoamTransitions(FsmState initState, FsmState selectState,
+        FsmState moveState, FsmState idleState)
+    {
+        // Init -> Select Target
+        initState.Transitions = new FsmTransition[]
+        {
+            new FsmTransition
+            {
+                FsmEvent = FsmEvent.Finished,
+                toState = "Climb Roam Select Target",
+                toFsmState = selectState
+            }
+        };
+
+        // Select Target -> Move
+        selectState.Transitions = new FsmTransition[]
+        {
+            new FsmTransition
+            {
+                FsmEvent = FsmEvent.Finished,
+                toState = "Climb Roam Move",
+                toFsmState = moveState
+            }
+        };
+
+        // Move -> Idle
+        moveState.Transitions = new FsmTransition[]
+        {
+            new FsmTransition
+            {
+                FsmEvent = FsmEvent.Finished,
+                toState = "Climb Roam Idle",
+                toFsmState = idleState
+            }
+        };
+
+        // Idle -> Select Target (循环)
+        idleState.Transitions = new FsmTransition[]
+        {
+            new FsmTransition
+            {
+                FsmEvent = FsmEvent.Finished,
+                toState = "Climb Roam Select Target",
+                toFsmState = selectState
+            }
+        };
+
+        Log.Info("漫游状态转换设置完成");
+    }
+
+    private void AddClimbPhaseGlobalTransitions(FsmState climbRoamInit, FsmState? idleState)
+    {
+        var globalTransitions = _bossControlFsm!.Fsm.GlobalTransitions.ToList();
+        
+        // 收到 CLIMB PHASE START → Climb Roam Init
+        globalTransitions.Add(new FsmTransition
+        {
+            FsmEvent = FsmEvent.GetFsmEvent("CLIMB PHASE START"),
+            toState = "Climb Roam Init",
+            toFsmState = climbRoamInit
+        });
+        
+        // 收到 CLIMB PHASE END → Idle
+        if (idleState != null)
+        {
+            globalTransitions.Add(new FsmTransition
+            {
+                FsmEvent = FsmEvent.GetFsmEvent("CLIMB PHASE END"),
+                toState = "Idle",
+                toFsmState = idleState
+            });
+        }
+        
+        _bossControlFsm.Fsm.GlobalTransitions = globalTransitions.ToArray();
+        Log.Info("爬升阶段全局转换添加完成");
+    }
+
+    /// <summary>
+    /// 初始化漫游参数
+    /// </summary>
+    public void InitClimbRoamParameters()
+    {
+        // 漫游系统不需要特殊的初始化，参数都是硬编码的
+        Log.Info("漫游参数初始化完成");
+    }
+
+    /// <summary>
+    /// 计算漫游目标点
+    /// </summary>
+    public void CalculateClimbRoamTarget()
+    {
+        var hero = HeroController.instance;
+        if (hero == null)
+        {
+            Log.Warn("HeroController 未找到，使用默认目标点");
+            _currentRoamTarget = new Vector3(39.5f, 140f, 0f);
+            return;
+        }
+        
+        Vector3 playerPos = hero.transform.position;
+        
+        // 漫游边界
+        float minX = 25f;
+        float maxX = 55f;
+        float minY = playerPos.y + 20f;  // 玩家上方20单位
+        float maxY = 145f;                // 房间顶部
+        
+        // 随机选择目标（玩家上方附近）
+        float targetX = Mathf.Clamp(
+            playerPos.x + UnityEngine.Random.Range(-8f, 8f), 
+            minX, 
+            maxX
+        );
+        
+        float targetY = Mathf.Clamp(
+            playerPos.y + 25f + UnityEngine.Random.Range(-5f, 5f), 
+            minY, 
+            maxY
+        );
+        
+        _currentRoamTarget = new Vector3(targetX, targetY, 0f);
+        Log.Info($"选择漫游目标: {_currentRoamTarget}");
+    }
+
+    /// <summary>
+    /// 选择漫游动画
+    /// </summary>
+    public void SelectRoamAnimation()
+    {
+        var bossPos = transform.position;
+        bool movingForward = _currentRoamTarget.x > bossPos.x;
+        
+        var tk2dAnimator = GetComponent<tk2dSpriteAnimator>();
+        if (tk2dAnimator != null)
+        {
+            tk2dAnimator.Play(movingForward ? "Drift F" : "Drift B");
+        }
+        
+        _roamMoveStartTime = Time.time;
+        _roamMoveComplete = false;
+        
+        Log.Info($"选择动画: {(movingForward ? "Drift F" : "Drift B")}");
+    }
+
+    /// <summary>
+    /// 移动到漫游目标（每帧调用）
+    /// </summary>
+    public void MoveToRoamTarget()
+    {
+        if (_roamMoveComplete) return;
+        
+        Vector3 currentPos = transform.position;
+        float distance = Vector3.Distance(currentPos, _currentRoamTarget);
+        
+        // 到达检测（容差0.5单位）
+        if (distance < 0.5f)
+        {
+            _roamMoveComplete = true;
+            if (_bossControlFsm != null)
+            {
+                _bossControlFsm.SendEvent("FINISHED");
+                Log.Info("到达漫游目标");
+            }
+            return;
+        }
+        
+        // 平滑移动
+        float moveSpeed = 5f;
+        Vector3 direction = (_currentRoamTarget - currentPos).normalized;
+        transform.position += direction * moveSpeed * Time.deltaTime;
+    }
+
+    /// <summary>
+    /// 检查漫游移动超时
+    /// </summary>
+    public void CheckRoamMoveTimeout()
+    {
+        if (_roamMoveComplete) return;
+        
+        if (Time.time - _roamMoveStartTime > 3f)
+        {
+            Log.Warn("漫游移动超时，强制完成");
+            _roamMoveComplete = true;
+            if (_bossControlFsm != null)
+            {
+                _bossControlFsm.SendEvent("FINISHED");
+            }
         }
     }
 

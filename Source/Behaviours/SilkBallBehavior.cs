@@ -1228,6 +1228,31 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 rb2d.linearVelocity = rb2d.linearVelocity.normalized * maxSpd;
             }
+
+            // // 如果追踪的是大丝球（有customTarget），根据距离调整Z轴
+            // if (silkBallBehavior.customTarget != null)
+            // {
+            //     // 计算小丝球与大丝球的距离（仅XY平面）
+            //     Vector3 ballPos = silkBallBehavior.transform.position;
+            //     Vector3 targetPos = playerTransform.position;
+            //     Vector2 ballPos2D = new Vector2(ballPos.x, ballPos.y);
+            //     Vector2 targetPos2D = new Vector2(targetPos.x, targetPos.y);
+            //     float distance = Vector2.Distance(ballPos2D, targetPos2D);
+
+            //     // 定义距离范围：最大距离40（吸收生成半径），最小距离0
+            //     float maxDistance = 40f;
+            //     float minDistance = 0f;
+                
+            //     // 计算Z轴值：距离越近，Z轴越高（最高20），距离越远，Z轴越低（最低0）
+            //     // 使用反向映射：distance = 0 -> z = 20, distance = 40 -> z = 0
+            //     float normalizedDistance = Mathf.Clamp01((distance - minDistance) / (maxDistance - minDistance));
+            //     float targetZ = 20f * (1f - normalizedDistance);
+                
+            //     // 平滑更新Z轴位置
+            //     Vector3 currentPos = silkBallBehavior.transform.position;
+            //     currentPos.z = Mathf.Lerp(currentPos.z, targetZ, Time.deltaTime * 5f); // 使用5倍速度平滑过渡
+            //     silkBallBehavior.transform.position = currentPos;
+            // }
         }
 
         public override void OnExit()
