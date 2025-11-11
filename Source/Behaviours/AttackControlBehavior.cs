@@ -40,6 +40,8 @@ namespace AnySilkBoss.Source.Behaviours
         private FsmState? _waitForHandsReadyState;
         // 用于存储第二个Hand的信息
         private string _secondHandName = "";
+        private GameObject? _bossScene;
+        private GameObject? _strandPatterns;
         private GameObject? _secondHandObject;
 
         // 事件引用缓存
@@ -173,6 +175,8 @@ namespace AnySilkBoss.Source.Behaviours
             RegisterAttackControlEvents();
             ModifyAttackControlFSM();
 
+
+
             Log.Info("Attack Control 初始化完成（Hand 的环绕攻击状态将在其自身初始化时添加）");
         }
 
@@ -189,7 +193,12 @@ namespace AnySilkBoss.Source.Behaviours
                 Log.Error($"未找到 {fsmName} FSM");
                 return;
             }
-
+            _bossScene = transform.GetParent().gameObject;
+            if(_bossScene == null){
+                Log.Error($"未找到bossScene");
+                return;
+            }
+            _strandPatterns = _bossScene.transform.Find("Strand Patterns").gameObject;
             // 初始化移动丝球相关变量
             InitializeSilkBallDashVariables();
 
@@ -300,12 +309,16 @@ namespace AnySilkBoss.Source.Behaviours
             // 创建丝球环绕攻击状态链
             CreateSilkBallAttackStates();
 
+            // 创建爬升阶段攻击状态链
+            CreateClimbPhaseAttackStates();
+
             // 修改SendRandomEventV4动作，添加新的事件
             ModifySendRandomEventAction();
 
             // 修改Attack Choice，添加丝球攻击
             ModifyAttackChoiceForSilkBall();
-
+            // 新增：初始化后处理原版攻击Pattern补丁
+            PatchOriginalAttackPatterns();
             // 重新链接所有事件引用
             RelinkAllEventReferences();
 
@@ -406,6 +419,18 @@ namespace AnySilkBoss.Source.Behaviours
             if (_silkBallRecoverEvent != null && !existingEvents.Contains(_silkBallRecoverEvent))
             {
                 existingEvents.Add(_silkBallRecoverEvent);
+            }
+
+            // 爬升阶段事件
+            var climbPhaseAttackEvent = FsmEvent.GetFsmEvent("CLIMB PHASE ATTACK");
+            if (climbPhaseAttackEvent != null && !existingEvents.Contains(climbPhaseAttackEvent))
+            {
+                existingEvents.Add(climbPhaseAttackEvent);
+            }
+            var climbPhaseEndEvent = FsmEvent.GetFsmEvent("CLIMB PHASE END");
+            if (climbPhaseEndEvent != null && !existingEvents.Contains(climbPhaseEndEvent))
+            {
+                existingEvents.Add(climbPhaseEndEvent);
             }
 
             // 使用反射设置FsmEvents
@@ -2051,5 +2076,448 @@ namespace AnySilkBoss.Source.Behaviours
         {
             return CloneAction<T>(sourceStateName, matchIndex, predicate);
         }
+
+        #region 原版攻击调整
+        /// <summary>
+        /// 原版攻击相关调整：为了某些特殊玩法兼容，自动复制Pattern 1为Pattern 3
+        /// </summary>
+        private void PatchOriginalAttackPatterns()
+        {
+            if (_strandPatterns == null)
+            {
+                Log.Warn("_strandPatterns为null，无法调整原版攻击Pattern！");
+                return;
+            }
+            // 查找Pattern 1
+            var pattern1 = _strandPatterns.transform.Find("Pattern 1");
+            if (pattern1 == null)
+            {
+                Log.Warn("未找到 Pattern 1，原版攻击调整跳过");
+                return;
+            }
+            // 检查是否已存在Pattern 3，避免重复
+            if (_strandPatterns.transform.Find("Pattern 3") != null)
+            {
+                Log.Info("Pattern 3 已存在，无需再次复制");
+                return;
+            }
+            // 深克隆Pattern 1，创建Pattern 3
+            var pattern3Obj = GameObject.Instantiate(pattern1.gameObject, _strandPatterns.transform);
+            pattern3Obj.name = "Pattern 3";
+            Log.Info("已自动复制Pattern 1为Pattern 3");
+            PatchSingleAndDoubleStatesLastActions();
+            PatchSingleAndDoubleStatesLastActionsV2();
+        }
+        /// <summary>
+        /// 调整Single和Double状态的Action队列，把Double的最后两个Action（GetRandomChild/SendEventByName）补到二者末尾
+        /// </summary>
+        private void PatchSingleAndDoubleStatesLastActions()
+        {
+            if (_attackControlFsm == null) return;
+            var singleState = _attackControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Single");
+            var doubleState = _attackControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Double");
+            if (singleState == null || doubleState == null)
+            {
+                Log.Warn("Single或Double状态不存在，无法补丁攻击行为补齐");
+                return;
+            }
+            var dActions = doubleState.Actions;
+            if (dActions == null || dActions.Length < 2)
+            {
+                Log.Warn("Double状态行为数量过少，无法补丁行为补齐");
+                return;
+            }
+            // 克隆
+            var newLast1 = CloneAction<GetRandomChild>("Double");
+            var newLast2 = CloneAction<SendEventByName>("Double");
+            if (newLast1 == null || newLast2 == null)
+            {
+                Log.Warn("克隆Double最后两个行为失败，无法补丁行为补齐");
+                return;
+            }
+            newLast2.delay = new FsmFloat(0.8f);
+            var singleActions = singleState.Actions.ToList();
+            singleActions.Add(newLast1);
+            singleActions.Add(newLast2);
+            singleState.Actions = singleActions.ToArray();
+            Log.Info("已将Double最后GetRandomChild/SendEventByName行为复制到Single和Double末尾各一份");
+        }
+        /// <summary>
+        /// Double加Triple状态，Triple做复制攻击/延时1s后转Web Recover
+        /// </summary>
+        private void PatchSingleAndDoubleStatesLastActionsV2()
+        {
+            if (_attackControlFsm == null) return;
+            var doubleState = _attackControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Double");
+            var webRecoverState = _attackControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Web Recover");
+            if (doubleState == null || webRecoverState == null)
+            {
+                Log.Warn("Double或Web Recover状态不存在，无法补丁Triple攻击链");
+                return;
+            }
+            // 克隆Double里的GetRandomChild与SendEventByName
+            var atkAction = CloneAction<GetRandomChild>("Double");
+            var sendEventAction = CloneAction<SendEventByName>("Double");
+            if (atkAction == null || sendEventAction == null)
+            {
+                Log.Warn("Double克隆攻击动作失败");
+                return;
+            }
+            sendEventAction.delay = new FsmFloat(0.8f);
+            // Triple挂载这俩
+            var waitAction = new Wait { time = new FsmFloat(1.0f), finishEvent = FsmEvent.Finished };
+            var tripleState = new FsmState(_attackControlFsm.Fsm) {
+                Name = "Triple",
+                Description = "补丁三连击：1次GetRandomChild+SendEvent+延时1s"
+            };
+            tripleState.Actions = new FsmStateAction[] { atkAction, sendEventAction, waitAction };
+            // 插入FSM列表
+            var allStates = _attackControlFsm.FsmStates.ToList();
+            allStates.Add(tripleState);
+            _attackControlFsm.Fsm.States = allStates.ToArray();
+            // 把Double所有to Web Recover的跳转改成Triple
+            foreach (var trans in doubleState.Transitions) {
+                if (trans.toState == "Web Recover" || trans.toFsmState == webRecoverState)
+                {
+                    trans.toState = "Triple";
+                    trans.toFsmState = tripleState;
+                }
+            }
+            // Triple唯一跳转：FINISHED -> Web Recover
+            tripleState.Transitions = new FsmTransition[] {
+                new FsmTransition {
+                    FsmEvent = FsmEvent.Finished,
+                    toState = "Web Recover",
+                    toFsmState = webRecoverState
+                }
+            };
+            Log.Info("已自动插入补丁Triple攻击链，并更新Double跳转");
+        }
+        // 请在PatchOriginalAttackPatterns最后替换调用PatchSingleAndDoubleStatesLastActionsV2，原有V1方法弃用
+        #endregion
+
+        #region 爬升阶段攻击系统
+        
+        /// <summary>
+        /// 创建爬升阶段攻击状态链
+        /// </summary>
+        private void CreateClimbPhaseAttackStates()
+        {
+            if (_attackControlFsm == null) return;
+
+            Log.Info("=== 开始创建爬升阶段攻击状态链 ===");
+
+            // 创建攻击状态
+            var climbAttackChoice = CreateClimbAttackChoiceState();
+            var climbNeedleAttack = CreateClimbNeedleAttackState();
+            var climbWebAttack = CreateClimbWebAttackState();
+            var climbSilkBallAttack = CreateClimbSilkBallAttackState();
+            var climbAttackCooldown = CreateClimbAttackCooldownState();
+
+            // 找到Idle状态用于转换
+            var idleState = _attackControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Idle");
+            
+            // 添加状态到FSM
+            var states = _attackControlFsm.FsmStates.ToList();
+            states.Add(climbAttackChoice);
+            states.Add(climbNeedleAttack);
+            states.Add(climbWebAttack);
+            states.Add(climbSilkBallAttack);
+            states.Add(climbAttackCooldown);
+            _attackControlFsm.Fsm.States = states.ToArray();
+
+            // 添加动作
+            AddClimbAttackChoiceActions(climbAttackChoice);
+            AddClimbNeedleAttackActions(climbNeedleAttack);
+            AddClimbWebAttackActions(climbWebAttack);
+            AddClimbSilkBallAttackActions(climbSilkBallAttack);
+            AddClimbAttackCooldownActions(climbAttackCooldown);
+
+            // 添加转换
+            AddClimbAttackTransitions(climbAttackChoice, climbNeedleAttack, 
+                climbWebAttack, climbSilkBallAttack, climbAttackCooldown);
+
+            // 添加全局转换
+            AddClimbPhaseAttackGlobalTransitions(climbAttackChoice, idleState);
+
+            // 初始化FSM
+            _attackControlFsm.Fsm.InitData();
+            _attackControlFsm.Fsm.InitEvents();
+
+            Log.Info("=== 爬升阶段攻击状态链创建完成 ===");
+        }
+
+        private FsmState CreateClimbAttackChoiceState()
+        {
+            return new FsmState(_attackControlFsm!.Fsm)
+            {
+                Name = "Climb Attack Choice",
+                Description = "爬升阶段攻击选择"
+            };
+        }
+
+        private FsmState CreateClimbNeedleAttackState()
+        {
+            return new FsmState(_attackControlFsm!.Fsm)
+            {
+                Name = "Climb Needle Attack",
+                Description = "爬升阶段针攻击"
+            };
+        }
+
+        private FsmState CreateClimbWebAttackState()
+        {
+            return new FsmState(_attackControlFsm!.Fsm)
+            {
+                Name = "Climb Web Attack",
+                Description = "爬升阶段网攻击"
+            };
+        }
+
+        private FsmState CreateClimbSilkBallAttackState()
+        {
+            return new FsmState(_attackControlFsm!.Fsm)
+            {
+                Name = "Climb Silk Ball Attack",
+                Description = "爬升阶段丝球攻击"
+            };
+        }
+
+        private FsmState CreateClimbAttackCooldownState()
+        {
+            return new FsmState(_attackControlFsm!.Fsm)
+            {
+                Name = "Climb Attack Cooldown",
+                Description = "爬升阶段攻击冷却"
+            };
+        }
+
+        private void AddClimbAttackChoiceActions(FsmState choiceState)
+        {
+            var actions = new List<FsmStateAction>();
+
+            // 随机选择攻击类型
+            var climbNeedleEvent = FsmEvent.GetFsmEvent("CLIMB NEEDLE ATTACK");
+            var climbWebEvent = FsmEvent.GetFsmEvent("CLIMB WEB ATTACK");
+            var climbSilkBallEvent = FsmEvent.GetFsmEvent("CLIMB SILK BALL ATTACK");
+
+            actions.Add(new SendRandomEventV4
+            {
+                events = new FsmEvent[] { climbNeedleEvent, climbWebEvent, climbSilkBallEvent },
+                weights = new FsmFloat[] { new FsmFloat(1.0f), new FsmFloat(0.8f), new FsmFloat(0.6f) },
+                eventMax = new FsmInt[] { new FsmInt(999), new FsmInt(999), new FsmInt(999) },
+                missedMax = new FsmInt[] { new FsmInt(0), new FsmInt(0), new FsmInt(0) },
+                activeBool = new FsmBool(true)
+            });
+
+            choiceState.Actions = actions.ToArray();
+        }
+
+        private void AddClimbNeedleAttackActions(FsmState needleState)
+        {
+            var actions = new List<FsmStateAction>();
+
+            // 执行针攻击（占位，后续实现）
+            actions.Add(new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("ExecuteClimbNeedleAttack") { Value = "ExecuteClimbNeedleAttack" },
+                parameters = new FsmVar[0]
+            });
+
+            // 等待0.8秒
+            actions.Add(new Wait
+            {
+                time = new FsmFloat(0.8f),
+                finishEvent = FsmEvent.Finished
+            });
+
+            needleState.Actions = actions.ToArray();
+        }
+
+        private void AddClimbWebAttackActions(FsmState webState)
+        {
+            var actions = new List<FsmStateAction>();
+
+            // 执行网攻击（占位，后续实现）
+            actions.Add(new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("ExecuteClimbWebAttack") { Value = "ExecuteClimbWebAttack" },
+                parameters = new FsmVar[0]
+            });
+
+            // 等待1.0秒
+            actions.Add(new Wait
+            {
+                time = new FsmFloat(1.0f),
+                finishEvent = FsmEvent.Finished
+            });
+
+            webState.Actions = actions.ToArray();
+        }
+
+        private void AddClimbSilkBallAttackActions(FsmState silkBallState)
+        {
+            var actions = new List<FsmStateAction>();
+
+            // 执行丝球攻击（占位，后续实现）
+            actions.Add(new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("ExecuteClimbSilkBallAttack") { Value = "ExecuteClimbSilkBallAttack" },
+                parameters = new FsmVar[0]
+            });
+
+            // 等待1.2秒
+            actions.Add(new Wait
+            {
+                time = new FsmFloat(1.2f),
+                finishEvent = FsmEvent.Finished
+            });
+
+            silkBallState.Actions = actions.ToArray();
+        }
+
+        private void AddClimbAttackCooldownActions(FsmState cooldownState)
+        {
+            var actions = new List<FsmStateAction>();
+
+            // 等待2-3秒冷却
+            actions.Add(new Wait
+            {
+                time = new FsmFloat(UnityEngine.Random.Range(2f, 3f)),
+                finishEvent = FsmEvent.Finished
+            });
+
+            cooldownState.Actions = actions.ToArray();
+        }
+
+        private void AddClimbAttackTransitions(FsmState choiceState, FsmState needleState,
+            FsmState webState, FsmState silkBallState, FsmState cooldownState)
+        {
+            // Choice -> 各种攻击
+            choiceState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.GetFsmEvent("CLIMB NEEDLE ATTACK"),
+                    toState = "Climb Needle Attack",
+                    toFsmState = needleState
+                },
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.GetFsmEvent("CLIMB WEB ATTACK"),
+                    toState = "Climb Web Attack",
+                    toFsmState = webState
+                },
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.GetFsmEvent("CLIMB SILK BALL ATTACK"),
+                    toState = "Climb Silk Ball Attack",
+                    toFsmState = silkBallState
+                }
+            };
+
+            // 各攻击 -> Cooldown
+            needleState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.Finished,
+                    toState = "Climb Attack Cooldown",
+                    toFsmState = cooldownState
+                }
+            };
+
+            webState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.Finished,
+                    toState = "Climb Attack Cooldown",
+                    toFsmState = cooldownState
+                }
+            };
+
+            silkBallState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.Finished,
+                    toState = "Climb Attack Cooldown",
+                    toFsmState = cooldownState
+                }
+            };
+
+            // Cooldown -> Choice (循环)
+            cooldownState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.Finished,
+                    toState = "Climb Attack Choice",
+                    toFsmState = choiceState
+                }
+            };
+
+            Log.Info("爬升阶段攻击转换设置完成");
+        }
+
+        private void AddClimbPhaseAttackGlobalTransitions(FsmState climbAttackChoice, FsmState? idleState)
+        {
+            var globalTransitions = _attackControlFsm!.Fsm.GlobalTransitions.ToList();
+            
+            // 收到 CLIMB PHASE ATTACK → Climb Attack Choice
+            globalTransitions.Add(new FsmTransition
+            {
+                FsmEvent = FsmEvent.GetFsmEvent("CLIMB PHASE ATTACK"),
+                toState = "Climb Attack Choice",
+                toFsmState = climbAttackChoice
+            });
+            
+            // 收到 CLIMB PHASE END → Idle
+            if (idleState != null)
+            {
+                globalTransitions.Add(new FsmTransition
+                {
+                    FsmEvent = FsmEvent.GetFsmEvent("CLIMB PHASE END"),
+                    toState = "Idle",
+                    toFsmState = idleState
+                });
+            }
+            
+            _attackControlFsm.Fsm.GlobalTransitions = globalTransitions.ToArray();
+            Log.Info("爬升阶段攻击全局转换添加完成");
+        }
+
+        /// <summary>
+        /// 执行爬升阶段针攻击（占位实现）
+        /// </summary>
+        public void ExecuteClimbNeedleAttack()
+        {
+            Log.Info("执行爬升阶段针攻击（占位实现）");
+            // TODO: 实现具体的针攻击逻辑
+        }
+
+        /// <summary>
+        /// 执行爬升阶段网攻击（占位实现）
+        /// </summary>
+        public void ExecuteClimbWebAttack()
+        {
+            Log.Info("执行爬升阶段网攻击（占位实现）");
+            // TODO: 实现具体的网攻击逻辑
+        }
+
+        /// <summary>
+        /// 执行爬升阶段丝球攻击（占位实现）
+        /// </summary>
+        public void ExecuteClimbSilkBallAttack()
+        {
+            Log.Info("执行爬升阶段丝球攻击（占位实现）");
+            // TODO: 实现具体的丝球攻击逻辑
+        }
+
+        #endregion
     }
 }
