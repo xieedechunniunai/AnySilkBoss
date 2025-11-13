@@ -82,12 +82,13 @@ internal sealed class AssetManager : MonoBehaviour
 
     #region Asset Management Fields
     private static readonly string[] _bundleNames = new[] {
-        "localpoolprefabs_assets_areasong",
+        "localpoolprefabs_assets_areahangareasong",
         "localpoolprefabs_assets_laceboss"
     };
 
     private static readonly string[] _assetNames = new string[] {
-        "Reaper Silk Bundle"
+        "Reaper Silk Bundle",
+        "Abyss Bullet"
     };
 
     private readonly Dictionary<Type, Dictionary<string, Object>> _assets = new();
@@ -367,13 +368,34 @@ internal sealed class AssetManager : MonoBehaviour
                 // 记录所有资源路径，用于调试
                 Log.Debug($"Bundle {bundle.name} contains asset: {assetPath} (name: {assetName})");
 
-                // 检查是否是我们需要的资源
-                bool isRequiredAsset = _assetNames.Any(name =>
-                    assetName.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0);
-
-                if (isRequiredAsset)
+                // 检查是否是我们需要的资源（优先精确匹配，失败则模糊匹配）
+                string? matchedRequiredName = null;
+                foreach (var requiredName in _assetNames)
                 {
-                    Log.Info($"Loading required asset: {assetName} from {assetPath}");
+                    // 优先精确匹配
+                    if (assetName.Equals(requiredName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        matchedRequiredName = requiredName;
+                        break;
+                    }
+                }
+                
+                // 如果精确匹配失败，尝试模糊匹配
+                if (matchedRequiredName == null)
+                {
+                    foreach (var requiredName in _assetNames)
+                    {
+                        if (assetName.IndexOf(requiredName, StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            matchedRequiredName = requiredName;
+                            break;
+                        }
+                    }
+                }
+
+                if (matchedRequiredName != null)
+                {
+                    Log.Info($"Loading required asset: {assetName} from {assetPath} (matched: {matchedRequiredName})");
 
                     try
                     {
@@ -392,7 +414,16 @@ internal sealed class AssetManager : MonoBehaviour
 
                         if (loadedAsset != null)
                         {
-                            StoreAsset(loadedAsset);
+                            // 如果精确匹配，使用原始名称存储；否则使用匹配到的名称存储
+                            if (assetName.Equals(matchedRequiredName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                StoreAsset(loadedAsset);
+                            }
+                            else
+                            {
+                                // 模糊匹配时，使用匹配到的名称作为键存储，以便后续精确查找
+                                StoreAssetWithName(loadedAsset, matchedRequiredName);
+                            }
                             Log.Info($"Successfully loaded asset: {loadedAsset.name} ({loadedAsset.GetType().Name})");
                         }
                         else
@@ -414,8 +445,12 @@ internal sealed class AssetManager : MonoBehaviour
     }
     private void StoreAsset(Object asset)
     {
+        StoreAssetWithName(asset, asset.name);
+    }
+
+    private void StoreAssetWithName(Object asset, string assetName)
+    {
         Type assetType = asset.GetType();
-        string assetName = asset.name;
 
         if (!_assets.ContainsKey(assetType))
         {
@@ -593,7 +628,8 @@ internal sealed class AssetManager : MonoBehaviour
 
     private static string GetStandardBundlePath(string bundleName, string platformFolder)
     {
-        return Path.Combine(Addressables.RuntimePath, platformFolder, $"{bundleName}.bundle");
+        // 使用与参考代码相同的路径构建方式：StreamingAssets/aa/PlatformFolder/bundleName.bundle
+        return Path.Combine(Application.streamingAssetsPath, "aa", platformFolder, $"{bundleName}.bundle");
     }
     #endregion
 }

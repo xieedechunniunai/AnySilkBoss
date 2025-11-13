@@ -123,18 +123,6 @@ namespace AnySilkBoss.Source.Behaviours
                 LogAttackControlFSMInfo();
             }
 
-            if (Input.GetKeyDown(KeyCode.Y))
-            {
-                var managerObj = GameObject.Find("AnySilkBossManager");
-                if (managerObj != null)
-                {
-                    var bigSilkBallManager = managerObj.GetComponent<BigSilkBallManager>();
-                    if (bigSilkBallManager != null)
-                    {
-                        bigSilkBallManager.SpawnBigSilkBall(Vector3.zero, gameObject);
-                    }
-                }
-            }
 
             // 移动丝球生成检测
             if (_isGeneratingSilkBall != null && _isGeneratingSilkBall.Value)
@@ -194,7 +182,8 @@ namespace AnySilkBoss.Source.Behaviours
                 return;
             }
             _bossScene = transform.GetParent().gameObject;
-            if(_bossScene == null){
+            if (_bossScene == null)
+            {
                 Log.Error($"未找到bossScene");
                 return;
             }
@@ -888,7 +877,7 @@ namespace AnySilkBoss.Source.Behaviours
                 }
             };
 
-            // Dash Prepare -> Dash End (等待BossControl完成) + 中断转换
+            // Dash Prepare -> Dash End (等待BossControl完成) + 中断转换 + 超时保护
             _silkBallDashPrepareState!.Transitions = new FsmTransition[]
             {
                 new FsmTransition
@@ -900,6 +889,13 @@ namespace AnySilkBoss.Source.Behaviours
                 new FsmTransition
                 {
                     FsmEvent = _silkBallInterruptEvent,
+                    toState = "Move Restart",
+                    toFsmState = moveRestartState
+                },
+                // 超时保护：如果30秒内没有收到DASH END事件，强制转移（防止卡死）
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.Finished,
                     toState = "Move Restart",
                     toFsmState = moveRestartState
                 }
@@ -1058,7 +1054,7 @@ namespace AnySilkBoss.Source.Behaviours
                 weights = new FsmFloat[] { 1f, 1f },
                 eventMax = new FsmInt[] { 2, 2 },
                 missedMax = new FsmInt[] { 2, 2 },
-                activeBool = new FsmBool(true)
+                activeBool = new FsmBool { UseVariable = true, Value = true }
             });
 
             state.Actions = actions.ToArray();
@@ -1293,10 +1289,17 @@ namespace AnySilkBoss.Source.Behaviours
             });
 
             // 4. 等待BossControl发回的SILK BALL DASH END事件（在Transitions中处理）
+            // 添加超时保护：30秒后如果还没收到DASH END事件，强制转移（防止卡死）
+            actions.Add(new Wait
+            {
+                time = new FsmFloat(30f),
+                finishEvent = FsmEvent.Finished,
+                realTime = false
+            });
 
             state.Actions = actions.ToArray();
 
-            Log.Info("创建Silk Ball Dash Prepare状态");
+            Log.Info("创建Silk Ball Dash Prepare状态（含30秒超时保护）");
             return state;
         }
 
@@ -1373,21 +1376,14 @@ namespace AnySilkBoss.Source.Behaviours
             }
 
             Vector3 spawnPos = new Vector3(position.x, position.y, 0f);
-            var silkBall = _silkBallManager.SpawnSilkBall(spawnPos);
+            var behavior = _silkBallManager.SpawnSilkBall(spawnPos, 35f, 25f, 8f, 1f, true);
 
-            if (silkBall != null)
+            if (behavior != null)
             {
-                var behavior = silkBall.GetComponent<SilkBallBehavior>();
-                if (behavior != null)
-                {
-                    // 初始化丝球参数（较快的追逐速度）
-                    behavior.Initialize(spawnPos, 35f, 25f, 8f, 1f, true);
+                // 延迟0.1s后释放（给丝球初始化时间）
+                StartCoroutine(DelayedReleaseSilkBallForDash(behavior.gameObject));
 
-                    // 延迟0.1s后释放（给丝球初始化时间）
-                    StartCoroutine(DelayedReleaseSilkBallForDash(silkBall));
-
-                    Log.Info($"移动丝球生成成功: {spawnPos}");
-                }
+                Log.Info($"移动丝球生成成功: {spawnPos}");
             }
         }
 
@@ -1396,15 +1392,15 @@ namespace AnySilkBoss.Source.Behaviours
         /// </summary>
         private IEnumerator DelayedReleaseSilkBallForDash(GameObject silkBall)
         {
-            yield return new WaitForSeconds(0.1f);
-
             if (silkBall != null)
             {
+                yield return null;
+                silkBall.LocateMyFSM("Control").SendEvent("PREPARE");
+                yield return new WaitForSeconds(0.1f);
                 var fsm = silkBall.GetComponent<PlayMakerFSM>();
                 if (fsm != null)
                 {
                     fsm.SendEvent("SILK BALL RELEASE");
-                    Log.Info("移动丝球已释放");
                 }
             }
         }
@@ -1575,7 +1571,16 @@ namespace AnySilkBoss.Source.Behaviours
             if (_isGeneratingSilkBall != null)
             {
                 _isGeneratingSilkBall.Value = false;
-                Log.Info("停止生成移动丝球");
+                // 重置移动相关变量
+                if (_totalDistanceTraveled != null)
+                {
+                    _totalDistanceTraveled.Value = 0f;
+                }
+                if (_lastBallPosition != null)
+                {
+                    _lastBallPosition.Value = Vector2.zero;
+                }
+                Log.Info("停止生成移动丝球并重置变量");
             }
         }
         #endregion
@@ -1587,12 +1592,12 @@ namespace AnySilkBoss.Source.Behaviours
         /// </summary>
         public IEnumerator SummonSilkBallsAtHighPointCoroutine()
         {
-            Log.Info("=== 开始在高点召唤8个丝球（0.1秒1个） ===");
+            Log.Info("=== 开始在高点召唤8个丝球 ===");
             _activeSilkBalls.Clear();
             Vector3 bossPosition = transform.position;
             float radius = 6f;
 
-            // 逐个快速召唤，每个间隔0.1秒
+            // 逐个召唤丝球
             for (int i = 0; i < 8; i++)
             {
                 float angle = i * 45f; // 0°, 45°, 90°, 135°, 180°, 225°, 270°, 315°
@@ -1604,22 +1609,58 @@ namespace AnySilkBoss.Source.Behaviours
                 );
                 Vector3 spawnPosition = bossPosition + offset;
 
-                var silkBall = _silkBallManager?.SpawnSilkBall(spawnPosition);
-                if (silkBall != null)
+                // 召唤丝球
+                var behavior = _silkBallManager?.SpawnSilkBall(spawnPosition, 30f, 25f, 8f, 1f, true);
+                if (behavior != null)
                 {
-                    var behavior = silkBall.GetComponent<SilkBallBehavior>();
-                    if (behavior != null)
-                    {
-                        behavior.Initialize(spawnPosition, 30f, 25f, 8f, 1f, true);
-                        _activeSilkBalls.Add(silkBall);
-                    }
+                    yield return null;
+                    _activeSilkBalls.Add(behavior.gameObject);
+                    behavior.gameObject.LocateMyFSM("Control").SendEvent("PREPARE");
+                    Log.Info($"召唤第 {i + 1} 个丝球");
                 }
 
-                // 每个丝球后都等待0.1秒（包括最后一个，确保初始化完成）
+                // 等待0.1秒后再召唤下一个（给丝球初始化和音效播放时间）
                 yield return new WaitForSeconds(0.1f);
             }
 
-            Log.Info($"=== 8个丝球召唤完成，共 {_activeSilkBalls.Count} 个 ===");
+            Log.Info($"=== 8个丝球召唤完成，共 {_activeSilkBalls.Count} 个，等待准备完成 ===");
+
+            // 等待所有丝球准备完成
+            float maxWaitTime = 1f;
+            float elapsedTime = 0f;
+            bool allPrepared = false;
+
+            while (elapsedTime < maxWaitTime && !allPrepared)
+            {
+                allPrepared = true;
+                foreach (var ball in _activeSilkBalls)
+                {
+                    if (ball != null)
+                    {
+                        var ballBehavior = ball.GetComponent<SilkBallBehavior>();
+                        if (ballBehavior != null && !ballBehavior.isPrepared)
+                        {
+                            allPrepared = false;
+                            break;
+                        }
+                    }
+                }
+
+                if (!allPrepared)
+                {
+                    yield return new WaitForSeconds(0.05f);
+                    elapsedTime += 0.05f;
+                }
+            }
+
+            if (allPrepared)
+            {
+                Log.Info("=== 所有丝球已准备完成 ===");
+            }
+            else
+            {
+                Log.Warn($"=== 等待超时，部分丝球可能未准备完成（已等待 {elapsedTime:F2}秒） ===");
+            }
         }
 
         /// <summary>
@@ -1640,12 +1681,14 @@ namespace AnySilkBoss.Source.Behaviours
         /// </summary>
         public void ReleaseSilkBalls()
         {
-            StartCoroutine(RelSilkBall());
-
+            StartCoroutine(ReleaseSilkBallsCoroutine());
         }
-        private IEnumerator RelSilkBall()
+
+        private IEnumerator ReleaseSilkBallsCoroutine()
         {
+            // 等待0.82秒（动画时间）
             yield return new WaitForSeconds(0.82f);
+
             Log.Info($"=== 准备释放丝球 ===");
 
             // 在释放丝球时触发冲击波效果和音效（使用缓存的动作）
@@ -1661,6 +1704,7 @@ namespace AnySilkBoss.Source.Behaviours
                 _cachedPlayRoarAudio.OnEnter();
             }
 
+            // 检查丝球列表
             if (_activeSilkBalls == null || _activeSilkBalls.Count == 0)
             {
                 Log.Warn($"警告：丝球列表为空或null（数量: {_activeSilkBalls?.Count ?? 0}），无法释放！");
@@ -1669,20 +1713,35 @@ namespace AnySilkBoss.Source.Behaviours
 
             Log.Info($"当前丝球列表数量: {_activeSilkBalls.Count}");
 
+            // 释放所有丝球
             int successCount = 0;
+            int preparedCount = 0;
             foreach (var ball in _activeSilkBalls)
             {
                 if (ball != null)
                 {
-                    var fsm = ball.GetComponent<PlayMakerFSM>();
-                    if (fsm != null)
+                    var behavior = ball.GetComponent<SilkBallBehavior>();
+                    if (behavior != null)
                     {
-                        fsm.SendEvent("SILK BALL RELEASE");
-                        successCount++;
+                        if (behavior.isPrepared)
+                        {
+                            preparedCount++;
+                        }
+
+                        var fsm = ball.GetComponent<PlayMakerFSM>();
+                        if (fsm != null)
+                        {
+                            ball.LocateMyFSM("Control").SendEvent("SILK BALL RELEASE");
+                            successCount++;
+                        }
+                        else
+                        {
+                            Log.Error($"✗ 丝球 {ball.name} 没有PlayMakerFSM组件！");
+                        }
                     }
                     else
                     {
-                        Log.Error($"✗ 丝球 {ball.name} 没有PlayMakerFSM组件！");
+                        Log.Error($"✗ 丝球 {ball.name} 没有SilkBallBehavior组件！");
                     }
                 }
                 else
@@ -1691,7 +1750,9 @@ namespace AnySilkBoss.Source.Behaviours
                 }
             }
 
+            Log.Info($"=== 释放完成：成功 {successCount}/{_activeSilkBalls.Count} 个，其中已准备 {preparedCount} 个 ===");
             _activeSilkBalls.Clear();
+
             // 等待0.2秒后退出协程
             yield return new WaitForSeconds(0.2f);
             if (_cachedRoarEmitter != null)
@@ -2166,7 +2227,8 @@ namespace AnySilkBoss.Source.Behaviours
             sendEventAction.delay = new FsmFloat(0.8f);
             // Triple挂载这俩
             var waitAction = new Wait { time = new FsmFloat(1.0f), finishEvent = FsmEvent.Finished };
-            var tripleState = new FsmState(_attackControlFsm.Fsm) {
+            var tripleState = new FsmState(_attackControlFsm.Fsm)
+            {
                 Name = "Triple",
                 Description = "补丁三连击：1次GetRandomChild+SendEvent+延时1s"
             };
@@ -2176,7 +2238,8 @@ namespace AnySilkBoss.Source.Behaviours
             allStates.Add(tripleState);
             _attackControlFsm.Fsm.States = allStates.ToArray();
             // 把Double所有to Web Recover的跳转改成Triple
-            foreach (var trans in doubleState.Transitions) {
+            foreach (var trans in doubleState.Transitions)
+            {
                 if (trans.toState == "Web Recover" || trans.toFsmState == webRecoverState)
                 {
                     trans.toState = "Triple";
@@ -2197,7 +2260,7 @@ namespace AnySilkBoss.Source.Behaviours
         #endregion
 
         #region 爬升阶段攻击系统
-        
+
         /// <summary>
         /// 创建爬升阶段攻击状态链
         /// </summary>
@@ -2216,7 +2279,7 @@ namespace AnySilkBoss.Source.Behaviours
 
             // 找到Idle状态用于转换
             var idleState = _attackControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Idle");
-            
+
             // 添加状态到FSM
             var states = _attackControlFsm.FsmStates.ToList();
             states.Add(climbAttackChoice);
@@ -2234,7 +2297,7 @@ namespace AnySilkBoss.Source.Behaviours
             AddClimbAttackCooldownActions(climbAttackCooldown);
 
             // 添加转换
-            AddClimbAttackTransitions(climbAttackChoice, climbNeedleAttack, 
+            AddClimbAttackTransitions(climbAttackChoice, climbNeedleAttack,
                 climbWebAttack, climbSilkBallAttack, climbAttackCooldown);
 
             // 添加全局转换
@@ -2305,9 +2368,9 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 events = new FsmEvent[] { climbNeedleEvent, climbWebEvent, climbSilkBallEvent },
                 weights = new FsmFloat[] { new FsmFloat(1.0f), new FsmFloat(0.8f), new FsmFloat(0.6f) },
-                eventMax = new FsmInt[] { new FsmInt(999), new FsmInt(999), new FsmInt(999) },
-                missedMax = new FsmInt[] { new FsmInt(0), new FsmInt(0), new FsmInt(0) },
-                activeBool = new FsmBool(true)
+                eventMax = new FsmInt[] { new FsmInt(1), new FsmInt(1), new FsmInt(1) },
+                missedMax = new FsmInt[] { new FsmInt(2), new FsmInt(2), new FsmInt(3) },
+                activeBool = new FsmBool { UseVariable = true, Value = true }
             });
 
             choiceState.Actions = actions.ToArray();
@@ -2467,7 +2530,7 @@ namespace AnySilkBoss.Source.Behaviours
         private void AddClimbPhaseAttackGlobalTransitions(FsmState climbAttackChoice, FsmState? idleState)
         {
             var globalTransitions = _attackControlFsm!.Fsm.GlobalTransitions.ToList();
-            
+
             // 收到 CLIMB PHASE ATTACK → Climb Attack Choice
             globalTransitions.Add(new FsmTransition
             {
@@ -2475,7 +2538,7 @@ namespace AnySilkBoss.Source.Behaviours
                 toState = "Climb Attack Choice",
                 toFsmState = climbAttackChoice
             });
-            
+
             // 收到 CLIMB PHASE END → Idle
             if (idleState != null)
             {
@@ -2486,37 +2549,225 @@ namespace AnySilkBoss.Source.Behaviours
                     toFsmState = idleState
                 });
             }
-            
+
             _attackControlFsm.Fsm.GlobalTransitions = globalTransitions.ToArray();
             Log.Info("爬升阶段攻击全局转换添加完成");
         }
 
         /// <summary>
-        /// 执行爬升阶段针攻击（占位实现）
+        /// 执行爬升阶段针攻击（随机一只Hand，相当于之前的环绕攻击）
         /// </summary>
         public void ExecuteClimbNeedleAttack()
         {
-            Log.Info("执行爬升阶段针攻击（占位实现）");
-            // TODO: 实现具体的针攻击逻辑
+            Log.Info("执行爬升阶段针攻击（随机Hand）");
+            StartCoroutine(ClimbNeedleAttackCoroutine());
+        }
+
+        private IEnumerator ClimbNeedleAttackCoroutine()
+        {
+            // 随机选择一只Hand（0或1）
+            int handIndex = UnityEngine.Random.Range(0, 2);
+            Log.Info($"选择Hand {handIndex}进行环绕攻击");
+
+            // 发送事件给对应的Hand FSM
+            var bossObj = gameObject;
+            var handFsm = bossObj.LocateMyFSM("Hand FSM");
+            if (handFsm != null)
+            {
+                // 设置Hand索引变量
+                var handIndexVar = handFsm.FsmVariables.FindFsmInt("Hand Index");
+                if (handIndexVar != null)
+                {
+                    handIndexVar.Value = handIndex;
+                }
+
+                // 发送环绕攻击事件
+                handFsm.SendEvent("ORBIT ATTACK");
+                Log.Info($"已发送ORBIT ATTACK事件给Hand {handIndex}");
+            }
+
+            yield return new WaitForSeconds(2f);
         }
 
         /// <summary>
-        /// 执行爬升阶段网攻击（占位实现）
+        /// 执行爬升阶段网攻击（双网旋转）
         /// </summary>
         public void ExecuteClimbWebAttack()
         {
-            Log.Info("执行爬升阶段网攻击（占位实现）");
-            // TODO: 实现具体的网攻击逻辑
+            Log.Info("执行爬升阶段网攻击（双网旋转）");
+            StartCoroutine(ClimbWebAttackCoroutine());
+        }
+
+        private IEnumerator ClimbWebAttackCoroutine()
+        {
+            var hero = HeroController.instance;
+            if (hero == null)
+            {
+                Log.Warn("HeroController未找到，无法执行网攻击");
+                yield break;
+            }
+
+            Vector3 playerPos = hero.transform.position;
+
+            // 第一根网：随机30~-30°
+            float firstAngle = UnityEngine.Random.Range(-30f, 30f);
+            SpawnClimbWebAtAngle(playerPos, firstAngle);
+            Log.Info($"生成第一根网，角度: {firstAngle}°");
+
+            yield return new WaitForSeconds(0.5f);
+
+            // 第二根网：在第一根的基础上旋转90°
+            float secondAngle = firstAngle + 90f;
+            SpawnClimbWebAtAngle(playerPos, secondAngle);
+            Log.Info($"生成第二根网，角度: {secondAngle}°");
+
+            yield return new WaitForSeconds(1f);
+        }
+
+        private void SpawnClimbWebAtAngle(Vector3 playerPos, float angle)
+        {
+            // 获取SingleWebManager
+            var managerObj = GameObject.Find("AnySilkBossManager");
+            if (managerObj == null)
+            {
+                Log.Warn("未找到AnySilkBossManager");
+                return;
+            }
+
+            var webManager = managerObj.GetComponent<Managers.SingleWebManager>();
+            if (webManager == null)
+            {
+                Log.Warn("未找到SingleWebManager组件");
+                return;
+            }
+
+            // 使用欧拉角设置旋转
+            Vector3 rotation = new Vector3(0f, 0f, angle);
+            
+            // 生成网并触发攻击
+            webManager.SpawnAndAttack(playerPos, rotation, null, 0f, 0.75f);
+            Log.Info($"在玩家位置生成网，角度: {angle}°");
         }
 
         /// <summary>
-        /// 执行爬升阶段丝球攻击（占位实现）
+        /// 执行爬升阶段丝球攻击（四角生成）
         /// </summary>
         public void ExecuteClimbSilkBallAttack()
         {
-            Log.Info("执行爬升阶段丝球攻击（占位实现）");
-            // TODO: 实现具体的丝球攻击逻辑
+            Log.Info("执行爬升阶段丝球攻击（四角生成）");
+            StartCoroutine(ClimbSilkBallAttackCoroutine());
         }
+
+        private IEnumerator ClimbSilkBallAttackCoroutine()
+        {
+            var hero = HeroController.instance;
+            if (hero == null)
+            {
+                Log.Warn("HeroController未找到，无法执行丝球攻击");
+                yield break;
+            }
+
+            if (_silkBallManager == null)
+            {
+                Log.Warn("SilkBallManager未初始化");
+                yield break;
+            }
+
+            Vector3 playerPos = hero.transform.position;
+            float offset = 15f;
+
+            // 四个方向：左上、左下、右上、右下
+            Vector3[] positions = new Vector3[]
+            {
+                playerPos + new Vector3(-offset, offset, 0f),   // 左上
+                playerPos + new Vector3(-offset, -offset, 0f),  // 左下
+                playerPos + new Vector3(offset, offset, 0f),    // 右上
+                playerPos + new Vector3(offset, -offset, 0f)    // 右下
+            };
+            var ballObjects = new List<GameObject>();
+            // 生成四个丝球
+            foreach (var pos in positions)
+            {
+                var behavior = _silkBallManager.SpawnSilkBall(
+                    pos,
+                    acceleration: 15f,
+                    maxSpeed: 20f,
+                    chaseTime: 5f,
+                    scale: 1f,
+                    enableRotation: true
+                );
+
+                if (behavior != null)
+                {
+                    ballObjects.Add(behavior.gameObject);
+                    behavior.gameObject.LocateMyFSM("Control").SendEvent("PREPARE");
+                    behavior.isPrepared = true;
+                    Log.Info($"在位置 {pos} 生成追踪丝球");
+                }
+            }
+
+            yield return new WaitForSeconds(0.6f);
+
+            // 释放所有丝球
+            foreach (var ball in ballObjects)
+            {
+                ball.LocateMyFSM("Control").SendEvent("SILK BALL RELEASE");
+            }
+
+            yield return new WaitForSeconds(1f);
+        }
+
+        #endregion
+
+        #region 清理方法
+
+        /// <summary>
+        /// 清理活跃的丝球列表（供BossBehavior调用）
+        /// </summary>
+        public void ClearActiveSilkBalls()
+        {
+            if (_activeSilkBalls != null && _activeSilkBalls.Count > 0)
+            {
+                Log.Info($"清理活跃丝球列表，当前数量: {_activeSilkBalls.Count}");
+                _activeSilkBalls.Clear();
+            }
+        }
+
+        /// <summary>
+        /// 停止所有丝球相关的协程（供BossBehavior调用）
+        /// </summary>
+        public void StopAllSilkBallCoroutines()
+        {
+            // 停止丝球召唤协程
+            if (_silkBallSummonCoroutine != null)
+            {
+                StopCoroutine(_silkBallSummonCoroutine);
+                _silkBallSummonCoroutine = null;
+                Log.Info("已停止丝球召唤协程");
+            }
+        }
+
+        /// <summary>
+        /// 在眩晕中断时，强制取消移动丝球并通知Control FSM（防止状态不同步）
+        /// 这是关键的状态同步方法，确保两个FSM保持一致
+        /// </summary>
+        // public void OnStunInterruptDashState()
+        // {
+        //     Log.Info("眩晕中断移动丝球状态，执行强制取消以同步FSM状态");
+            
+        //     // 1. 停止生成
+        //     StopGeneratingSilkBall();
+            
+        //     // 2. 清理活跃丝球列表
+        //     ClearActiveSilkBalls();
+            
+        //     // 3. 通知Control FSM强制回到Idle（关键！防止状态不同步）
+        //     if (_bossControlFsm != null)
+        //     {
+        //         _bossControlFsm.SendEvent("FORCE IDLE");
+        //         Log.Info("眩晕中断：已发送FORCE IDLE事件给Control FSM，确保状态同步");
+        //     }
+        // }
 
         #endregion
     }

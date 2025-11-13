@@ -85,6 +85,18 @@ internal class BossBehavior : MonoBehaviour
         StartCoroutine(DelayedSetup());
     }
 
+    private void OnDestroy()
+    {
+        // 场景切换或对象销毁时清理所有丝球
+        CleanupAllSilkBallsOnDestroy();
+    }
+
+    private void OnDisable()
+    {
+        // 对象禁用时也清理丝球
+        CleanupAllSilkBallsOnDestroy();
+    }
+
     private string _lastStateName = "";
 
     private void Update()
@@ -111,7 +123,6 @@ internal class BossBehavior : MonoBehaviour
     protected virtual IEnumerator SetupBoss()
     {
         GetComponents();
-        CacheDamageHeroEvent();
         ModifyBossControlFSM();
         Log.Info("Boss行为控制器初始化完成");
         yield return null;
@@ -131,62 +142,6 @@ internal class BossBehavior : MonoBehaviour
 
     }
 
-    /// <summary>
-    /// 从 Boss 的 DashSlash Effect 获取并缓存 DamageHero 事件到 SilkBallManager
-    /// </summary>
-    protected virtual void CacheDamageHeroEvent()
-    {
-        // 在 DontDestroyOnLoad 场景中查找 AnySilkBossManager
-        var managerObj = GameObject.Find("AnySilkBossManager");
-        if (managerObj == null)
-        {
-            Log.Warn("未找到 AnySilkBossManager GameObject，无法缓存 DamageHero 事件");
-            return;
-        }
-
-        // 获取 SilkBallManager 组件
-        var silkBallManager = managerObj.GetComponent<AnySilkBoss.Source.Managers.SilkBallManager>();
-        if (silkBallManager == null)
-        {
-            Log.Warn("AnySilkBossManager 上未找到 SilkBallManager 组件");
-            return;
-        }
-
-        // 如果已经设置过了，跳过
-        if (silkBallManager.HasDamageHeroEvent())
-        {
-            Log.Info("DamageHero 事件已存在，跳过");
-            return;
-        }
-
-        // 查找 DashSlash Effect 子物体
-        Transform dashSlashEffect = transform.Find("DashSlash Effect");
-        if (dashSlashEffect == null)
-        {
-            Log.Error($"Boss ({gameObject.name}) 未找到 DashSlash Effect 子物体");
-            return;
-        }
-
-        // 查找 SlashHit 1 子物体
-        Transform slashHit1 = dashSlashEffect.Find("SlashHit 1");
-        if (slashHit1 == null)
-        {
-            Log.Error($"DashSlash Effect 未找到 SlashHit 1 子物体");
-            return;
-        }
-
-        // 获取 DamageHero 组件
-        var damageHero = slashHit1.GetComponent<DamageHero>();
-        if (damageHero == null)
-        {
-            Log.Error($"SlashHit 1 上未找到 DamageHero 组件");
-            return;
-        }
-
-        // 设置到 SilkBallManager（直接传递 DamageHero 组件）
-        silkBallManager.SetDamageHeroComponent(damageHero);
-        Log.Info($"成功从 Boss 的 DashSlash Effect/SlashHit 1 缓存 DamageHero 组件到 SilkBallManager");
-    }
 
     #region 移动丝球攻击状态创建
 
@@ -205,7 +160,7 @@ internal class BossBehavior : MonoBehaviour
 
         // 创建移动丝球攻击状态链
         CreateSilkBallDashStates();
-        ModifyOriginFsm();
+        // ModifyOriginFsm();
         
         // 添加大丝球大招锁定状态
         CreateBigSilkBallLockState();
@@ -218,6 +173,9 @@ internal class BossBehavior : MonoBehaviour
 
         // 添加眩晕时的丝球清理逻辑
         AddStunInterruptHandling();
+        
+        // 为移动丝球状态添加全局中断监听
+        AddDashStatesGlobalInterruptHandling();
 
         Log.Info("Boss Control FSM修改完成");
     }
@@ -954,25 +912,25 @@ internal class BossBehavior : MonoBehaviour
     /// <summary>
     /// 修改原版FSM，在Idle状态添加恢复Dash动画fps的逻辑
     /// </summary>
-    public void ModifyOriginFsm()
-    {
-        // 0. 恢复原版Dash动画的fps（在Idle状态开头）
-        var originalIdleState = _bossControlFsm!.FsmStates.FirstOrDefault(s => s.Name == "Idle");
-        if (originalIdleState == null)
-        {
-            Log.Error("未找到原版Idle状态");
-            return;
-        }
-        var actions = originalIdleState.Actions.ToList();
-        actions.Insert(0, new CallMethod
-        {
-            behaviour = this,
-            methodName = nameof(RestoreOriginalDashFps),
-            parameters = new FsmVar[0],
-            everyFrame = false
-        });
-        originalIdleState.Actions = actions.ToArray();
-    }
+    // public void ModifyOriginFsm()
+    // {
+    //     // 0. 恢复原版Dash动画的fps（在Idle状态开头）
+    //     var originalIdleState = _bossControlFsm!.FsmStates.FirstOrDefault(s => s.Name == "Idle");
+    //     if (originalIdleState == null)
+    //     {
+    //         Log.Error("未找到原版Idle状态");
+    //         return;
+    //     }
+    //     var actions = originalIdleState.Actions.ToList();
+    //     actions.Insert(0, new CallMethod
+    //     {
+    //         behaviour = this,
+    //         methodName = nameof(RestoreOriginalDashFps),
+    //         parameters = new FsmVar[0],
+    //         everyFrame = false
+    //     });
+    //     originalIdleState.Actions = actions.ToArray();
+    // }
 
     #endregion
 
@@ -1014,7 +972,7 @@ internal class BossBehavior : MonoBehaviour
         actions.Insert(0, new CallMethod
         {
             behaviour = this,
-            methodName = nameof(CleanupSilkBallsOnStun),
+            methodName = new FsmString("CleanupSilkBallsOnStun") { Value = "CleanupSilkBallsOnStun" },
             parameters = new FsmVar[0],
             everyFrame = false
         });
@@ -1034,8 +992,17 @@ internal class BossBehavior : MonoBehaviour
             everyFrame = false
         });
 
+        // 添加额外的状态同步方法调用（防止FSM状态不同步）
+        // actions.Insert(2, new CallMethod
+        // {
+        //     behaviour = this,
+        //     methodName = new FsmString("SyncAttackControlStateOnStun") { Value = "SyncAttackControlStateOnStun" },
+        //     parameters = new FsmVar[0],
+        //     everyFrame = false
+        // });
+
         stunStaggerState.Actions = actions.ToArray();
-        Log.Info("已在 Stun Stagger 状态添加丝球清理和中断事件发送");
+        Log.Info("已在 Stun Stagger 状态添加丝球清理、中断事件和状态同步");
     }
 
     /// <summary>
@@ -1082,6 +1049,7 @@ internal class BossBehavior : MonoBehaviour
         if (_attackControlBehavior != null)
         {
             _attackControlBehavior.StopGeneratingSilkBall();
+            _attackControlBehavior.ClearActiveSilkBalls();
         }
 
         // 通过SilkBallManager清理所有丝球实例
@@ -1091,7 +1059,7 @@ internal class BossBehavior : MonoBehaviour
             var silkBallManager = managerObj.GetComponent<AnySilkBoss.Source.Managers.SilkBallManager>();
             if (silkBallManager != null)
             {
-                silkBallManager.DestroyAllActiveSilkBalls();
+                silkBallManager.RecycleAllActiveSilkBalls();
                 Log.Info("已通过SilkBallManager清理所有丝球");
             }
             else
@@ -1103,6 +1071,120 @@ internal class BossBehavior : MonoBehaviour
         {
             Log.Warn("未找到AnySilkBossManager GameObject");
         }
+    }
+
+    /// <summary>
+    /// 场景切换或销毁时的完全清理（更彻底）
+    /// </summary>
+    private void CleanupAllSilkBallsOnDestroy()
+    {
+        Log.Info("场景切换/对象销毁，执行完全清理");
+
+        // 停止所有协程
+        StopAllCoroutines();
+
+        // 停止移动丝球生成
+        if (_attackControlBehavior != null)
+        {
+            _attackControlBehavior.StopGeneratingSilkBall();
+            _attackControlBehavior.ClearActiveSilkBalls();
+            _attackControlBehavior.StopAllSilkBallCoroutines();
+        }
+
+        // 通过SilkBallManager清理所有丝球实例
+        var managerObj = GameObject.Find("AnySilkBossManager");
+        if (managerObj != null)
+        {
+            var silkBallManager = managerObj.GetComponent<AnySilkBoss.Source.Managers.SilkBallManager>();
+            if (silkBallManager != null)
+            {
+                silkBallManager.RecycleAllActiveSilkBalls();
+                Log.Info("完全清理：已通过SilkBallManager回收所有丝球");
+            }
+        }
+    }
+
+    /// <summary>
+    /// 眩晕时同步Attack Control FSM状态（防止两个FSM状态不同步）
+    /// 这是关键方法，确保Attack Control能正确感知Control FSM的状态变化
+    /// </summary>
+    // public void SyncAttackControlStateOnStun()
+    // {
+    //     Log.Info("眩晕时同步Attack Control FSM状态");
+
+    //     // 获取AttackControlBehavior
+    //     if (_attackControlBehavior != null)
+    //     {
+    //         // 调用AttackControl的状态同步方法
+    //         _attackControlBehavior.OnStunInterruptDashState();
+    //         Log.Info("已调用AttackControl的状态同步方法");
+    //     }
+    //     else
+    //     {
+    //         Log.Warn("AttackControlBehavior为null，无法同步状态");
+    //     }
+    // }
+
+    /// <summary>
+    /// 为移动丝球的所有Dash状态添加全局中断监听
+    /// 确保眩晕时能正确中断移动状态
+    /// </summary>
+    private void AddDashStatesGlobalInterruptHandling()
+    {
+        if (_bossControlFsm == null) return;
+
+        Log.Info("=== 为移动丝球状态添加全局中断监听 ===");
+
+        // 找到Idle状态作为中断目标
+        var idleState = _bossControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Idle");
+        if (idleState == null)
+        {
+            Log.Error("未找到Idle状态，无法添加中断监听");
+            return;
+        }
+
+        // 获取所有需要添加中断的状态
+        var dashStates = new[]
+        {
+            "Dash Antic 0", "Dash To Point 0", "Idle At Point 0",
+            "Dash Antic 1", "Dash To Point 1", "Idle At Point 1",
+            "Dash Antic 2", "Dash To Point 2"
+        };
+
+        var interruptEvent = FsmEvent.GetFsmEvent("SILK BALL INTERRUPT");
+        
+        foreach (var stateName in dashStates)
+        {
+            var state = _bossControlFsm.FsmStates.FirstOrDefault(s => s.Name == stateName);
+            if (state == null)
+            {
+                Log.Warn($"未找到状态: {stateName}");
+                continue;
+            }
+
+            // 添加中断转换到现有转换列表
+            var transitions = state.Transitions.ToList();
+            
+            // 检查是否已存在该事件的转换
+            if (!transitions.Any(t => t.FsmEvent == interruptEvent))
+            {
+                transitions.Add(new FsmTransition
+                {
+                    FsmEvent = interruptEvent,
+                    toState = "Idle",
+                    toFsmState = idleState
+                });
+                
+                state.Transitions = transitions.ToArray();
+                Log.Info($"已为状态 {stateName} 添加中断转换");
+            }
+        }
+
+        // 重新初始化FSM
+        _bossControlFsm.Fsm.InitData();
+        _bossControlFsm.Fsm.InitEvents();
+
+        Log.Info("移动丝球状态全局中断监听添加完成");
     }
 
     #endregion
@@ -1423,10 +1505,10 @@ internal class BossBehavior : MonoBehaviour
         
         Vector3 playerPos = hero.transform.position;
         
-        // 漫游边界
+        // 漫游边界 - 调整为玩家上方12-22单位
         float minX = 25f;
         float maxX = 55f;
-        float minY = playerPos.y + 20f;  // 玩家上方20单位
+        float minY = playerPos.y + 12f;  // 玩家上方12单位
         float maxY = 145f;                // 房间顶部
         
         // 随机选择目标（玩家上方附近）
@@ -1437,13 +1519,13 @@ internal class BossBehavior : MonoBehaviour
         );
         
         float targetY = Mathf.Clamp(
-            playerPos.y + 25f + UnityEngine.Random.Range(-5f, 5f), 
+            playerPos.y + 17f + UnityEngine.Random.Range(-5f, 5f), 
             minY, 
             maxY
         );
         
         _currentRoamTarget = new Vector3(targetX, targetY, 0f);
-        Log.Info($"选择漫游目标: {_currentRoamTarget}");
+        Log.Info($"选择漫游目标: {_currentRoamTarget}（玩家上方12-22单位）");
     }
 
     /// <summary>

@@ -23,10 +23,6 @@ namespace AnySilkBoss.Source.Managers
         private AssetManager? _assetManager;
         private bool _initialized = false;
 
-        // 从 Boss 的 DashSlash Effect 缓存的 DamageHero 组件
-        private DamageHero? _originalDamageHero;
-        public DamageHero? OriginalDamageHero => _originalDamageHero;
-
         // 音效参数缓存
         private FsmObject? _initAudioTable;
         private FsmObject? _initAudioPlayerPrefab;
@@ -37,11 +33,32 @@ namespace AnySilkBoss.Source.Managers
         public FsmObject? InitAudioPlayerPrefab => _initAudioPlayerPrefab;
         public FsmObject? GetSilkAudioTable => _getSilkAudioTable;
         public FsmObject? GetSilkAudioPlayerPrefab => _getSilkAudioPlayerPrefab;
+
+        // 对象池
+        private readonly List<SilkBallBehavior> _silkBallPool = new List<SilkBallBehavior>();
+        private GameObject? _poolContainer;
+        
+        // 自动补充池机制（默认不启用）
+        private bool _enableAutoPooling = true;
+        private const int MIN_POOL_SIZE = 80;
+        private const float POOL_GENERATION_INTERVAL = 0.1f;
         #endregion
 
         private void Start()
         {
             StartCoroutine(Initialize());
+        }
+
+        private void OnDestroy()
+        {
+            // 场景切换或对象销毁时清理所有丝球
+            CleanupAllSilkBallsOnDestroy();
+        }
+
+        private void OnDisable()
+        {
+            // 对象禁用时也清理丝球
+            CleanupAllSilkBallsOnDestroy();
         }
 
         #region Initialization
@@ -75,32 +92,27 @@ namespace AnySilkBoss.Source.Managers
             // 创建自定义丝球预制体
             yield return CreateCustomSilkBallPrefab();
 
+            // 创建对象池容器
+            CreatePoolContainer();
+
             _initialized = true;
             Log.Info("SilkBallManager initialization completed.");
+            
+            // 启动自动补充池机制（默认不启用，可通过设置 _enableAutoPooling = true 来启用）
+            StartCoroutine(AutoPoolGeneration());
         }
 
         /// <summary>
-        /// 由 BossBehavior 调用，设置 DamageHero 组件
+        /// 创建对象池容器
         /// </summary>
-        public void SetDamageHeroComponent(DamageHero damageHero)
+        private void CreatePoolContainer()
         {
-            if (_originalDamageHero != null)
-            {
-                Log.Info("DamageHero 组件已存在，跳过设置");
-                return;
-            }
-
-            _originalDamageHero = damageHero;
-            Log.Info($"成功设置 DamageHero 组件，监听器数量: {damageHero?.OnDamagedHero?.GetPersistentEventCount() ?? 0}");
+            _poolContainer = new GameObject("SilkBall Pool");
+            _poolContainer.transform.SetParent(transform);
+            // DontDestroyOnLoad(_poolContainer);
+            Log.Info("已创建丝球对象池容器（不随场景销毁）");
         }
 
-        /// <summary>
-        /// 检查 DamageHero 组件是否已设置
-        /// </summary>
-        public bool HasDamageHeroEvent()
-        {
-            return _originalDamageHero != null;
-        }
 
         /// <summary>
         /// 创建自定义丝球预制体
@@ -118,7 +130,6 @@ namespace AnySilkBoss.Source.Managers
             }
 
             Log.Info($"成功获取原版丝球预制体: {originalPrefab.name}");
-            LogOriginalPrefabStructure(originalPrefab);
 
             // 复制一份预制体
             _customSilkBallPrefab = Object.Instantiate(originalPrefab);
@@ -153,34 +164,6 @@ namespace AnySilkBoss.Source.Managers
 
             Log.Info($"=== 自定义丝球预制体创建完成: {_customSilkBallPrefab.name} ===");
             yield return null;
-        }
-
-        /// <summary>
-        /// 记录原版预制体结构
-        /// </summary>
-        private void LogOriginalPrefabStructure(GameObject prefab)
-        {
-            Log.Info("--- 原版预制体结构分析 ---");
-
-            // 根物体组件
-            Log.Info($"根物体: {prefab.name}");
-            var rootComponents = prefab.GetComponents<Component>();
-            foreach (var comp in rootComponents)
-            {
-                Log.Info($"  组件: {comp.GetType().Name}");
-            }
-
-            // 子物体
-            Log.Info("子物体列表:");
-            foreach (Transform child in prefab.transform)
-            {
-                Log.Info($"  子物体: {child.name}");
-                var childComponents = child.GetComponents<Component>();
-                foreach (var comp in childComponents)
-                {
-                    Log.Info($"    组件: {comp.GetType().Name}");
-                }
-            }
         }
 
         /// <summary>
@@ -334,18 +317,18 @@ namespace AnySilkBoss.Source.Managers
             }
 
             // 提取 Init 状态的 PlayRandomAudioClipTable 参数
-            ExtractPlayRandomAudioClipTableParams(controlFsm, "Init", 
+            ExtractPlayRandomAudioClipTableParams(controlFsm, "Init",
                 out _initAudioTable, out _initAudioPlayerPrefab);
 
             // 提取 Get Silk 状态的 PlayRandomAudioClipTable 参数
-            ExtractPlayRandomAudioClipTableParams(controlFsm, "Get Silk", 
+            ExtractPlayRandomAudioClipTableParams(controlFsm, "Get Silk",
                 out _getSilkAudioTable, out _getSilkAudioPlayerPrefab);
         }
 
         /// <summary>
         /// 从 PlayRandomAudioClipTable 动作中提取参数
         /// </summary>
-        private void ExtractPlayRandomAudioClipTableParams(PlayMakerFSM fsm, string stateName, 
+        private void ExtractPlayRandomAudioClipTableParams(PlayMakerFSM fsm, string stateName,
             out FsmObject? table, out FsmObject? audioPlayerPrefab)
         {
             table = null;
@@ -394,7 +377,6 @@ namespace AnySilkBoss.Source.Managers
         {
             if (_customSilkBallPrefab == null) return;
 
-            Log.Info("--- 移除原版 FSM ---");
 
             var oldFSMs = _customSilkBallPrefab.GetComponents<PlayMakerFSM>();
             foreach (var fsm in oldFSMs)
@@ -406,61 +388,209 @@ namespace AnySilkBoss.Source.Managers
         #endregion
 
         /// <summary>
-        /// 实例化一个丝球（基础版本）
+        /// 从对象池获取可用丝球（如果没有则创建新实例）
         /// </summary>
-        public GameObject? SpawnSilkBall(Vector3 position)
+        private SilkBallBehavior? GetAvailableSilkBall()
+        {
+            // 先查找池中可用的丝球
+            var availableBall = _silkBallPool.FirstOrDefault(b => b != null && b.IsAvailable);
+
+            if (availableBall != null)
+            {
+                Log.Info($"从池中获取可用丝球: {availableBall.gameObject.name}");
+                return availableBall;
+            }
+
+            // 没有可用的，创建新实例
+            Log.Info($"池中无可用丝球，创建新实例... (当前池大小: {_silkBallPool.Count})");
+            
+            // 调试：输出池中所有丝球的状态
+            for (int i = 0; i < _silkBallPool.Count; i++)
+            {
+                var ball = _silkBallPool[i];
+                if (ball != null)
+                {
+                    Log.Info($"  池中丝球 #{i}: {ball.gameObject.name}, IsAvailable={ball.IsAvailable}, isActive={ball.isActive}");
+                }
+                else
+                {
+                    Log.Warn($"  池中丝球 #{i}: null");
+                }
+            }
+            
+            return CreateNewSilkBallInstance();
+        }
+
+        /// <summary>
+        /// 创建新的丝球实例并加入池中
+        /// </summary>
+        private SilkBallBehavior? CreateNewSilkBallInstance()
+        {
+            if (_customSilkBallPrefab == null)
+            {
+                Log.Error("自定义丝球预制体未初始化，无法创建实例");
+                return null;
+            }
+
+            if (_poolContainer == null)
+            {
+                Log.Error("对象池容器未初始化，无法创建实例");
+                return null;
+            }
+
+            // 克隆预制体（作为池容器的子对象）
+            var silkBallInstance = Object.Instantiate(_customSilkBallPrefab, _poolContainer.transform);
+            silkBallInstance.name = $"Silk Ball #{_silkBallPool.Count}";
+
+            // 获取 Behavior 组件
+            var behavior = silkBallInstance.GetComponent<SilkBallBehavior>();
+            if (behavior == null)
+            {
+                Log.Error("丝球实例没有 SilkBallBehavior 组件！");
+                Object.Destroy(silkBallInstance);
+                return null;
+            }
+
+            // 初始化 Behavior（只初始化一次，传入管理器引用）
+            behavior.InitializeOnce(_poolContainer.transform, this);
+
+            // 加入池中
+            _silkBallPool.Add(behavior);
+
+            Log.Info($"创建新丝球实例: {silkBallInstance.name}，当前池大小: {_silkBallPool.Count}");
+            return behavior;
+        }
+
+        /// <summary>
+        /// 生成并准备丝球（基础版本）
+        /// </summary>
+        public SilkBallBehavior? SpawnSilkBall(Vector3 position)
         {
             return SpawnSilkBall(position, 30f, 20f, 6f, 1f);
         }
 
         /// <summary>
-        /// 实例化一个丝球（完整参数版本）
+        /// 生成并准备丝球（完整参数版本）
         /// </summary>
-        public GameObject? SpawnSilkBall(Vector3 position, float acceleration, float maxSpeed, float chaseTime, float scale)
+        public SilkBallBehavior? SpawnSilkBall(Vector3 position, float acceleration, float maxSpeed, float chaseTime, float scale, bool enableRotation = true, Transform? customTarget = null, bool ignoreWall = false)
         {
-            if (_customSilkBallPrefab == null)
+            // 从池中获取可用丝球
+            var behavior = GetAvailableSilkBall();
+            if (behavior == null)
             {
-                Log.Error("自定义丝球预制体未初始化");
+                Log.Error("无法获取可用丝球，生成失败");
                 return null;
             }
 
-            var silkBall = Object.Instantiate(_customSilkBallPrefab);
-            silkBall.transform.position = position;
-            silkBall.SetActive(true);
+            // 准备丝球
+            behavior.PrepareForUse(position, acceleration, maxSpeed, chaseTime, scale, enableRotation, customTarget, ignoreWall);
 
-            Log.Info($"实例化丝球到位置: {position}, 参数: acc={acceleration}, maxSpd={maxSpeed}, chase={chaseTime}, scale={scale}");
-            return silkBall;
+            Log.Debug($"已生成丝球: {behavior.gameObject.name} at {position}");
+            return behavior;
         }
 
         /// <summary>
-        /// 清理场景中所有活跃的丝球（不删除预制体）
+        /// 回收所有活跃的丝球到对象池
         /// </summary>
-        public void DestroyAllActiveSilkBalls()
+        public void RecycleAllActiveSilkBalls()
         {
-            if (_customSilkBallPrefab == null)
-            {
-                Log.Warn("自定义丝球预制体未初始化，无法清理");
-                return;
-            }
+            int recycledCount = 0;
 
-            // 查找所有活跃的丝球实例（通过SilkBallBehavior组件识别）
-            var allSilkBalls = FindObjectsByType<SilkBallBehavior>(FindObjectsSortMode.None);
-            int destroyedCount = 0;
-
-            foreach (var silkBallBehavior in allSilkBalls)
+            foreach (var behavior in _silkBallPool)
             {
-                if (silkBallBehavior != null && silkBallBehavior.gameObject != null)
+                if (behavior != null && behavior.isActive)
                 {
-                    // 确保不是预制体本身
-                    if (silkBallBehavior.gameObject != _customSilkBallPrefab)
-                    {
-                        Object.Destroy(silkBallBehavior.gameObject);
-                        destroyedCount++;
-                    }
+                    behavior.RecycleToPool();
+                    recycledCount++;
                 }
             }
 
-            Log.Info($"已清理场景中的丝球实例，共销毁 {destroyedCount} 个");
+            Log.Info($"已回收所有活跃丝球到对象池，共 {recycledCount} 个");
+        }
+
+        /// <summary>
+        /// 查看对象池状态（调试用）
+        /// </summary>
+        public void LogPoolStatus()
+        {
+            int available = _silkBallPool.Count(b => b != null && b.IsAvailable);
+            int active = _silkBallPool.Count(b => b != null && b.isActive);
+
+            Log.Info("=== 丝球对象池状态 ===");
+            Log.Info($"  总数: {_silkBallPool.Count}");
+            Log.Info($"  可用: {available}");
+            Log.Info($"  活跃中: {active}");
+        }
+
+        /// <summary>
+        /// 自动补充对象池机制
+        /// 如果池内数量小于 MIN_POOL_SIZE，则每 POOL_GENERATION_INTERVAL 秒生成一个到池子里
+        /// </summary>
+        private IEnumerator AutoPoolGeneration()
+        {
+            while (true)
+            {
+                // 等待间隔时间
+                yield return new WaitForSeconds(POOL_GENERATION_INTERVAL);
+                
+                // 如果未启用，跳过本次检查
+                if (!_enableAutoPooling)
+                {
+                    continue;
+                }
+                
+                // 如果未初始化完成，跳过本次检查
+                if (!_initialized || _customSilkBallPrefab == null || _poolContainer == null)
+                {
+                    continue;
+                }
+                
+                // 统计池中实际存在的对象数量（排除 null）
+                int currentPoolSize = _silkBallPool.Count(b => b != null);
+                
+                // 如果池内数量小于最小值，生成一个新实例到池中
+                if (currentPoolSize < MIN_POOL_SIZE)
+                {
+                    var newBall = CreateNewSilkBallInstance();
+                    if (newBall != null)
+                    {
+                        // 创建后立即回收，使其处于可用状态
+                        newBall.RecycleToPool();
+                        Log.Debug($"自动补充池：生成新丝球，当前池大小: {currentPoolSize + 1}/{MIN_POOL_SIZE}");
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 场景切换或销毁时的完全清理（更彻底）
+        /// </summary>
+        private void CleanupAllSilkBallsOnDestroy()
+        {
+            Log.Info("SilkBallManager场景切换/销毁，执行完全清理");
+
+            // 停止所有协程
+            StopAllCoroutines();
+
+            // 回收所有活跃丝球
+            RecycleAllActiveSilkBalls();
+
+            // 清空池列表
+            if (_silkBallPool != null)
+            {
+                _silkBallPool.Clear();
+                Log.Info("已清空丝球对象池");
+            }
+
+            // 销毁池容器
+            if (_poolContainer != null)
+            {
+                UnityEngine.Object.Destroy(_poolContainer);
+                _poolContainer = null;
+                Log.Info("已销毁丝球对象池容器");
+            }
+
+            _initialized = false;
         }
     }
 }

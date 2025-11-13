@@ -2,6 +2,7 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Text;
 using AnySilkBoss.Source.Behaviours;
+using AnySilkBoss.Source.Managers;
 using HarmonyLib;
 using HutongGames.PlayMaker.Actions;
 using TeamCherry.Localization;
@@ -35,15 +36,6 @@ internal static class BossPatches
                 __instance.gameObject.AddComponent<BossBehavior>();
                 Log.Info("检测到没有BossBehavior组件，添加BossBehavior组件");
             }
-            // if (__instance.gameObject.GetComponent<NeedleController>() == null)
-            // {
-            //     __instance.gameObject.AddComponent<NeedleController>();
-            // }
-            
-            // if (__instance.gameObject.GetComponent<GlobalEventHandler>() == null)
-            // {
-            //     __instance.gameObject.AddComponent<GlobalEventHandler>();
-            // }
         }
         //晕眩控制器
         else if (__instance.name == "Silk Boss" && __instance.FsmName == "Stun Control")

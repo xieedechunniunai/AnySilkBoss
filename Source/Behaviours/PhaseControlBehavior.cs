@@ -1524,7 +1524,18 @@ namespace AnySilkBoss.Source.Behaviours
         {
             SendEventToAllFingerBlades("BLADES RETURN");
         }
-
+        /// <summary>
+        /// 向所有六根针发送BLADES RETURN事件（供FSM CallMethod无参数调用）
+        /// </summary>
+        public void SendBladesReturnDelay()
+        {
+            StartCoroutine(SendBladesReturnDelayCoroutine());
+        }
+        private IEnumerator SendBladesReturnDelayCoroutine()
+        {
+            yield return new WaitForSeconds(3f);
+            SendBladesReturnToAllFingerBlades();
+        }
         /// <summary>
         /// 保存Boss原始图层
         /// </summary>
@@ -2213,7 +2224,7 @@ namespace AnySilkBoss.Source.Behaviours
             // 延后跳转，等待玩家稳定（避免玩家跳跃导致检测错误）
             actions.Add(new Wait
             {
-                time = new FsmFloat(0.5f),
+                time = new FsmFloat(1.5f),
                 finishEvent = FsmEvent.Finished
             });
 
@@ -2241,7 +2252,12 @@ namespace AnySilkBoss.Source.Behaviours
                 delay = new FsmFloat(0f),
                 everyFrame = false
             });
-
+            actions.Add(new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("SendBladesReturnDelay") { Value = "SendBladesReturnDelay" },
+                parameters = new FsmVar[0]
+            });
             // 通知Attack Control开始爬升阶段攻击
             actions.Add(new SendEventByName
             {
@@ -2489,19 +2505,18 @@ namespace AnySilkBoss.Source.Behaviours
             }
             
             Log.Info($"玩家落地，最终位置: {hero.transform.position.y}");
-            
+            rb.linearVelocity = new Vector2(0f, rb.linearVelocity.y);
             
             // 11. 播放恢复动画序列
             if (tk2dAnimator != null)
             {
                 tk2dAnimator.Play("FallToProstrate");
-                yield return new WaitForSeconds(0.5f);
+                yield return new WaitForSeconds(1f);
                 
                 tk2dAnimator.Play("ProstrateRiseToKneel");
-                yield return new WaitForSeconds(0.5f);
+                yield return new WaitForSeconds(1f);
                 
                 tk2dAnimator.Play("GetUpToIdle");
-                yield return new WaitForSeconds(0.5f);
             }
             
             // 12. 恢复玩家控制和动画控制
@@ -2541,13 +2556,68 @@ namespace AnySilkBoss.Source.Behaviours
                     rb.linearVelocity = new Vector2(0f, rb.linearVelocity.y);
                 }
             }
+
+            // 处理collapse_gate：当玩家X > 20时恢复GameObject但禁用Animator
+            HandleCollapseGateDuringClimb(pos.x);
             
             // 检测玩家是否到达目标高度
             if (pos.y >= 133.5f)
             {
                 _climbCompleteEventSent = true;
+                _climbPhaseCompleted = true;  // 标记爬升完成
                 _phaseControl.SendEvent("CLIMB COMPLETE");
-                Log.Info("玩家到达目标高度，发送 CLIMB COMPLETE 事件");
+                Log.Info("玩家到达目标高度，爬升阶段完成，发送 CLIMB COMPLETE 事件");
+            }
+        }
+
+        private GameObject? _collapseGate;
+        private bool _collapseGateDisabled = false;
+        private bool _climbPhaseCompleted = false;
+
+        /// <summary>
+        /// 处理collapse_gate的启用/禁用逻辑
+        /// </summary>
+        private void HandleCollapseGateDuringClimb(float playerX)
+        {
+            // 首次查找collapse_gate
+            if (_collapseGate == null)
+            {
+                var bossScene = GameObject.Find("Boss Scene");
+                if (bossScene != null)
+                {
+                    var battleGate = bossScene.transform.Find("Battle Gate");
+                    if (battleGate != null)
+                    {
+                        _collapseGate = battleGate.Find("boss_scene_collapse_gate")?.gameObject;
+                    }
+                }
+            }
+
+            if (_collapseGate == null) return;
+
+            // 进入爬升阶段时禁用collapse_gate及其Animator
+            if (!_collapseGateDisabled)
+            {
+                _collapseGate.SetActive(false);
+                var animator = _collapseGate.GetComponent<Animator>();
+                if (animator != null)
+                {
+                    animator.enabled = false;
+                }
+                _collapseGateDisabled = true;
+                Log.Info("已禁用collapse_gate和其Animator");
+            }
+
+            // 爬升完成后（Y >= 133.5f），检测X > 20时恢复GameObject但禁用Animator
+            if (_climbPhaseCompleted && playerX > 20f && !_collapseGate.activeSelf)
+            {
+                _collapseGate.SetActive(true);
+                var animator = _collapseGate.GetComponent<Animator>();
+                if (animator != null)
+                {
+                    animator.enabled = false;
+                }
+                Log.Info("爬升完成后恢复collapse_gate GameObject，但Animator仍禁用");
             }
         }
 
@@ -2557,6 +2627,8 @@ namespace AnySilkBoss.Source.Behaviours
         public void ResetClimbPhaseFlags()
         {
             _climbCompleteEventSent = false;
+            _climbPhaseCompleted = false;
+            _collapseGateDisabled = false;
             Log.Info("爬升阶段标志已重置");
         }
         #endregion

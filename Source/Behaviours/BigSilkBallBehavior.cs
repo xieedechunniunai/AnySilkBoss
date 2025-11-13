@@ -62,7 +62,7 @@ namespace AnySilkBoss.Source.Behaviours
         public float shootSpeed = 23f;           // 抛射基础速度
         public float shootSpeedRandomRange = 8f; // 速度随机范围（±单位/秒）
         public float shootAngleRandomRange = 15f; // 角度随机范围（±度）
-        public float shootGravityScale = 0.3f;   // 抛射重力缩放
+        public float shootGravityScale = 0.35f;   // 抛射重力缩放
         
         // 7波抛射配置：(生成角度, 生成半径倍数, 抛射角度, 球数量, 波间隔)
         // 半径基于碰撞箱radius=5
@@ -74,7 +74,7 @@ namespace AnySilkBoss.Source.Behaviours
             (130f, 0.5f, 115f, 7, 0.6f),     // 第4波：10.40位置，半径一半，向11.10（左侧+2球）
             (0f, 0f, 60f, 4, 0.4f),          // 第5波：中心，向1.00
             (0f, 0f, 145f, 7, 1.3f),         // 第6波：中心，向10.10（左侧+2球）
-            (0f, 0f, 90f, 14, 0.6f)           // 第7波：中心，向正上方
+            (0f, 0f, 90f, 7, 0.6f)           // 第7波：中心，向正上方
         };
 
         [Header("最终爆炸参数")]
@@ -93,7 +93,6 @@ namespace AnySilkBoss.Source.Behaviours
         private PlayMakerFSM? controlFSM;
         private Animator? animator;
         private Managers.SilkBallManager? silkBallManager;
-        private Managers.BigSilkBallManager? bigSilkBallManager;  // 大丝球管理器引用（用于获取预生成池）
         
         [Header("内部引用")]
         public Transform? heartTransform;  // heart子物品的Transform，用于跟随BOSS（需要public供FSM Action访问）
@@ -196,11 +195,6 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 LogBigSilkBallFSMInfo();
             }
-
-            if (Input.GetKeyDown(KeyCode.Y))
-            {
-                AnalyzeAnimator();
-            }
         }
         
         /// <summary>
@@ -292,7 +286,7 @@ namespace AnySilkBoss.Source.Behaviours
                 }
             }
 
-            // 获取 SilkBallManager 和 BigSilkBallManager
+            // 获取 SilkBallManager
             var managerObj = GameObject.Find("AnySilkBossManager");
             if (managerObj != null)
             {
@@ -300,16 +294,6 @@ namespace AnySilkBoss.Source.Behaviours
                 if (silkBallManager == null)
                 {
                     Log.Warn("未找到 SilkBallManager 组件");
-                }
-                
-                bigSilkBallManager = managerObj.GetComponent<Managers.BigSilkBallManager>();
-                if (bigSilkBallManager == null)
-                {
-                    Log.Warn("未找到 BigSilkBallManager 组件");
-                }
-                else
-                {
-                    Log.Info($"成功获取 BigSilkBallManager，预生成池状态: {bigSilkBallManager.IsPoolInitialized()}");
                 }
             }
             else
@@ -849,17 +833,18 @@ namespace AnySilkBoss.Source.Behaviours
             
             if (!isAbsorbing)
             {
-                // 吸收阶段已结束，但仍然销毁还没来得及吸收的小丝球
-                Log.Info("吸收阶段已结束，销毁遗留的可吸收小丝球");
-                Destroy(silkBall.gameObject);
+                // 吸收阶段已结束，但仍然回收还没来得及吸收的小丝球
+                Log.Info("吸收阶段已结束，回收遗留的可吸收小丝球");
+                silkBall.RecycleToPoolWithZTransition();
                 return;
             }
             
             if (shouldStopSpawning)
             {
-                // 已经达到最大，不再增加缩放（但仍然吸收并销毁小丝球）
-                Log.Info($"已达到最大缩放，吸收但不增长");
-                Destroy(silkBall.gameObject);
+                // 已经达到最大，不再增加缩放
+                // 关键修复：立即回收这个丝球，不让它继续存在
+                Log.Info($"已达到最大缩放，立即回收超额丝球");
+                silkBall.RecycleToPoolWithZTransition();
                 return;
             }
 
@@ -886,8 +871,8 @@ namespace AnySilkBoss.Source.Behaviours
             
             Log.Info($"吸收小丝球 #{absorbedCount} - 当前缩放: {currentScale:F2}");
             
-            // 销毁小丝球
-            Destroy(silkBall.gameObject);
+            // 回收小丝球到对象池（Z轴过渡动画）
+            silkBall.RecycleToPoolWithZTransition();
         }
 
         /// <summary>
@@ -917,33 +902,27 @@ namespace AnySilkBoss.Source.Behaviours
             Vector3 spawnPosition = collisionBoxTransform.position + new Vector3(direction.x, direction.y, 0f) * absorbSpawnRadius;
             
             // 生成小丝球
-            var silkBall = silkBallManager.SpawnSilkBall(spawnPosition);
-            if (silkBall != null)
+            var behavior = silkBallManager.SpawnSilkBall(
+                spawnPosition,
+                acceleration: 10f,
+                maxSpeed: 15f,
+                chaseTime: 100f,  // 长时间追踪
+                scale: 1f,
+                enableRotation: true,
+                customTarget: collisionBoxTransform,  // 追踪碰撞箱
+                ignoreWall: true  // 忽略墙壁碰撞
+            );
+            
+            if (behavior != null)
             {
-                var behavior = silkBall.GetComponent<SilkBallBehavior>();
-                if (behavior != null)
-                {
-                    // 初始化为追踪大丝球碰撞箱，忽略墙壁碰撞
-                    behavior.Initialize(
-                        spawnPosition,
-                        acceleration: 10f,
-                        maxSpeed: 15f,
-                        chaseTime: 100f,  // 长时间追踪
-                        scale: 1f,
-                        enableRotation: true,
-                        customTarget: collisionBoxTransform,  // 追踪碰撞箱
-                        ignoreWall: true  // 忽略墙壁碰撞
-                    );
-                    
-                    // 标记为可被吸收（吸收阶段的小丝球）
-                    behavior.canBeAbsorbed = true;
-                    
-                    // 启动过期销毁机制（15秒后自动销毁，防止遗留）
-                    StartCoroutine(DestroyAbsorbBallAfterTimeout(silkBall, 15f));
-                    
-                    // 延迟释放并开始追踪（等待FSM初始化）
-                    StartCoroutine(ReleaseAbsorbBall(silkBall));
-                }
+                // 标记为可被吸收（吸收阶段的小丝球）
+                behavior.canBeAbsorbed = true;
+                
+                // 启动过期回收机制（15秒后自动回收，防止遗留）
+                StartCoroutine(RecycleAbsorbBallAfterTimeout(behavior, 15f));
+                
+                // 延迟发送PREPARE和RELEASE事件（等待FSM初始化）
+                StartCoroutine(ReleaseAbsorbBall(behavior.gameObject));
             }
         }
 
@@ -952,14 +931,18 @@ namespace AnySilkBoss.Source.Behaviours
         /// </summary>
         private IEnumerator ReleaseAbsorbBall(GameObject silkBall)
         {
-            // 等待几帧确保FSM完全初始化
-            yield return new WaitForSeconds(0.1f);
+            // 等待一帧确保FSM完全初始化
+            yield return null;
             
             if (silkBall != null)
             {
                 var fsm = silkBall.GetComponent<PlayMakerFSM>();
                 if (fsm != null)
                 {
+                    // 先发送PREPARE事件
+                    fsm.SendEvent("PREPARE");
+                    yield return new WaitForSeconds(0.1f);
+                    // 再发送RELEASE事件
                     fsm.SendEvent("SILK BALL RELEASE");
                     Log.Info($"小丝球已释放，开始追踪大丝球");
                 }
@@ -967,16 +950,16 @@ namespace AnySilkBoss.Source.Behaviours
         }
 
         /// <summary>
-        /// 过期销毁吸收小丝球（防止遗留）
+        /// 过期回收吸收小丝球（防止遗留）
         /// </summary>
-        private IEnumerator DestroyAbsorbBallAfterTimeout(GameObject silkBall, float timeout)
+        private IEnumerator RecycleAbsorbBallAfterTimeout(SilkBallBehavior behavior, float timeout)
         {
             yield return new WaitForSeconds(timeout);
             
-            if (silkBall != null)
+            if (behavior != null && behavior.gameObject != null)
             {
-                Log.Info($"吸收小丝球超时 ({timeout}秒)，自动销毁");
-                Destroy(silkBall);
+                Log.Info($"吸收小丝球超时 ({timeout}秒)，自动回收");
+                behavior.RecycleToPoolWithZTransition();
             }
         }
 
@@ -1052,24 +1035,21 @@ namespace AnySilkBoss.Source.Behaviours
             float finalShootSpeed = shootSpeed + speedOffset;
             
             // 生成小丝球
-            var silkBall = silkBallManager.SpawnSilkBall(spawnPosition);
-            if (silkBall != null)
+            var behavior = silkBallManager.SpawnSilkBall(
+                spawnPosition,
+                acceleration: 0f,     // 不追踪
+                maxSpeed: finalShootSpeed,
+                chaseTime: 10f,
+                scale: 1f,
+                enableRotation: true
+            );
+            
+            if (behavior != null)
             {
-                var behavior = silkBall.GetComponent<SilkBallBehavior>();
-                var rb = silkBall.GetComponent<Rigidbody2D>();
+                var rb = behavior.GetComponent<Rigidbody2D>();
                 
-                if (behavior != null && rb != null)
+                if (rb != null)
                 {
-                    // 初始化为重力模式，不追踪玩家
-                    behavior.Initialize(
-                        spawnPosition,
-                        acceleration: 0f,     // 不追踪
-                        maxSpeed: finalShootSpeed,
-                        chaseTime: 10f,
-                        scale: 1f,
-                        enableRotation: true
-                    );
-
                     // 设置重力（抛射阶段使用shootGravityScale）
                     rb.gravityScale = shootGravityScale+Random.Range(-0.1f, 0.1f);
                     rb.bodyType = RigidbodyType2D.Dynamic;
@@ -1078,22 +1058,29 @@ namespace AnySilkBoss.Source.Behaviours
                     behavior.StartProtectionTime(1f);
                     
                     // 切换到重力状态并设置初始速度
-                    var fsm = silkBall.GetComponent<PlayMakerFSM>();
+                    var fsm = behavior.GetComponent<PlayMakerFSM>();
                     if (fsm != null)
                     {
-                        fsm.SendEvent("SILK BALL RELEASE");
-                        StartCoroutine(SetShootBallVelocity(fsm, rb, shootDirection * finalShootSpeed));
+                        // 先发送PREPARE事件
+                        fsm.SendEvent("PREPARE");
+                        // 延迟后发送RELEASE事件并设置速度
+                        StartCoroutine(SetShootBallVelocityWithPrepare(fsm, rb, shootDirection * finalShootSpeed));
                     }
                 }
             }
         }
 
         /// <summary>
-        /// 设置抛射小丝球的速度
+        /// 设置抛射小丝球的速度（带PREPARE事件）
         /// </summary>
-        private IEnumerator SetShootBallVelocity(PlayMakerFSM fsm, Rigidbody2D rb, Vector2 velocity)
+        private IEnumerator SetShootBallVelocityWithPrepare(PlayMakerFSM fsm, Rigidbody2D rb, Vector2 velocity)
         {
+            // 等待PREPARE完成
             yield return new WaitForSeconds(0.1f);
+            // 发送RELEASE事件
+            fsm.SendEvent("SILK BALL RELEASE");
+            // 切换到重力状态
+            yield return new WaitForSeconds(0.05f);
             fsm.Fsm.SetState("Has Gravity");
             yield return null;
             if (rb != null)
@@ -1184,47 +1171,22 @@ namespace AnySilkBoss.Source.Behaviours
             // 从碰撞箱位置计算生成位置
             Vector3 spawnPosition = collisionBoxTransform.position + new Vector3(direction.x, direction.y, 0f) * radius;
             
-            // 优先从BigSilkBallManager的预生成池获取小丝球，如果池为空则直接生成
-            GameObject? silkBall = null;
-            if (bigSilkBallManager != null && bigSilkBallManager.IsPoolInitialized())
-            {
-                silkBall = bigSilkBallManager.GetPooledSilkBall(spawnPosition);
-            }
+            // 直接从 SilkBallManager 的对象池生成小丝球
+            var behavior = silkBallManager.SpawnSilkBall(
+                spawnPosition,
+                acceleration: 0f,
+                maxSpeed: burstSpeed,
+                chaseTime: 10f,
+                scale: 1f,
+                enableRotation: true
+            );
             
-            if (silkBall == null)
+            if (behavior != null)
             {
-                // 池为空或未初始化，直接生成新的
-                if (silkBallManager != null)
-                {
-                    silkBall = silkBallManager.SpawnSilkBall(spawnPosition);
-                    if (bigSilkBallManager != null)
-                    {
-                        Log.Warn($"预生成池已用尽，直接生成新的小丝球（剩余: {bigSilkBallManager.GetPoolRemainingCount()}）");
-                    }
-                    else
-                    {
-                        Log.Warn("BigSilkBallManager未找到，直接生成新的小丝球");
-                    }
-                }
-            }
-            
-            if (silkBall != null)
-            {
-                var behavior = silkBall.GetComponent<SilkBallBehavior>();
-                var rb = silkBall.GetComponent<Rigidbody2D>();
+                var rb = behavior.GetComponent<Rigidbody2D>();
                 
-                if (behavior != null && rb != null)
+                if (rb != null)
                 {
-                    // 初始化但不立即追踪
-                    behavior.Initialize(
-                        spawnPosition,
-                        acceleration: 0f,
-                        maxSpeed: burstSpeed,
-                        chaseTime: 10f,
-                        scale: 1f,
-                        enableRotation: true
-                    );
-
                     // 设置重力为0（最终爆炸只需径向速度）
                     rb.gravityScale = finalBurstGravityScale;
                     rb.bodyType = RigidbodyType2D.Dynamic;
@@ -1234,25 +1196,28 @@ namespace AnySilkBoss.Source.Behaviours
                     behavior.StartProtectionTime(1f);
                     
                     // 释放但保持静止
-                    var fsm = silkBall.GetComponent<PlayMakerFSM>();
+                    var fsm = behavior.GetComponent<PlayMakerFSM>();
                     if (fsm != null)
                     {
-                        fsm.SendEvent("SILK BALL RELEASE");
-                        StartCoroutine(SetToGravityStateStatic(fsm));
+                        // 先发送PREPARE事件
+                        fsm.SendEvent("PREPARE");
+                        // 延迟后发送RELEASE事件
+                        StartCoroutine(SetToGravityStateStaticWithPrepare(fsm));
                     }
                     
-                    return silkBall;
+                    return behavior.gameObject;
                 }
-                }
+            }
             
             return null;
         }
 
         /// <summary>
-        /// 设置小丝球到重力状态但保持静止
+        /// 设置小丝球到重力状态但保持静止（带PREPARE事件）
         /// </summary>
-        private IEnumerator SetToGravityStateStatic(PlayMakerFSM fsm)
+        private IEnumerator SetToGravityStateStaticWithPrepare(PlayMakerFSM fsm)
         {
+            // 等待PREPARE完成
             yield return new WaitForSeconds(0.1f);
             
             // 检查FSM是否还存在（小丝球可能已被销毁）

@@ -4,6 +4,7 @@ using UnityEngine;
 using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
 using AnySilkBoss.Source.Tools;
+using System.Collections.Generic;
 using System;
 
 namespace AnySilkBoss.Source.Behaviours
@@ -33,6 +34,10 @@ namespace AnySilkBoss.Source.Behaviours
         public bool ignoreWallCollision = false;  // 是否忽略墙壁碰撞（用于追踪大丝球的小丝球）
         private bool isProtected = false;         // 是否处于保护时间内（不会因碰到英雄或墙壁消失）
         public bool canBeAbsorbed = false;        // 是否可以被大丝球吸收（仅吸收阶段的小丝球为true）
+        
+        // 对象池相关
+        private bool _isAvailable = true;         // 是否可用（在对象池中）
+        private Transform? _poolContainer;        // 对象池容器引用
         #endregion
 
         #region 组件引用
@@ -48,6 +53,7 @@ namespace AnySilkBoss.Source.Behaviours
 
         // 子物体引用
         private Transform? spriteSilk;             // Sprite Silk 子物体
+        private Transform? Glow;          // Glow 子物体
         private CircleCollider2D? mainCollider;    // 主碰撞器
         private ParticleSystem? ptCollect;         // 快速消散粒子
         private ParticleSystem? ptDisappear;       // 缓慢消失粒子
@@ -60,9 +66,17 @@ namespace AnySilkBoss.Source.Behaviours
         #endregion
 
         #region 事件引用
+        private FsmEvent? prepareEvent;
         private FsmEvent? releaseEvent;
         private FsmEvent? hitWallEvent;
         private FsmEvent? hitHeroEvent;
+        #endregion
+
+        #region Properties
+        /// <summary>
+        /// 是否可用（在对象池中）
+        /// </summary>
+        public bool IsAvailable => _isAvailable && !isActive;
         #endregion
 
         private void Awake()
@@ -86,87 +100,134 @@ namespace AnySilkBoss.Source.Behaviours
         /// </summary>
         private void GetComponentReferences()
         {
-            // 首先获取 SilkBallManager 和原始 DamageHero 引用
-            var managerObj = GameObject.Find("AnySilkBossManager");
-            if (managerObj != null)
+            // 首先获取 SilkBallManager
+            if (silkBallManager == null)
             {
-                silkBallManager = managerObj.GetComponent<Managers.SilkBallManager>();
-                if (silkBallManager != null)
+                var managerObj = GameObject.Find("AnySilkBossManager");
+                if (managerObj != null)
                 {
-                    originalDamageHero = silkBallManager.OriginalDamageHero;
-                    if (originalDamageHero == null)
+                    silkBallManager = managerObj.GetComponent<Managers.SilkBallManager>();
+                    if (silkBallManager == null)
                     {
-                        Log.Warn("SilkBallManager 中的原始 DamageHero 为 null");
+                        Log.Warn("AnySilkBossManager 上未找到 SilkBallManager 组件");
                     }
                 }
                 else
                 {
-                    Log.Warn("AnySilkBossManager 上未找到 SilkBallManager 组件");
+                    Log.Warn("未找到 AnySilkBossManager GameObject");
                 }
             }
-            else
+
+            // 从 DamageHeroEventManager 获取原始 DamageHero 引用
+            if (originalDamageHero == null)
             {
-                Log.Warn("未找到 AnySilkBossManager GameObject");
+                var managerObj = GameObject.Find("AnySilkBossManager");
+                if (managerObj != null)
+                {
+                    var damageHeroEventManager = managerObj.GetComponent<Managers.DamageHeroEventManager>();
+                    if (damageHeroEventManager != null)
+                    {
+                        if (!damageHeroEventManager.IsInitialized())
+                        {
+                            Log.Warn("DamageHeroEventManager 尚未初始化，无法获取 DamageHero 引用");
+                        }
+                        else if (damageHeroEventManager.HasDamageHero())
+                        {
+                            originalDamageHero = damageHeroEventManager.DamageHero;
+                            Log.Info("已从 DamageHeroEventManager 获取 DamageHero 引用");
+                        }
+                        else
+                        {
+                            Log.Error("DamageHeroEventManager 中未找到 DamageHero 组件");
+                        }
+                    }
+                    else
+                    {
+                        Log.Error("未找到 DamageHeroEventManager 组件");
+                    }
+                }
             }
 
-            // 获取或添加 Rigidbody2D
-            rb2d = GetComponent<Rigidbody2D>();
+            // 获取或添加 Rigidbody2D（只在第一次调用时）
             if (rb2d == null)
             {
-                rb2d = gameObject.AddComponent<Rigidbody2D>();
+                rb2d = GetComponent<Rigidbody2D>();
+                if (rb2d == null)
+                {
+                    rb2d = gameObject.AddComponent<Rigidbody2D>();
+                }
+
+                // 配置 Rigidbody2D
+                rb2d.gravityScale = 0f;
+                rb2d.linearDamping = 0.5f;
+                rb2d.bodyType = RigidbodyType2D.Dynamic;
+                rb2d.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
             }
 
-            // 配置 Rigidbody2D
-            rb2d.gravityScale = 0f;
-            rb2d.linearDamping = 0.5f;
-            rb2d.bodyType = RigidbodyType2D.Dynamic;
-            rb2d.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
-
-            // 获取子物体引用
-            spriteSilk = transform.Find("Sprite Silk");
-            if (spriteSilk != null)
+            // 获取子物体引用（只在第一次调用时）
+            if (spriteSilk == null)
             {
-                mainCollider = spriteSilk.GetComponent<CircleCollider2D>();
-                if (mainCollider != null)
+                spriteSilk = transform.Find("Sprite Silk");
+                if (spriteSilk != null)
                 {
-                    mainCollider.isTrigger = true;
-                    mainCollider.enabled = true;
-                    // 降低50%碰撞箱大小
-                    mainCollider.radius *= 0.5f;
-                }
+                    mainCollider = spriteSilk.GetComponent<CircleCollider2D>();
+                    if (mainCollider != null)
+                    {
+                        mainCollider.isTrigger = true;
+                        mainCollider.enabled = true;
+                        // 降低50%碰撞箱大小（只在第一次调用时执行）
+                        mainCollider.radius *= 0.5f;
+                    }
 
-                // 添加碰撞转发器
-                var collisionForwarder = spriteSilk.GetComponent<SilkBallCollisionForwarder>();
-                if (collisionForwarder == null)
-                {
-                    collisionForwarder = spriteSilk.gameObject.AddComponent<SilkBallCollisionForwarder>();
-                    collisionForwarder.parent = this;
+                    // 添加碰撞转发器
+                    var collisionForwarder = spriteSilk.GetComponent<SilkBallCollisionForwarder>();
+                    if (collisionForwarder == null)
+                    {
+                        collisionForwarder = spriteSilk.gameObject.AddComponent<SilkBallCollisionForwarder>();
+                        collisionForwarder.parent = this;
+                    }
                 }
             }
 
-            // 获取粒子系统并设置大小为两倍
-            var ptCollectTransform = transform.Find("Pt Collect");
-            if (ptCollectTransform != null)
+            // 获取 Glow 子物体引用（只在第一次调用时）
+            if (Glow == null)
             {
-                ptCollect = ptCollectTransform.GetComponent<ParticleSystem>();
-                if (ptCollect != null)
+                Glow = transform.Find("Glow");
+                if (Glow != null)
                 {
-                    ptCollectTransform.localScale = Vector3.one * 2f;
+                    Log.Info("找到 Glow 子物体");
                 }
             }
 
-            var ptDisappearTransform = transform.Find("Pt Disappear");
-            if (ptDisappearTransform != null)
+            // 获取粒子系统并设置大小为两倍（只在第一次调用时）
+            if (ptCollect == null)
             {
-                ptDisappear = ptDisappearTransform.GetComponent<ParticleSystem>();
-                if (ptDisappear != null)
+                var ptCollectTransform = transform.Find("Pt Collect");
+                if (ptCollectTransform != null)
                 {
-                    ptDisappearTransform.localScale = Vector3.one * 2f;
+                    ptCollect = ptCollectTransform.GetComponent<ParticleSystem>();
+                    if (ptCollect != null)
+                    {
+                        ptCollectTransform.localScale = Vector3.one * 2f;
+                    }
                 }
             }
 
-            // 在 Sprite Silk 子物体上添加/配置 DamageHero 组件
-            if (spriteSilk != null)
+            if (ptDisappear == null)
+            {
+                var ptDisappearTransform = transform.Find("Pt Disappear");
+                if (ptDisappearTransform != null)
+                {
+                    ptDisappear = ptDisappearTransform.GetComponent<ParticleSystem>();
+                    if (ptDisappear != null)
+                    {
+                        ptDisappearTransform.localScale = Vector3.one * 2f;
+                    }
+                }
+            }
+
+            // 在 Sprite Silk 子物体上添加/配置 DamageHero 组件（只在第一次调用时）
+            if (damageHero == null && spriteSilk != null)
             {
                 damageHero = spriteSilk.GetComponent<DamageHero>();
                 if (damageHero == null)
@@ -203,21 +264,77 @@ namespace AnySilkBoss.Source.Behaviours
                 }
             }
 
-            // 查找玩家
-            var heroController = FindFirstObjectByType<HeroController>();
-            if (heroController != null)
+            // 查找玩家（只在第一次调用时）
+            if (playerTransform == null)
             {
-                playerTransform = heroController.transform;
+                var heroController = FindFirstObjectByType<HeroController>();
+                if (heroController != null)
+                {
+                    playerTransform = heroController.transform;
+                }
             }
         }
 
         /// <summary>
-        /// 初始化丝球（从管理器调用）
+        /// 初始化丝球（首次创建时调用，只调用一次）
         /// </summary>
-        /// <param name="customTarget">自定义追踪目标（null则追踪玩家）</param>
-        /// <param name="ignoreWall">是否忽略墙壁碰撞</param>
-        public void Initialize(Vector3 spawnPosition, float acceleration = 30f, float maxSpeed = 20f, float chaseTime = 6f, float scale = 1f, bool enableRotation = true, Transform? customTarget = null, bool ignoreWall = false)
+        /// <param name="poolContainer">对象池容器引用</param>
+        /// <param name="manager">丝球管理器引用（可选，如果未传入则尝试查找）</param>
+        public void InitializeOnce(Transform poolContainer, Managers.SilkBallManager? manager = null)
         {
+            _poolContainer = poolContainer;
+            gameObject.SetActive(true);
+            // 设置 silkBallManager 引用
+            if (manager != null)
+            {
+                silkBallManager = manager;
+            }
+            
+            // 确保组件引用已获取（Awake可能还没执行）
+            if (silkBallManager == null)
+            {
+                GetComponentReferences();
+            }
+            
+            // 验证 silkBallManager 是否成功获取
+            if (silkBallManager == null)
+            {
+                Log.Error("无法获取 SilkBallManager 引用，InitializeOnce 失败");
+                return;
+            }
+            
+            // 设置层级为 Enemy Attack
+            gameObject.layer = LayerMask.NameToLayer("Enemy Attack");
+            if (spriteSilk != null)
+            {
+                spriteSilk.gameObject.layer = LayerMask.NameToLayer("Enemy Attack");
+            }
+
+            // 创建 FSM（只创建一次）
+            if (controlFSM == null)
+            {
+                CreateControlFSM();
+            }
+            
+            // 确保初始状态正确
+            isActive = false;
+            _isAvailable = true;
+            
+            Log.Info($"丝球初始化完成: {gameObject.name}, IsAvailable={IsAvailable}, isActive={isActive}, _isAvailable={_isAvailable}");
+        }
+
+        /// <summary>
+        /// 准备丝球（每次从池中取出时调用）
+        /// </summary>
+        public void PrepareForUse(Vector3 spawnPosition, float acceleration = 30f, float maxSpeed = 20f, float chaseTime = 6f, float scale = 1f, bool enableRotation = true, Transform? customTarget = null, bool ignoreWall = false)
+        {
+            // 脱离池容器
+            if (transform.parent == _poolContainer)
+            {
+                transform.SetParent(null);
+            }
+
+            // 设置位置
             transform.position = spawnPosition;
 
             // 设置参数
@@ -232,18 +349,70 @@ namespace AnySilkBoss.Source.Behaviours
             // 应用缩放
             ApplyScale();
 
-            // 设置层级为 Enemy Attack
-            gameObject.layer = LayerMask.NameToLayer("Enemy Attack");
-            if (spriteSilk != null)
+            // 重置状态
+            ResetState();
+
+            // 标记为不可用（正在使用中）
+            _isAvailable = false;
+            isActive = true;
+
+            // 发送 PREPARE 事件
+            if (controlFSM != null)
             {
-                spriteSilk.gameObject.layer = LayerMask.NameToLayer("Enemy Attack");
+                controlFSM.SendEvent("PREPARE");
+            }
+        }
+
+        /// <summary>
+        /// 重置状态
+        /// </summary>
+        private void ResetState()
+        {
+            isChasing = false;
+            isPrepared = false;
+            isProtected = false;
+            canBeAbsorbed = false;
+
+            // 重置速度
+            if (rb2d != null)
+            {
+                rb2d.linearVelocity = Vector2.zero;
+                rb2d.gravityScale = 0f;
             }
 
-            // 创建 FSM
-            CreateControlFSM();
+            // 重新启用伤害和碰撞
+            if (damageHero != null)
+            {
+                damageHero.enabled = true;
+            }
+            if (mainCollider != null)
+            {
+                mainCollider.enabled = true;
+            }
 
-            // 激活
-            isActive = true;
+            // 显示 Sprite Silk 和 Glow
+            if (spriteSilk != null)
+            {
+                spriteSilk.gameObject.SetActive(true);
+            }
+            if (Glow != null)
+            {
+                Glow.gameObject.SetActive(true);
+            }
+
+            // 更新 FSM 变量
+            if (readyVar != null)
+            {
+                readyVar.Value = false;
+            }
+            if (accelerationVar != null)
+            {
+                accelerationVar.Value = acceleration;
+            }
+            if (maxSpeedVar != null)
+            {
+                maxSpeedVar.Value = maxSpeed;
+            }
         }
 
         /// <summary>
@@ -276,62 +445,67 @@ namespace AnySilkBoss.Source.Behaviours
 
             // 创建 FSM 组件
             controlFSM = gameObject.AddComponent<PlayMakerFSM>();
+            Log.Info("创建 Control FSM 组件");
             controlFSM.FsmName = "Control";
+            Log.Info("设置 Control FSM 名称");
 
             // 创建所有状态（在注册事件之前）
             var initState = CreateInitState();
+            var idleState = CreateIdleState();
             var prepareState = CreatePrepareState();
             var chaseState = CreateChaseHeroState();
             var disperseState = CreateDisperseState();
             var hitHeroDisperseState = CreateHitHeroDisperseState();
             var disappearState = CreateDisappearState();
-            var destroyState = CreateDestroyState();
+            var recycleState = CreateRecycleState();
             var hasGravityState = CreateHasGravityState();
 
             // 设置状态到 FSM（必须在最早设置）
             controlFSM.Fsm.States = new FsmState[]
-            {
-                initState,
+            {   initState,
+                idleState,
                 prepareState,
                 chaseState,
                 disperseState,
                 hitHeroDisperseState,
                 disappearState,
-                destroyState,
+                recycleState,
                 hasGravityState
             };
 
-
+            Log.Info("设置状态到 FSM");
 
             // 注册所有事件
             RegisterFSMEvents();
 
             // 创建 FSM 变量
             CreateFSMVariables();
-
+            Log.Info("创建 FSM 变量");
             // 添加状态动作
             AddInitActions(initState);
+            AddIdleActions(idleState);
             AddPrepareActions(prepareState);
             AddChaseHeroActions(chaseState);
             AddDisperseActions(disperseState);
             AddHitHeroDisperseActions(hitHeroDisperseState);
             AddDisappearActions(disappearState);
-            AddDestroyActions(destroyState);
+            AddRecycleActions(recycleState);
             AddHasGravityActions(hasGravityState);
-
+            Log.Info("添加状态动作");
             // 添加状态转换
-            AddInitTransitions(initState, prepareState);
+            AddInitTransitions(initState, idleState);
+            AddIdleTransitions(idleState, prepareState);
             AddPrepareTransitions(prepareState, chaseState);
             AddChaseHeroTransitions(chaseState, disperseState, hitHeroDisperseState, disappearState);
-            AddDisperseTransitions(disperseState, destroyState);
-            AddHitHeroDisperseTransitions(hitHeroDisperseState, destroyState);
-            AddDisappearTransitions(disappearState, destroyState);
+            AddDisperseTransitions(disperseState, recycleState);
+            AddHitHeroDisperseTransitions(hitHeroDisperseState, recycleState);
+            AddDisappearTransitions(disappearState, recycleState);
             AddHasGravityTransitions(hasGravityState, disperseState, hitHeroDisperseState);
-
+            Log.Info("添加状态转换");
             // 初始化 FSM 数据和事件
             controlFSM.Fsm.InitData();
             controlFSM.Fsm.InitEvents();
-
+            Log.Info("初始化 FSM 数据和事件");
             // 确保 Started 标记为 true（PlayMakerFSM.Start() 会检查这个）
             // 通过反射设置 Started 为 true
             var fsmType = controlFSM.Fsm.GetType();
@@ -343,6 +517,7 @@ namespace AnySilkBoss.Source.Behaviours
             // 立即设置初始状态（使用字符串）
             controlFSM.Fsm.SetState(initState.Name);
             //Log.Info($"=== 丝球 Control FSM 创建完成，当前状态: {controlFSM.Fsm.ActiveStateName} ===");
+            Log.Info("=== 丝球 Control FSM 创建完成，当前状态: {controlFSM.Fsm.ActiveStateName} ===");
         }
 
         #region FSM 事件和变量注册
@@ -351,11 +526,13 @@ namespace AnySilkBoss.Source.Behaviours
         /// </summary>
         private void RegisterFSMEvents()
         {
+            prepareEvent = FsmEvent.GetFsmEvent("PREPARE");
             releaseEvent = FsmEvent.GetFsmEvent("SILK BALL RELEASE");
             hitWallEvent = FsmEvent.GetFsmEvent("HIT WALL");
             hitHeroEvent = FsmEvent.GetFsmEvent("HIT HERO");
 
             var events = controlFSM!.FsmEvents.ToList();
+            if (!events.Contains(prepareEvent)) events.Add(prepareEvent);
             if (!events.Contains(releaseEvent)) events.Add(releaseEvent);
             if (!events.Contains(hitWallEvent)) events.Add(hitWallEvent);
             if (!events.Contains(hitHeroEvent)) events.Add(hitHeroEvent);
@@ -392,6 +569,14 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 Name = "Init",
                 Description = "初始化状态"
+            };
+        }
+        private FsmState CreateIdleState()
+        {
+            return new FsmState(controlFSM!.Fsm)
+            {
+                Name = "Idle",
+                Description = "静默状态，等待 PREPARE 事件"
             };
         }
 
@@ -440,12 +625,12 @@ namespace AnySilkBoss.Source.Behaviours
             };
         }
 
-        private FsmState CreateDestroyState()
+        private FsmState CreateRecycleState()
         {
             return new FsmState(controlFSM!.Fsm)
             {
-                Name = "Destroy",
-                Description = "销毁"
+                Name = "Recycle",
+                Description = "回收到对象池"
             };
         }
 
@@ -462,23 +647,48 @@ namespace AnySilkBoss.Source.Behaviours
         #region 添加状态动作
         private void AddInitActions(FsmState initState)
         {
-            var setBoolAction = new SetBoolValue
+            // Init状态：首次创建后立即进入Idle，无需等待
+            // 这个状态只在对象首次创建时执行一次
+            // var waitAction = new Wait
+            // {
+            //     time = new FsmFloat(0.01f),  // 极短等待，确保FSM完全初始化
+            //     finishEvent = FsmEvent.Finished
+            // };
+
+             initState.Actions = new FsmStateAction[] { };
+        }
+        private void AddIdleActions(FsmState idleState)
+        {
+            // Idle 状态：对象池待命状态，无限等待PREPARE事件
+            // 不需要任何Action，纯粹等待事件触发
+            idleState.Actions = new FsmStateAction[] { };
+        }
+
+        private void AddPrepareActions(FsmState prepareState)
+        {
+            var actions = new List<FsmStateAction>();
+
+            // 1. 设置 Ready 为 false（准备中）
+            actions.Add(new SetBoolValue
             {
                 boolVariable = readyVar,
                 boolValue = new FsmBool(false)
-            };
+            });
 
-            var waitAction = new Wait
+            // 2. 速度归零（确保丝球静止）
+            actions.Add(new SetVelocity2d
             {
-                time = new FsmFloat(0.03f),
-                finishEvent = FsmEvent.Finished
-            };
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                vector = new FsmVector2 { Value = Vector2.zero, UseVariable = false },
+                x = new FsmFloat { Value = 0f, UseVariable = false },
+                y = new FsmFloat { Value = 0f, UseVariable = false },
+                everyFrame = false
+            });
 
-            // 创建 Init 音效动作
-            FsmStateAction? initAudio = null;
+            // 3. 播放 Init 音效（如果有）
             if (silkBallManager?.InitAudioTable != null && silkBallManager?.InitAudioPlayerPrefab != null)
             {
-                initAudio = new PlayRandomAudioClipTable
+                actions.Add(new PlayRandomAudioClipTable
                 {
                     Table = silkBallManager.InitAudioTable,
                     AudioPlayerPrefab = silkBallManager.InitAudioPlayerPrefab,
@@ -488,47 +698,24 @@ namespace AnySilkBoss.Source.Behaviours
                         GameObject = new FsmGameObject { Value = gameObject }
                     },
                     SpawnPosition = new FsmVector3 { Value = Vector3.zero }
-                };
+                });
             }
-
-            // 添加动作：先设置变量，再播放音效，最后等待
-            if (initAudio != null)
-            {
-                initState.Actions = new FsmStateAction[] { setBoolAction, initAudio, waitAction };
-            }
-            else
-            {
-                initState.Actions = new FsmStateAction[] { setBoolAction, waitAction };
-            }
-        }
-
-        private void AddPrepareActions(FsmState prepareState)
-        {
-            // 速度归零
-            var setVelocityAction = new SetVelocity2d
-            {
-                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
-                vector = new FsmVector2 { Value = new Vector2(0f, 0f), UseVariable = false },  // 必须初始化 vector 字段
-                x = new FsmFloat { Value = 0f, UseVariable = false },
-                y = new FsmFloat { Value = 0f, UseVariable = false },
-                everyFrame = false
-            };
-
-            // 设置 Ready 为 true
-            var setBoolAction = new SetBoolValue
+            // 5. 设置 Ready 为 true（准备完成）
+            actions.Add(new SetBoolValue
             {
                 boolVariable = readyVar,
                 boolValue = new FsmBool(true)
-            };
+            });
 
-            // 等待释放事件（无限等待）
-            var waitAction = new Wait
+            // 6. 标记丝球为已准备状态
+            actions.Add(new CallMethod
             {
-                time = new FsmFloat(999f),
-                finishEvent = FsmEvent.Finished
-            };
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("MarkAsPrepared") { Value = "MarkAsPrepared" },
+                parameters = new FsmVar[0]
+            });
 
-            prepareState.Actions = new FsmStateAction[] { setVelocityAction, setBoolAction, waitAction };
+            prepareState.Actions = actions.ToArray();
         }
 
         private void AddChaseHeroActions(FsmState chaseState)
@@ -608,8 +795,8 @@ namespace AnySilkBoss.Source.Behaviours
                     SpawnPosition = new FsmVector3 { Value = Vector3.zero },
                     fsmState = disperseState,
                     fsmComponent = controlFSM,
-                    fsm = controlFSM.Fsm,
-                    owner = controlFSM.gameObject
+                    fsm = controlFSM?.Fsm,
+                    owner = controlFSM?.gameObject
                 };
             }
 
@@ -696,8 +883,8 @@ namespace AnySilkBoss.Source.Behaviours
                     SpawnPosition = new FsmVector3 { Value = Vector3.zero },
                     fsmState = hitHeroDisperseState,
                     fsmComponent = controlFSM,
-                    fsm = controlFSM.Fsm,
-                    owner = controlFSM.gameObject
+                    fsm = controlFSM?.Fsm,
+                    owner = controlFSM?.gameObject
                 };
             }
 
@@ -792,16 +979,16 @@ namespace AnySilkBoss.Source.Behaviours
             };
         }
 
-        private void AddDestroyActions(FsmState destroyState)
+        private void AddRecycleActions(FsmState recycleState)
         {
-            var destroyAction = new CallMethod
+            var recycleAction = new CallMethod
             {
                 behaviour = new FsmObject { Value = this },
-                methodName = new FsmString("DestroySelf") { Value = "DestroySelf" },
+                methodName = new FsmString("RecycleToPool") { Value = "RecycleToPool" },
                 parameters = new FsmVar[0]
             };
 
-            destroyState.Actions = new FsmStateAction[] { destroyAction };
+            recycleState.Actions = new FsmStateAction[] { recycleAction };
         }
 
         private void AddHasGravityActions(FsmState hasGravityState)
@@ -832,13 +1019,25 @@ namespace AnySilkBoss.Source.Behaviours
         #endregion
 
         #region 添加状态转换
-        private void AddInitTransitions(FsmState initState, FsmState prepareState)
+        private void AddInitTransitions(FsmState initState, FsmState idleState)
         {
             initState.Transitions = new FsmTransition[]
             {
                 new FsmTransition
                 {
                     FsmEvent = FsmEvent.Finished,
+                    toState = "Idle",
+                    toFsmState = idleState
+                }
+            };
+        }
+        private void AddIdleTransitions(FsmState idleState, FsmState prepareState)
+        {
+            idleState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = prepareEvent,
                     toState = "Prepare",
                     toFsmState = prepareState
                 }
@@ -847,6 +1046,8 @@ namespace AnySilkBoss.Source.Behaviours
 
         private void AddPrepareTransitions(FsmState prepareState, FsmState chaseState)
         {
+            // Prepare状态只监听SILK BALL RELEASE事件
+            // 准备完成后保持在此状态，等待外部发送RELEASE事件
             prepareState.Transitions = new FsmTransition[]
             {
                 new FsmTransition
@@ -883,41 +1084,41 @@ namespace AnySilkBoss.Source.Behaviours
             };
         }
 
-        private void AddDisperseTransitions(FsmState disperseState, FsmState destroyState)
+        private void AddDisperseTransitions(FsmState disperseState, FsmState recycleState)
         {
             disperseState.Transitions = new FsmTransition[]
             {
                 new FsmTransition
                 {
                     FsmEvent = FsmEvent.Finished,
-                    toState = "Destroy",
-                    toFsmState = destroyState
+                    toState = "Recycle",
+                    toFsmState = recycleState
                 }
             };
         }
 
-        private void AddHitHeroDisperseTransitions(FsmState hitHeroDisperseState, FsmState destroyState)
+        private void AddHitHeroDisperseTransitions(FsmState hitHeroDisperseState, FsmState recycleState)
         {
             hitHeroDisperseState.Transitions = new FsmTransition[]
             {
                 new FsmTransition
                 {
                     FsmEvent = FsmEvent.Finished,
-                    toState = "Destroy",
-                    toFsmState = destroyState
+                    toState = "Recycle",
+                    toFsmState = recycleState
                 }
             };
         }
 
-        private void AddDisappearTransitions(FsmState disappearState, FsmState destroyState)
+        private void AddDisappearTransitions(FsmState disappearState, FsmState recycleState)
         {
             disappearState.Transitions = new FsmTransition[]
             {
                 new FsmTransition
                 {
                     FsmEvent = FsmEvent.Finished,
-                    toState = "Destroy",
-                    toFsmState = destroyState
+                    toState = "Recycle",
+                    toFsmState = recycleState
                 }
             };
         }
@@ -997,18 +1198,21 @@ namespace AnySilkBoss.Source.Behaviours
         }
 
         /// <summary>
-        /// 禁用伤害并隐藏 Sprite Silk
+        /// 禁用伤害并隐藏 Sprite Silk 和 Glow
         /// </summary>
         public void DisableDamageAndVisual()
         {
             // 禁用伤害
             DisableDamage();
 
-            // 隐藏 Sprite Silk 子物体
+            // 隐藏 Sprite Silk 和 Glow 子物体
             if (spriteSilk != null)
             {
                 spriteSilk.gameObject.SetActive(false);
-                Debug.Log("隐藏 Sprite Silk 子物体");
+            }
+            if (Glow != null)
+            {
+                Glow.gameObject.SetActive(false);
             }
         }
 
@@ -1042,12 +1246,99 @@ namespace AnySilkBoss.Source.Behaviours
         }
 
         /// <summary>
-        /// 销毁自身
+        /// 回收到对象池
         /// </summary>
-        public void DestroySelf()
+        public void RecycleToPool()
         {
-            // Debug.Log("销毁丝球");
-            Destroy(gameObject);
+            // 停止所有正在运行的协程
+            StopAllCoroutines();
+
+            // 标记为不活跃
+            isActive = false;
+            _isAvailable = true;
+
+            // 重置状态标记
+            isChasing = false;
+            isPrepared = false;
+            isProtected = false;
+            canBeAbsorbed = false;
+
+            // 重置速度
+            if (rb2d != null)
+            {
+                rb2d.linearVelocity = Vector2.zero;
+                rb2d.gravityScale = 0f;
+            }
+
+            // 清空自定义目标
+            customTarget = null;
+            // 隐藏所有子物体（包括Sprite Silk）
+            if (spriteSilk != null)
+            {
+                spriteSilk.gameObject.SetActive(false);
+                Log.Info($"已隐藏Sprite Silk子物体");
+            }
+            if (Glow != null)
+            {
+                Glow.gameObject.SetActive(false);
+            }
+            // 禁用所有碰撞转发器
+            var forwarders = GetComponentsInChildren<SilkBallCollisionForwarder>();
+            foreach (var forwarder in forwarders)
+            {
+                forwarder.enabled = false;
+            }
+
+            // 重置FSM变量
+            if (readyVar != null)
+            {
+                readyVar.Value = false;
+            }
+
+            // 回到池容器
+            if (_poolContainer != null)
+            {
+                transform.SetParent(_poolContainer);
+            }
+
+            // 重置到 Idle 状态（等待下次使用）
+            if (controlFSM != null)
+            {
+                controlFSM.Fsm.SetState("Idle");
+            }
+
+            Log.Info($"丝球 {gameObject.name} 已回收到对象池");
+        }
+
+        /// <summary>
+        /// 回收到对象池（带Z轴过渡动画，用于被大丝球吸收）
+        /// </summary>
+        public void RecycleToPoolWithZTransition()
+        {
+            StartCoroutine(RecycleToPoolWithZTransitionCoroutine());
+        }
+
+        /// <summary>
+        /// 回收协程：回收到对象池
+        /// </summary>
+        private IEnumerator RecycleToPoolWithZTransitionCoroutine()
+        {
+            // 停止追踪
+            isChasing = false;
+            canBeAbsorbed = false;
+
+            // 禁用伤害和碰撞
+            DisableDamage();
+            
+            if (mainCollider != null)
+            {
+                mainCollider.enabled = false;
+            }
+
+            yield return null;
+
+            // 回收到对象池
+            RecycleToPool();
         }
 
         /// <summary>
@@ -1068,6 +1359,27 @@ namespace AnySilkBoss.Source.Behaviours
         {
             enableRotation = enable;
             //Log.Info($"丝球自转已{(enable ? "启用" : "禁用")}");
+        }
+
+        /// <summary>
+        /// 标记丝球为已准备状态
+        /// </summary>
+        public void MarkAsPrepared()
+        {
+            isPrepared = true;
+            if (spriteSilk != null)
+            {
+                spriteSilk.gameObject.SetActive(true);
+            }
+            if (Glow != null)
+            {
+                Glow.gameObject.SetActive(true);
+            }
+            var forwarders = GetComponentsInChildren<SilkBallCollisionForwarder>();
+            foreach (var forwarder in forwarders)
+            {
+                forwarder.enabled = true;
+            }
         }
         #endregion
 
