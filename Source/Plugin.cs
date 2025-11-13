@@ -88,6 +88,9 @@ public class Plugin : BaseUnityPlugin
             // 添加资源管理器组件
             AnySilkBossManager.AddComponent<AssetManager>();
             
+            // 添加 DamageHero 事件管理器组件
+            AnySilkBossManager.AddComponent<DamageHeroEventManager>();
+            
             // 添加丝球管理器组件
             AnySilkBossManager.AddComponent<SilkBallManager>();
             
@@ -102,6 +105,9 @@ public class Plugin : BaseUnityPlugin
             
             // 添加工具恢复管理器组件
             AnySilkBossManager.AddComponent<ToolRestoreManager>();
+            
+            // 添加单根丝线管理器组件
+            AnySilkBossManager.AddComponent<SingleWebManager>();
             
             Log.Info("创建持久化管理器和所有组件");
         }

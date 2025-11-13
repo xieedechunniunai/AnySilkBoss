@@ -25,11 +25,6 @@ namespace AnySilkBoss.Source.Managers
         
         // BOSS 场景名称
         private const string BossSceneName = "Cradle_03";
-        
-        // 小丝球预生成池（用于最终爆炸阶段）
-        private System.Collections.Generic.Queue<GameObject>? _prewarmPool;
-        private int _prewarmPoolSize = 80;  // 4圈 * 20个
-        private bool _poolInitialized = false;
         #endregion
 
         private void OnEnable()
@@ -55,15 +50,9 @@ namespace AnySilkBoss.Source.Managers
                 return;
             }
 
-            // 如果已经初始化过，检查并补充预生成池
-            if (_initialized)
+            // 首次初始化
+            if (!_initialized)
             {
-                Log.Info($"重新进入 BOSS 场景 {scene.name}，检查预生成池状态...");
-                StartCoroutine(RefillSilkBallPool());
-            }
-            else
-            {
-                // 首次初始化
                 Log.Info($"检测到 BOSS 场景 {scene.name}，开始初始化 BigSilkBallManager...");
                 StartCoroutine(Initialize());
             }
@@ -90,200 +79,8 @@ namespace AnySilkBoss.Source.Managers
             // 创建大丝球预制体
             yield return CreateBigSilkBallPrefab();
 
-            // 预生成小丝球池（用于最终爆炸阶段）
-            StartCoroutine(PrewarmSilkBallPool());
-
             _initialized = true;
             Log.Info("BigSilkBallManager 初始化完成");
-        }
-        
-        /// <summary>
-        /// 预生成小丝球池（用于最终爆炸阶段）
-        /// </summary>
-        private IEnumerator PrewarmSilkBallPool()
-        {
-            // 获取 SilkBallManager
-            var managerObj = GameObject.Find("AnySilkBossManager");
-            if (managerObj == null)
-            {
-                Log.Error("未找到 AnySilkBossManager，无法预生成小丝球池");
-                yield break;
-            }
-            
-            var silkBallManager = managerObj.GetComponent<SilkBallManager>();
-            if (silkBallManager == null)
-            {
-                Log.Error("未找到 SilkBallManager 组件，无法预生成小丝球池");
-                yield break;
-            }
-            
-            // 等待 SilkBallManager 初始化完成
-            float waitTime = 0f;
-            while (silkBallManager.CustomSilkBallPrefab == null && waitTime < 5f)
-            {
-                yield return new WaitForSeconds(0.1f);
-                waitTime += 0.1f;
-            }
-            
-            if (silkBallManager.CustomSilkBallPrefab == null)
-            {
-                Log.Error("SilkBallManager 初始化超时，无法预生成小丝球池");
-                yield break;
-            }
-            
-            Log.Info($"开始预生成小丝球池，数量: {_prewarmPoolSize}");
-            _prewarmPool = new System.Collections.Generic.Queue<GameObject>();
-            
-            // 分批生成，避免卡顿
-            int batchSize = 10;
-            int batches = Mathf.CeilToInt((float)_prewarmPoolSize / batchSize);
-            
-            for (int batch = 0; batch < batches; batch++)
-            {
-                int countInThisBatch = Mathf.Min(batchSize, _prewarmPoolSize - batch * batchSize);
-                
-                for (int i = 0; i < countInThisBatch; i++)
-                {
-                    // 在远离视野的位置生成
-                    Vector3 hidePosition = new Vector3(10000f, 10000f, 0f);
-                    var silkBall = silkBallManager.SpawnSilkBall(hidePosition);
-                    
-                    if (silkBall != null)
-                    {
-                        // 设置为不随场景销毁（预生成池需要跨场景保留）
-                        DontDestroyOnLoad(silkBall);
-                        
-                        // 立即禁用，等待使用
-                        silkBall.SetActive(false);
-                        _prewarmPool.Enqueue(silkBall);
-                    }
-                }
-                
-                // 每批之间稍微等待，避免一帧内生成过多
-                yield return null;
-            }
-            
-            _poolInitialized = true;
-            Log.Info($"小丝球池预生成完成，实际数量: {_prewarmPool.Count}");
-        }
-        
-        /// <summary>
-        /// 补充预生成池（确保始终有80个小丝球）
-        /// </summary>
-        private IEnumerator RefillSilkBallPool()
-        {
-            // 检查池是否已初始化
-            if (!_poolInitialized || _prewarmPool == null)
-            {
-                Log.Warn("预生成池未初始化，跳过补充");
-                yield break;
-            }
-            
-            // 先清理池中已销毁的小丝球
-            CleanupDestroyedSilkBalls();
-            
-            int currentCount = _prewarmPool.Count;
-            int neededCount = _prewarmPoolSize - currentCount;
-            
-            if (neededCount <= 0)
-            {
-                Log.Info($"预生成池已满，当前数量: {currentCount}/{_prewarmPoolSize}，无需补充");
-                yield break;
-            }
-            
-            Log.Info($"开始补充预生成池，当前: {currentCount}，需补充: {neededCount}");
-            
-            // 获取 SilkBallManager
-            var managerObj = GameObject.Find("AnySilkBossManager");
-            if (managerObj == null)
-            {
-                Log.Error("未找到 AnySilkBossManager，无法补充小丝球池");
-                yield break;
-            }
-            
-            var silkBallManager = managerObj.GetComponent<SilkBallManager>();
-            if (silkBallManager == null)
-            {
-                Log.Error("未找到 SilkBallManager 组件，无法补充小丝球池");
-                yield break;
-            }
-            
-            // 等待 SilkBallManager 准备就绪
-            float waitTime = 0f;
-            while (silkBallManager.CustomSilkBallPrefab == null && waitTime < 3f)
-            {
-                yield return new WaitForSeconds(0.1f);
-                waitTime += 0.1f;
-            }
-            
-            if (silkBallManager.CustomSilkBallPrefab == null)
-            {
-                Log.Error("SilkBallManager 未准备好，无法补充小丝球池");
-                yield break;
-            }
-            
-            // 分批补充，避免卡顿
-            int batchSize = 10;
-            int batches = Mathf.CeilToInt((float)neededCount / batchSize);
-            
-            for (int batch = 0; batch < batches; batch++)
-            {
-                int countInThisBatch = Mathf.Min(batchSize, neededCount - batch * batchSize);
-                
-                for (int i = 0; i < countInThisBatch; i++)
-                {
-                    // 在远离视野的位置生成
-                    Vector3 hidePosition = new Vector3(10000f, 10000f, 0f);
-                    var silkBall = silkBallManager.SpawnSilkBall(hidePosition);
-                    
-                    if (silkBall != null)
-                    {
-                        // 设置为不随场景销毁（预生成池需要跨场景保留）
-                        DontDestroyOnLoad(silkBall);
-                        
-                        // 立即禁用，等待使用
-                        silkBall.SetActive(false);
-                        _prewarmPool.Enqueue(silkBall);
-                    }
-                }
-                
-                // 每批之间稍微等待，避免一帧内生成过多
-                yield return null;
-            }
-            
-            Log.Info($"预生成池补充完成，当前数量: {_prewarmPool.Count}/{_prewarmPoolSize}");
-        }
-        
-        /// <summary>
-        /// 清理池中已销毁的小丝球
-        /// </summary>
-        private void CleanupDestroyedSilkBalls()
-        {
-            if (_prewarmPool == null || _prewarmPool.Count == 0)
-            {
-                return;
-            }
-            
-            int originalCount = _prewarmPool.Count;
-            var validBalls = new System.Collections.Generic.Queue<GameObject>();
-            
-            // 遍历池中所有小丝球，只保留有效的
-            while (_prewarmPool.Count > 0)
-            {
-                var ball = _prewarmPool.Dequeue();
-                if (ball != null)
-                {
-                    validBalls.Enqueue(ball);
-                }
-            }
-            
-            _prewarmPool = validBalls;
-            
-            int removedCount = originalCount - _prewarmPool.Count;
-            if (removedCount > 0)
-            {
-                Log.Info($"清理预生成池中已销毁的小丝球，移除: {removedCount}个，剩余: {_prewarmPool.Count}个");
-            }
         }
 
         /// <summary>
@@ -516,63 +313,6 @@ namespace AnySilkBoss.Source.Managers
         public bool IsInitialized()
         {
             return _initialized;
-        }
-
-        /// <summary>
-        /// 从预生成池获取小丝球（用于最终爆炸阶段）
-        /// </summary>
-        /// <param name="position">生成位置</param>
-        /// <returns>小丝球GameObject，如果池为空则返回null</returns>
-        public GameObject? GetPooledSilkBall(Vector3 position)
-        {
-            if (_prewarmPool == null || _prewarmPool.Count == 0)
-            {
-                return null;
-            }
-            
-            // 尝试从池中获取有效的小丝球（跳过已销毁的）
-            int attemptCount = 0;
-            int maxAttempts = _prewarmPool.Count; // 最多尝试当前池中的所有球
-            
-            while (_prewarmPool.Count > 0 && attemptCount < maxAttempts)
-            {
-                var silkBall = _prewarmPool.Dequeue();
-                attemptCount++;
-                
-                if (silkBall != null)
-                {
-                    // 找到有效的小丝球
-                    silkBall.SetActive(true);
-                    silkBall.transform.position = position;
-                    Log.Info($"从预生成池获取小丝球，剩余: {_prewarmPool.Count}");
-                    return silkBall;
-                }
-                else
-                {
-                    // 这个球已被销毁，继续尝试下一个
-                    Log.Warn($"预生成池中发现已销毁的小丝球，跳过（剩余: {_prewarmPool.Count}）");
-                }
-            }
-            
-            // 池中没有有效的小丝球
-            Log.Warn($"预生成池中所有小丝球都已失效，无法获取");
-            return null;
-        }
-        
-        /// <summary>
-        /// 检查预生成池是否已初始化
-        /// </summary>
-        public bool IsPoolInitialized()
-        {
-            return _poolInitialized;
-        }
-        
-        /// <summary>
-        /// 获取预生成池剩余数量
-        /// </summary>
-        public int GetPoolRemainingCount()
-        {
-            return _prewarmPool?.Count ?? 0;
         }
         
         /// <summary>
