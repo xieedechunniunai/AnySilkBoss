@@ -15,14 +15,14 @@ namespace AnySilkBoss.Source.Behaviours
     {
         // FSM引用
         private PlayMakerFSM _phaseControl = null!;
-        
+
         // 阶段状态变量
         private int _currentPhase = 1;
         private bool[] _phaseFlags = new bool[9]; // P1-P6 + 硬直 + 背景破坏 + 初始状态
-        
+
         // 血量修改标志
         private bool _hpModified = false;
-        
+
         // FSM内部阶段指示变量
         private FsmInt _bossPhaseIndex = null!;
 
@@ -31,11 +31,11 @@ namespace AnySilkBoss.Source.Behaviours
         private GameObject? _currentBigSilkBall;
         private bool _bigSilkBallTriggered = false;  // 确保只触发一次
         private int _originalLayer = 11;             // 保存Boss原始图层（默认Enemies）
-        
+
         // 大招事件标记
         private bool _chargeComplete = false;
         private bool _burstComplete = false;
-        
+
         // BOSS原始状态（用于大招期间调整和恢复）
         private float _originalBossZ = 0f;           // BOSS原始Z轴
         private Vector3 _originalBossScale;          // BOSS原始Scale
@@ -58,9 +58,15 @@ namespace AnySilkBoss.Source.Behaviours
 
         // 爬升阶段相关标志
         private bool _climbCompleteEventSent = false;
-        
+        private bool _climbAttackEventSent = false;  // 标记CLIMB PHASE ATTACK是否已发送
+
         // Boss Control FSM引用
         private PlayMakerFSM? _bossControl;
+
+        // 丝线缠绕动画相关
+        private GameObject? _silkYankPrefab;  // Silk_yank原始物体引用
+        private GameObject[] _silkYankClones = new GameObject[4];  // 四个克隆体
+        private bool _silkYankInitialized = false;  // 是否已初始化
 
         private void Awake()
         {
@@ -116,6 +122,7 @@ namespace AnySilkBoss.Source.Behaviours
             Log.Info("阶段控制器行为初始化完成");
             _phaseControl.Fsm.InitData();
             _phaseControl.Fsm.InitEvents();
+            _phaseControl.FsmVariables.Init();
             yield return null;
         }
 
@@ -125,15 +132,15 @@ namespace AnySilkBoss.Source.Behaviours
         private void GetComponents()
         {
             _phaseControl = FSMUtility.LocateMyFSM(gameObject, "Phase Control");
-            
+
             if (_phaseControl == null)
             {
                 Log.Error("未找到Phase Control FSM");
                 return;
             }
-            
+
             Log.Info("成功获取Phase Control FSM");
-            
+
             // 获取或创建BossPhaseIndex变量
             _bossPhaseIndex = _phaseControl.FsmVariables.GetFsmInt("BossPhaseIndex");
             if (_bossPhaseIndex == null)
@@ -141,12 +148,12 @@ namespace AnySilkBoss.Source.Behaviours
                 // 创建新的FsmInt变量
                 _bossPhaseIndex = new FsmInt("BossPhaseIndex");
                 _bossPhaseIndex.Value = 0;
-                
+
                 // 添加到FSM变量列表
                 var intVars = _phaseControl.FsmVariables.IntVariables.ToList();
                 intVars.Add(_bossPhaseIndex);
                 _phaseControl.FsmVariables.IntVariables = intVars.ToArray();
-                
+
                 Log.Info("创建了新的FSM变量: BossPhaseIndex");
             }
             else
@@ -178,23 +185,23 @@ namespace AnySilkBoss.Source.Behaviours
             _handRObj = GameObject.Find("Hand R");
             if (_handLObj != null)
             {
-                int idx=0;
-                foreach (string bladeName in new[]{"Finger Blade L", "Finger Blade M", "Finger Blade R"})
+                int idx = 0;
+                foreach (string bladeName in new[] { "Finger Blade L", "Finger Blade M", "Finger Blade R" })
                 {
                     var bladeTf = _handLObj.transform.Find(bladeName);
-                    if (bladeTf != null && idx<3) _allFingerBlades[idx++] = bladeTf.gameObject;
+                    if (bladeTf != null && idx < 3) _allFingerBlades[idx++] = bladeTf.gameObject;
                 }
             }
             if (_handRObj != null)
             {
-                int idx=3;
-                foreach (string bladeName in new[]{"Finger Blade L", "Finger Blade M", "Finger Blade R"})
+                int idx = 3;
+                foreach (string bladeName in new[] { "Finger Blade L", "Finger Blade M", "Finger Blade R" })
                 {
                     var bladeTf = _handRObj.transform.Find(bladeName);
-                    if (bladeTf != null && idx<6) _allFingerBlades[idx++] = bladeTf.gameObject;
+                    if (bladeTf != null && idx < 6) _allFingerBlades[idx++] = bladeTf.gameObject;
                 }
             }
-            Log.Info($"PhaseControlBehavior已收集FingerBlades: {_allFingerBlades.Count(o=>o!=null)}");
+            Log.Info($"PhaseControlBehavior已收集FingerBlades: {_allFingerBlades.Count(o => o != null)}");
 
             // 获取 AttackControl FSM 引用（延迟获取 AttackControlBehavior，避免初始化顺序问题）
             _attackControl = FSMUtility.LocateMyFSM(gameObject, "Attack Control");
@@ -217,7 +224,7 @@ namespace AnySilkBoss.Source.Behaviours
 
             // 修改各阶段血量（翻2倍）
             ModifyPhaseHP();
-            
+
             Log.Info("阶段行为修改完成");
         }
 
@@ -235,7 +242,7 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 string hpVarName = $"P{i} HP";
                 var hpVar = _phaseControl.FsmVariables.GetFsmInt(hpVarName);
-                
+
                 if (hpVar != null)
                 {
                     int originalHP = hpVar.Value;
@@ -261,15 +268,15 @@ namespace AnySilkBoss.Source.Behaviours
 
             // 获取当前FSM状态名称
             string currentStateName = _phaseControl.ActiveStateName;
-            
+
             // 根据当前状态更新BossPhaseIndex
             int newPhaseIndex = GetPhaseIndexFromState(currentStateName);
-            
+
             if (newPhaseIndex != _bossPhaseIndex.Value)
             {
                 _bossPhaseIndex.Value = newPhaseIndex;
                 Log.Info($"BossPhaseIndex更新为: {newPhaseIndex} (当前状态: {currentStateName})");
-                
+
                 // 触发阶段改变事件
                 OnPhaseChanged(_currentPhase, newPhaseIndex);
                 _currentPhase = newPhaseIndex;
@@ -278,7 +285,7 @@ namespace AnySilkBoss.Source.Behaviours
             // 检查各阶段标志
             CheckPhaseFlags();
         }
-        
+
         /// <summary>
         /// 根据状态名称获取阶段索引
         /// </summary>
@@ -337,7 +344,7 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 string phaseFlagName = $"P{i}";
                 var phaseFlagVar = _phaseControl.FsmVariables.GetFsmBool(phaseFlagName);
-                
+
                 if (phaseFlagVar != null && phaseFlagVar.Value && !_phaseFlags[i])
                 {
                     OnPhaseFlagSet(i);
@@ -392,7 +399,7 @@ namespace AnySilkBoss.Source.Behaviours
         private void OnPhaseChanged(int oldPhase, int newPhase)
         {
             Log.Info($"阶段改变: {GetPhaseName(oldPhase)} -> {GetPhaseName(newPhase)}");
-            
+
             // ========== 在这里添加阶段改变时的逻辑 ==========
             switch (newPhase)
             {
@@ -432,7 +439,7 @@ namespace AnySilkBoss.Source.Behaviours
         private void OnPhaseFlagSet(int phase)
         {
             Log.Info($"P{phase} 标志已设置");
-            
+
             // ========== 在这里添加阶段标志设置时的逻辑 ==========
         }
 
@@ -442,7 +449,7 @@ namespace AnySilkBoss.Source.Behaviours
         private void OnPhaseFlagCleared(int phase)
         {
             Log.Info($"P{phase} 标志已清除");
-            
+
             // ========== 在这里添加阶段标志清除时的逻辑 ==========
         }
 
@@ -455,7 +462,7 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 0 => "初始化",
                 1 => "P1",
-                2 => "P2", 
+                2 => "P2",
                 3 => "P3",
                 4 => "硬直阶段",
                 5 => "背景破坏",
@@ -522,10 +529,10 @@ namespace AnySilkBoss.Source.Behaviours
         public int GetPhaseHP(int phase)
         {
             if (_phaseControl == null || phase < 1 || phase > 6) return 0;
-            
+
             string hpVarName = $"P{phase} HP";
             var hpVar = _phaseControl.FsmVariables.GetFsmInt(hpVarName);
-            
+
             return hpVar?.Value ?? 0;
         }
 
@@ -535,10 +542,10 @@ namespace AnySilkBoss.Source.Behaviours
         public void SetPhaseHP(int phase, int hp)
         {
             if (_phaseControl == null || phase < 1 || phase > 6) return;
-            
+
             string hpVarName = $"P{phase} HP";
             var hpVar = _phaseControl.FsmVariables.GetFsmInt(hpVarName);
-            
+
             if (hpVar != null)
             {
                 hpVar.Value = hp;
@@ -560,7 +567,7 @@ namespace AnySilkBoss.Source.Behaviours
                 return;
             }
 
-            healthManager.AddHP(healAmount,1000);
+            healthManager.AddHP(healAmount, 1000);
 
             Log.Info($"Boss回血：{healAmount}");
         }
@@ -571,9 +578,9 @@ namespace AnySilkBoss.Source.Behaviours
         public void TriggerPhase(int phase)
         {
             if (_phaseControl == null || phase < 1 || phase > 6) return;
-            
+
             Log.Info($"手动触发P{phase}");
-            
+
             var phaseVar = _phaseControl.FsmVariables.GetFsmInt("Phase");
             if (phaseVar != null)
             {
@@ -590,18 +597,18 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 string phaseFlagName = $"P{i}";
                 var phaseFlagVar = _phaseControl.FsmVariables.GetFsmBool(phaseFlagName);
-                
+
                 if (phaseFlagVar != null)
                 {
                     phaseFlagVar.Value = false;
                 }
-                
+
                 _phaseFlags[i] = false;
             }
-            
+
             Log.Info("所有阶段标志已重置");
         }
-        
+
         /// <summary>
         /// 获取当前Boss阶段索引（供其他组件使用）
         /// </summary>
@@ -609,7 +616,7 @@ namespace AnySilkBoss.Source.Behaviours
         {
             return _bossPhaseIndex?.Value ?? 0;
         }
-        
+
         #region 大丝球大招相关
         /// <summary>
         /// 获取BigSilkBallManager引用
@@ -648,7 +655,7 @@ namespace AnySilkBoss.Source.Behaviours
             // 找到关键状态
             var setP3WebStrandState = _phaseControl.FsmStates.FirstOrDefault(s => s.Name == "Set P3 Web Strand");
             var p3State = _phaseControl.FsmStates.FirstOrDefault(s => s.Name == "P3");
-            
+
             if (setP3WebStrandState == null)
             {
                 Log.Error("未找到 Set P3 Web Strand 状态");
@@ -663,7 +670,7 @@ namespace AnySilkBoss.Source.Behaviours
             RegisterBigSilkBallEvents();
             // 创建P2.5状态（类似P3，监听TOOK DAMAGE事件）
             var p25State = CreateP25State();
-            
+
             // 创建HP Check 2.5状态（检查血量是否触发大招）
             var hpCheck25State = CreateHPCheck25State();
 
@@ -709,7 +716,7 @@ namespace AnySilkBoss.Source.Behaviours
             // 添加状态转换
             AddP25Transitions(p25State, hpCheck25State);
             AddHPCheck25Transitions(hpCheck25State, p25State, bigSilkBallRoarState); // 修改为跳转到怒吼状态
-            AddBigSilkBallTransitions(bigSilkBallPrepareState, bigSilkBallMoveToCenterState, 
+            AddBigSilkBallTransitions(bigSilkBallPrepareState, bigSilkBallMoveToCenterState,
                 bigSilkBallSpawnState, bigSilkBallWaitState, bigSilkBallEndState, bigSilkBallReturnState, p3State,
                 bigSilkBallRoarState, bigSilkBallRoarEndState);
 
@@ -1020,10 +1027,11 @@ namespace AnySilkBoss.Source.Behaviours
             });
 
 
-            actions.Insert(0, new CallMethod {
+            actions.Insert(0, new CallMethod
+            {
                 behaviour = new FsmObject { Value = this },
                 methodName = new FsmString("SendSilkStunnedToAllFingerBlades") { Value = "SendSilkStunnedToAllFingerBlades" },
-                parameters = new FsmVar[]{}
+                parameters = new FsmVar[] { }
             });
             prepareState.Actions = actions.ToArray();
         }
@@ -1068,8 +1076,8 @@ namespace AnySilkBoss.Source.Behaviours
                 GameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
                 ToValue = new FsmFloat(39.5f),  // 房间中心X
                 localSpace = false,
-                time = new FsmFloat(1.0f),      
-                speed = new FsmFloat(8f),       
+                time = new FsmFloat(1.0f),
+                speed = new FsmFloat(8f),
                 delay = new FsmFloat(0f),
                 easeType = EaseFsmAction.EaseType.linear,
                 reverse = new FsmBool(false),
@@ -1082,14 +1090,14 @@ namespace AnySilkBoss.Source.Behaviours
                 GameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
                 ToValue = new FsmFloat(147.5f),    // 高处Y（上移5单位）
                 localSpace = false,
-                time = new FsmFloat(1.0f), 
-                speed = new FsmFloat(5f),      
+                time = new FsmFloat(1.0f),
+                speed = new FsmFloat(5f),
                 delay = new FsmFloat(0f),
                 easeType = EaseFsmAction.EaseType.linear,
                 reverse = new FsmBool(false),
                 realTime = false,
             });
-            
+
             // 6. 启动BOSS Z轴和Scale的渐变协程（同步进行）
             actions.Add(new CallMethod
             {
@@ -1097,7 +1105,7 @@ namespace AnySilkBoss.Source.Behaviours
                 methodName = new FsmString("StartBossTransformAnimation") { Value = "StartBossTransformAnimation" },
                 parameters = new FsmVar[0]
             });
-            
+
             actions.Add(new Wait
             {
                 time = new FsmFloat(1.2f),
@@ -1166,10 +1174,11 @@ namespace AnySilkBoss.Source.Behaviours
                 parameters = new FsmVar[0]
             });
             // --- 在结尾前加注入 ---
-            actions.Insert(actions.Count, new CallMethod {
+            actions.Insert(actions.Count, new CallMethod
+            {
                 behaviour = new FsmObject { Value = this },
                 methodName = new FsmString("SendBladesReturnToAllFingerBlades") { Value = "SendBladesReturnToAllFingerBlades" },
-                parameters = new FsmVar[]{  }
+                parameters = new FsmVar[] { }
             });
 
             actions.Add(new Wait
@@ -1193,7 +1202,7 @@ namespace AnySilkBoss.Source.Behaviours
                 gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
                 layer = LayerMask.NameToLayer("Enemies")  // 恢复到敌人层
             });
-                        // 恢复haze子物品
+            // 恢复haze子物品
             actions.Add(new CallMethod
             {
                 behaviour = new FsmObject { Value = this },
@@ -1251,10 +1260,10 @@ namespace AnySilkBoss.Source.Behaviours
             actions.Add(new Tk2dPlayAnimationWithEvents
             {
                 gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
-                clipName = new FsmString("Roar") { Value = "Roar" }, 
+                clipName = new FsmString("Roar") { Value = "Roar" },
                 animationTriggerEvent = FsmEvent.Finished
             });
-            
+
             // 2. 直接克隆怒吼音效动作（从Attack Control FSM的Roar状态）
             var playRoarAudio = _attackControlBehavior?.CloneActionFromAttackControlFSM<PlayAudioEventRandom>("Roar");
             if (playRoarAudio != null)
@@ -1265,7 +1274,7 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 Log.Warn("无法克隆PlayAudioEventRandom动作，使用默认配置");
             }
-            
+
             // 4. 发送事件
             if (_hairTransform != null)
             {
@@ -1276,12 +1285,12 @@ namespace AnySilkBoss.Source.Behaviours
                         target = FsmEventTarget.EventTarget.GameObject,
                         gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.SpecifyGameObject, gameObject = new FsmGameObject { Value = _hairTransform.gameObject } },
                     },
-                    sendEvent = new FsmString("ROAR") { Value = "ROAR" }, 
+                    sendEvent = new FsmString("ROAR") { Value = "ROAR" },
                     delay = new FsmFloat(0f),
                     everyFrame = false
                 });
             }
-            
+
             roarState.Actions = actions.ToArray();
         }
 
@@ -1292,13 +1301,13 @@ namespace AnySilkBoss.Source.Behaviours
         {
             // 等待1秒，确保 AttackControlBehavior 已初始化
             yield return new WaitForSeconds(1f);
-            
+
             // 确保 AttackControlBehavior 已获取
             if (_attackControlBehavior == null)
             {
                 _attackControlBehavior = gameObject.GetComponent<AttackControlBehavior>();
             }
-            
+
             // 如果仍然为 null，继续等待
             int retryCount = 0;
             while (_attackControlBehavior == null && retryCount < 10)
@@ -1307,13 +1316,13 @@ namespace AnySilkBoss.Source.Behaviours
                 _attackControlBehavior = gameObject.GetComponent<AttackControlBehavior>();
                 retryCount++;
             }
-            
+
             if (_attackControlBehavior == null)
             {
                 Log.Error("延迟1秒后仍无法获取 AttackControlBehavior，Big Silk Ball Roar 状态可能缺少音效动作");
                 yield break;
             }
-            
+
             // 现在安全地添加动作
             Log.Info("延迟添加 Big Silk Ball Roar 状态的动作");
             AddBigSilkBallRoarActions(roarState);
@@ -1335,7 +1344,8 @@ namespace AnySilkBoss.Source.Behaviours
                 y = new FsmFloat(0f),
                 everyFrame = false
             });
-            actions.Add(new SetScale{
+            actions.Add(new SetScale
+            {
                 gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
                 x = new FsmFloat { Value = 1f },
                 y = new FsmFloat { Value = 1f },
@@ -1363,7 +1373,8 @@ namespace AnySilkBoss.Source.Behaviours
         private void AddBigSilkBallTransitions(FsmState prepareState, FsmState moveToCenterState,
             FsmState spawnState, FsmState waitState, FsmState endState, FsmState returnState, FsmState p3State,
             FsmState bigSilkBallRoarState, FsmState bigSilkBallRoarEndState)
-        {bigSilkBallRoarState.Transitions = new FsmTransition[]
+        {
+            bigSilkBallRoarState.Transitions = new FsmTransition[]
             {
                 new FsmTransition
                 {
@@ -1446,7 +1457,7 @@ namespace AnySilkBoss.Source.Behaviours
                     toFsmState = p3State
                 }
             };
-            
+
             Log.Info("已设置 Big Silk Ball End -> Return -> P3");
         }
 
@@ -1457,38 +1468,38 @@ namespace AnySilkBoss.Source.Behaviours
         {
             // 确保TOOK DAMAGE事件存在（原版事件）
             var tookDamageEvent = FsmEvent.GetFsmEvent("TOOK DAMAGE");
-            
+
             // 注册新的自定义事件
             var startBigSilkBallEvent = new FsmEvent("START BIG SILK BALL");
             var bigSilkBallCompleteEvent = new FsmEvent("BIG SILK BALL COMPLETE");
             var bigSilkBallLockEvent = new FsmEvent("BIG SILK BALL LOCK");
             var bigSilkBallUnlockEvent = new FsmEvent("BIG SILK BALL UNLOCK");
-            
+
             // 将新事件添加到FSM的全局事件列表
             var events = _phaseControl.Fsm.Events.ToList();
-            
+
             if (!events.Any(e => e.Name == "START BIG SILK BALL"))
             {
                 events.Add(startBigSilkBallEvent);
             }
-            
+
             if (!events.Any(e => e.Name == "BIG SILK BALL COMPLETE"))
             {
                 events.Add(bigSilkBallCompleteEvent);
             }
-            
+
             if (!events.Any(e => e.Name == "BIG SILK BALL LOCK"))
             {
                 events.Add(bigSilkBallLockEvent);
             }
-            
+
             if (!events.Any(e => e.Name == "BIG SILK BALL UNLOCK"))
             {
                 events.Add(bigSilkBallUnlockEvent);
             }
-            
+
             _phaseControl.Fsm.Events = events.ToArray();
-            
+
             Log.Info("大招事件注册完成（START, COMPLETE, LOCK, UNLOCK）");
         }
 
@@ -1499,12 +1510,12 @@ namespace AnySilkBoss.Source.Behaviours
         {
             string eventName = eventNameObj?.ToString() ?? "";
             Log.Info($"接收到参数: {eventNameObj}, 转换为字符串: {eventName}");
-            foreach(var bladeObj in _allFingerBlades)
+            foreach (var bladeObj in _allFingerBlades)
             {
-                if(bladeObj!=null)
+                if (bladeObj != null)
                 {
                     var fsm = bladeObj.GetComponent<PlayMakerFSM>();
-                    if(fsm!=null){ fsm.SendEvent(eventName); Log.Info($"向{bladeObj.name}发送:{eventName}"); }
+                    if (fsm != null) { fsm.SendEvent(eventName); Log.Info($"向{bladeObj.name}发送:{eventName}"); }
                 }
             }
         }
@@ -1533,8 +1544,52 @@ namespace AnySilkBoss.Source.Behaviours
         }
         private IEnumerator SendBladesReturnDelayCoroutine()
         {
-            yield return new WaitForSeconds(3f);
+            // ⚠️ 关键修复：发送两次BLADES RETURN，因为指针有两个状态需要此事件
+            // 
+            // 第一次：延迟3.5秒，确保指针走完Stagger流程到达Stagger Finish状态
+            // 指针Stagger流程：Stagger Pause(0-0.3s) → Stagger Anim(0.4-1s) → Stagger Drop(2.5s) → Stagger Finish
+            // Stagger Finish状态接收BLADES RETURN → 进入Rerise Follow
+            yield return new WaitForSeconds(3.5f);
             SendBladesReturnToAllFingerBlades();
+            Log.Info("第一次发送 BLADES RETURN（针对Stagger Finish状态）");
+
+            // 第二次：再延迟1秒，针对可能处于Rise状态的指针
+            // Rise状态接收BLADES RETURN → 进入Begin
+            // 模拟原版Rerise Up状态的第二次发送
+            yield return new WaitForSeconds(1f);
+            SendBladesReturnToAllFingerBlades();
+            Log.Info("第二次发送 BLADES RETURN（针对Rise状态）");
+        }
+
+        /// <summary>
+        /// 在爬升阶段完成时重置Finger Blade状态
+        /// 这是为了弥补跳过Move Stop导致的事件丢失
+        /// </summary>
+        public void ResetFingerBladesOnClimbComplete()
+        {
+            // ⚠️ 注意：不在这里立即发送BLADES RETURN
+            // 因为SendBladesReturnDelay已经在3.5秒后发送过了
+            // 如果此时指针还在Stagger流程中，立即发送会导致事件丢失
+            // 
+            // 只重置Finger Blade的状态标志，确保它们处于正确的初始状态
+            foreach (var bladeObj in _allFingerBlades)
+            {
+                if (bladeObj != null)
+                {
+                    var fsm = bladeObj.GetComponent<PlayMakerFSM>();
+                    if (fsm != null)
+                    {
+                        // 重置Ready标志
+                        var readyVar = fsm.FsmVariables.GetFsmBool("Ready");
+                        if (readyVar != null)
+                        {
+                            readyVar.Value = false;
+                        }
+
+                        Log.Info($"重置Finger Blade {bladeObj.name} Ready标志");
+                    }
+                }
+            }
         }
         /// <summary>
         /// 保存Boss原始图层
@@ -1641,12 +1696,12 @@ namespace AnySilkBoss.Source.Behaviours
                     _chargeComplete = true;
                     Log.Info("大丝球蓄力完成");
                     break;
-                    
+
                 case "BurstComplete":
                     _burstComplete = true;
                     Log.Info("大丝球爆炸完成");
                     break;
-                    
+
                 default:
                     Log.Warn($"未知的大丝球事件: {eventName}");
                     break;
@@ -1708,7 +1763,7 @@ namespace AnySilkBoss.Source.Behaviours
             }
         }
 
-        
+
         /// <summary>
         /// 保存BOSS原始状态（Z轴和Scale），同时保存Hair的状态
         /// </summary>
@@ -1718,7 +1773,7 @@ namespace AnySilkBoss.Source.Behaviours
             _originalBossZ = transform.position.z;
             _originalBossScale = transform.localScale;
             Log.Info($"保存BOSS原始状态 - Z轴: {_originalBossZ:F4}, Scale: {_originalBossScale}");
-            
+
             // 查找并保存Hair状态（Hair是BOSS的兄弟物体，在同一父级下）
             if (_hairTransform == null && transform.parent != null)
             {
@@ -1728,7 +1783,7 @@ namespace AnySilkBoss.Source.Behaviours
                     Log.Warn("未找到 Silk_Hair 物体（可能名称不同或不存在）");
                 }
             }
-            
+
             if (_hairTransform != null)
             {
                 _originalHairZ = _hairTransform.position.z;
@@ -1736,7 +1791,7 @@ namespace AnySilkBoss.Source.Behaviours
                 Log.Info($"保存Hair原始状态 - Z轴: {_originalHairZ:F4}, Scale: {_originalHairScale}");
             }
         }
-        
+
         /// <summary>
         /// 启动BOSS Transform渐变动画（Z轴和Scale）
         /// </summary>
@@ -1744,7 +1799,7 @@ namespace AnySilkBoss.Source.Behaviours
         {
             StartCoroutine(AnimateBossTransform());
         }
-        
+
         /// <summary>
         /// BOSS Transform渐变协程（Z轴移到后面，Scale放大补偿），同时调整Hair
         /// </summary>
@@ -1753,34 +1808,34 @@ namespace AnySilkBoss.Source.Behaviours
             float duration = 1.0f;  // 渐变时长1秒，与XY位置移动同步
             float targetZ = 60f;  // 目标Z轴（调整到更深的背景）
             float targetScale = 1.8f;   // 目标Scale倍数（补偿Z轴后移）
-            
+
             Log.Info($"开始BOSS Transform渐变 - 从Z={_originalBossZ:F4}到{targetZ:F4}, Scale从{_originalBossScale}到{_originalBossScale * targetScale}");
-            
+
             float elapsed = 0f;
             Vector3 bossStartScale = _originalBossScale.Abs();
             transform.localScale = bossStartScale;
             Vector3 bossEndScale = _originalBossScale.Abs() * targetScale;
-            
+
             // Hair的渐变参数
             Vector3 hairStartScale = _originalHairScale;
             Vector3 hairEndScale = _originalHairScale * targetScale;
-            
+
             if (_hairTransform != null)
             {
                 Log.Info($"开始Hair Transform渐变 - 从Z={_originalHairZ:F4}到{targetZ:F4}, Scale从{_originalHairScale}到{hairEndScale}");
             }
-            
+
             while (elapsed < duration)
             {
                 elapsed += Time.deltaTime;
                 float t = elapsed / duration;
-                
+
                 // Lerp BOSS Z轴和Scale
                 Vector3 bossPos = transform.position;
                 bossPos.z = Mathf.Lerp(_originalBossZ, targetZ, t);
                 transform.position = bossPos;
                 transform.localScale = Vector3.Lerp(bossStartScale, bossEndScale, t);
-                
+
                 // Lerp Hair Z轴和Scale
                 if (_hairTransform != null)
                 {
@@ -1789,16 +1844,16 @@ namespace AnySilkBoss.Source.Behaviours
                     _hairTransform.position = hairPos;
                     _hairTransform.localScale = Vector3.Lerp(hairStartScale, hairEndScale, t);
                 }
-                
+
                 yield return null;
             }
-            
+
             // 确保最终值精确
             Vector3 bossFinalPos = transform.position;
             bossFinalPos.z = targetZ;
             transform.position = bossFinalPos;
             transform.localScale = bossEndScale;
-            
+
             if (_hairTransform != null)
             {
                 Vector3 hairFinalPos = _hairTransform.position;
@@ -1807,10 +1862,10 @@ namespace AnySilkBoss.Source.Behaviours
                 _hairTransform.localScale = hairEndScale;
                 Log.Info($"Hair Transform渐变完成 - Z={_hairTransform.position.z:F4}, Scale={_hairTransform.localScale}");
             }
-            
+
             Log.Info($"BOSS Transform渐变完成 - Z={transform.position.z:F4}, Scale={transform.localScale}");
         }
-        
+
         /// <summary>
         /// 恢复BOSS原始Transform（大招结束后调用）
         /// </summary>
@@ -1818,7 +1873,7 @@ namespace AnySilkBoss.Source.Behaviours
         {
             StartCoroutine(RestoreBossTransformCoroutine());
         }
-        
+
         /// <summary>
         /// 禁用Boss的haze子物品（大招期间）
         /// </summary>
@@ -1877,19 +1932,19 @@ namespace AnySilkBoss.Source.Behaviours
         private IEnumerator RestoreBossTransformCoroutine()
         {
             float duration = 2.0f;  // 恢复时间（2秒，让玩家看清BOSS从背景返回）
-            
+
             // BOSS当前状态
             Vector3 bossCurrentPos = transform.position;
             Vector3 bossCurrentScale = transform.localScale;
             float bossStartZ = bossCurrentPos.z;
-            
+
             Log.Info($"开始恢复BOSS Transform - 从Z={bossCurrentPos.z:F4}到{_originalBossZ:F4}, Scale从{bossCurrentScale}到(1,1,1)");
-            
+
             // Hair当前状态
             Vector3 hairCurrentPos = Vector3.zero;
             Vector3 hairCurrentScale = Vector3.one;
             float hairStartZ = 0f;
-            
+
             if (_hairTransform != null)
             {
                 hairCurrentPos = _hairTransform.position;
@@ -1897,20 +1952,20 @@ namespace AnySilkBoss.Source.Behaviours
                 hairStartZ = hairCurrentPos.z;
                 Log.Info($"开始恢复Hair Transform - 从Z={hairCurrentPos.z:F4}到{_originalHairZ:F4}, Scale从{hairCurrentScale}到(1,1,1)");
             }
-            
+
             float elapsed = 0f;
-            
+
             while (elapsed < duration)
             {
                 elapsed += Time.deltaTime;
                 float t = elapsed / duration;
-                
+
                 // Lerp BOSS Z轴和Scale（Scale恢复到(1,1,1)）
                 Vector3 bossPos = transform.position;
                 bossPos.z = Mathf.Lerp(bossStartZ, _originalBossZ, t);
                 transform.position = bossPos;
                 transform.localScale = Vector3.Lerp(bossCurrentScale, Vector3.one, t);
-                
+
                 // Lerp Hair Z轴和Scale（Scale恢复到(1,1,1)）
                 if (_hairTransform != null)
                 {
@@ -1919,16 +1974,16 @@ namespace AnySilkBoss.Source.Behaviours
                     _hairTransform.position = hairPos;
                     _hairTransform.localScale = Vector3.Lerp(hairCurrentScale, Vector3.one, t);
                 }
-                
+
                 yield return null;
             }
-            
+
             // 确保最终值精确
             Vector3 bossFinalPos = transform.position;
             bossFinalPos.z = _originalBossZ;
             transform.position = bossFinalPos;
             transform.localScale = Vector3.one;  // 强制恢复为(1,1,1)
-            
+
             if (_hairTransform != null)
             {
                 Vector3 hairFinalPos = _hairTransform.position;
@@ -1937,7 +1992,7 @@ namespace AnySilkBoss.Source.Behaviours
                 _hairTransform.localScale = Vector3.one;  // 强制恢复为(1,1,1)
                 Log.Info($"Hair Transform恢复完成 - Z={_hairTransform.position.z:F4}, Scale={_hairTransform.localScale}");
             }
-            
+
             Log.Info($"BOSS Transform恢复完成 - Z={transform.position.z:F4}, Scale={transform.localScale}");
         }
         #endregion
@@ -1975,7 +2030,7 @@ namespace AnySilkBoss.Source.Behaviours
             // 找到关键状态
             var staggerPauseState = _phaseControl.FsmStates.FirstOrDefault(s => s.Name == "Stagger Pause");
             var setP4State = _phaseControl.FsmStates.FirstOrDefault(s => s.Name == "Set P4");
-            
+
             if (staggerPauseState == null)
             {
                 Log.Error("未找到 Stagger Pause 状态");
@@ -1989,7 +2044,7 @@ namespace AnySilkBoss.Source.Behaviours
 
             // 注册新事件
             RegisterClimbPhaseEvents();
-            
+
             // 创建新变量
             CreateClimbPhaseVariables();
 
@@ -2017,12 +2072,15 @@ namespace AnySilkBoss.Source.Behaviours
             AddClimbPhaseCompleteActions(climbCompleteState);
 
             // 添加状态转换
-            AddClimbPhaseTransitions(climbInitState, climbPlayerControlState, 
+            AddClimbPhaseTransitions(climbInitState, climbPlayerControlState,
                 climbBossActiveState, climbCompleteState, setP4State);
 
             // 重新初始化FSM
             _phaseControl.Fsm.InitData();
             _phaseControl.Fsm.InitEvents();
+
+            // 初始化丝线缠绕动画
+            InitializeSilkYankClones();
 
             Log.Info("=== 爬升阶段状态序列添加完成 ===");
         }
@@ -2033,20 +2091,20 @@ namespace AnySilkBoss.Source.Behaviours
         private void RegisterClimbPhaseEvents()
         {
             var events = _phaseControl.Fsm.Events.ToList();
-            
+
             // 爬升阶段事件
             if (!events.Any(e => e.Name == "CLIMB PHASE START"))
                 events.Add(new FsmEvent("CLIMB PHASE START"));
-            
+
             if (!events.Any(e => e.Name == "CLIMB PHASE END"))
                 events.Add(new FsmEvent("CLIMB PHASE END"));
-            
+
             if (!events.Any(e => e.Name == "CLIMB PHASE ATTACK"))
                 events.Add(new FsmEvent("CLIMB PHASE ATTACK"));
-            
+
             if (!events.Any(e => e.Name == "CLIMB COMPLETE"))
                 events.Add(new FsmEvent("CLIMB COMPLETE"));
-            
+
             _phaseControl.Fsm.Events = events.ToArray();
             Log.Info("爬升阶段事件注册完成");
         }
@@ -2057,7 +2115,7 @@ namespace AnySilkBoss.Source.Behaviours
         private void CreateClimbPhaseVariables()
         {
             var boolVars = _phaseControl.FsmVariables.BoolVariables.ToList();
-            
+
             // 检查是否已存在
             if (!boolVars.Any(v => v.Name == "Climb Phase Active"))
             {
@@ -2252,25 +2310,15 @@ namespace AnySilkBoss.Source.Behaviours
                 delay = new FsmFloat(0f),
                 everyFrame = false
             });
+
+            // ⚠️ 重要：保持原始FSM的指针复位逻辑
+            // 在进入爬升阶段后1秒，发送BLADES RETURN让指针回位
+            // 这是必要的，不能删除，否则指针可能永远收不到复位事件
             actions.Add(new CallMethod
             {
                 behaviour = new FsmObject { Value = this },
                 methodName = new FsmString("SendBladesReturnDelay") { Value = "SendBladesReturnDelay" },
                 parameters = new FsmVar[0]
-            });
-            // 通知Attack Control开始爬升阶段攻击
-            actions.Add(new SendEventByName
-            {
-                eventTarget = new FsmEventTarget
-                {
-                    target = FsmEventTarget.EventTarget.GameObjectFSM,
-                    excludeSelf = new FsmBool(false),
-                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
-                    fsmName = new FsmString("Attack Control") { Value = "Attack Control" }
-                },
-                sendEvent = new FsmString("CLIMB PHASE ATTACK") { Value = "CLIMB PHASE ATTACK" },
-                delay = new FsmFloat(0f),
-                everyFrame = false
             });
 
             // 每帧监控玩家Y位置
@@ -2297,6 +2345,14 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
                 layer = 11  // Enemies
+            });
+
+            // ⚠️ 恢复Boss的Z轴到0.01（原始值）
+            actions.Add(new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("RestoreBossZPosition") { Value = "RestoreBossZPosition" },
+                parameters = new FsmVar[0]
             });
 
             // 清除阶段标志
@@ -2337,6 +2393,22 @@ namespace AnySilkBoss.Source.Behaviours
                 sendEvent = new FsmString("CLIMB PHASE END") { Value = "CLIMB PHASE END" },
                 delay = new FsmFloat(0f),
                 everyFrame = false
+            });
+
+            // 重置Finger Blade状态（弥补跳过Move Stop导致的BLADES RETURN事件）
+            actions.Add(new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("ResetFingerBladesOnClimbComplete") { Value = "ResetFingerBladesOnClimbComplete" },
+                parameters = new FsmVar[0]
+            });
+
+            // ⚠️ 快速移动Boss回到战斗场地（Y=50附近）
+            actions.Add(new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("MoveBossBackToArena") { Value = "MoveBossBackToArena" },
+                parameters = new FsmVar[0]
             });
 
             // 重置C#端标志
@@ -2446,83 +2518,101 @@ namespace AnySilkBoss.Source.Behaviours
 
             var tk2dAnimator = hero.GetComponent<tk2dSpriteAnimator>();
             var rb = hero.GetComponent<Rigidbody2D>();
-            
-            // 等待一帧确保输入被禁用
-            yield return null;
-            
-            // 2. 禁用玩家控制和动画控制（使用优雅的方式）
+
+            // 1. 立即启用丝线缠绕动画并禁用玩家输入
+            ActivateSilkYankAnimation();
             hero.RelinquishControl();
             hero.StopAnimationControl();
-            
-            // 3. 保存原始图层和当前位置
+            Log.Info("启用丝线缠绕并禁用玩家输入");
+
+            // 2. 启动丝线跟随协程（持续0.8秒跟随玩家位置）
+            StartCoroutine(UpdateSilkYankPositions(0.8f));
+
+            // 3. 等待0.8秒（玩家可能在空中下落，丝线会跟随）
+            yield return new WaitForSeconds(0.8f);
+            Log.Info("丝线跟随阶段完成，开始下落序列");
+
+            // 4. 保存原始图层和当前位置
             int originalLayer = hero.gameObject.layer;
             Vector3 currentPos = hero.transform.position;
-            
-            // 4. 设置穿墙图层
+
+            // 5. 设置穿墙图层
             hero.gameObject.layer = LayerMask.NameToLayer("Ignore Raycast");
-            
-            // 5. 设置玩家无敌
+
+            // 6. 设置玩家无敌
             bool originalInvincible = PlayerData.instance.isInvincible;
             PlayerData.instance.isInvincible = true;
-            
-            // 6. 计算X轴速度让玩家落到目标位置（X=40）
+
+            // 7. 计算X轴速度让玩家落到目标位置（X=40）
             if (rb != null)
             {
                 float targetX = 40f;
                 float currentX = currentPos.x;
                 float fallTime = 2.3f; // 实测下落时间
-                
+
                 // 计算所需的X轴速度: vx = deltaX / t
                 float deltaX = targetX - currentX;
                 float velocityX = deltaX / fallTime;
-                
+
                 // 保持Y轴速度不变，只设置X轴速度
                 rb.linearVelocity = new Vector2(velocityX, rb.linearVelocity.y);
-                
+
                 Log.Info($"玩家下落计算 - 当前位置:({currentX:F2}, {currentPos.y:F2}), 目标X:{targetX}, 下落时间:{fallTime}s, X轴速度:{velocityX:F2}");
             }
-            
-            // 7. 播放 Weak Fall 动画
+
+            // 8. 播放 Weak Fall 动画
             if (tk2dAnimator != null)
                 tk2dAnimator.Play("Weak Fall");
-            
-            
+
+            yield return new WaitForSeconds(0.1f);
+            DeactivateSilkYankAnimation();
+            Log.Info("禁用丝线缠绕动画");
+
             // 8. 监控 Y 轴，当 Y < 57 时恢复原始图层和无敌状态（此时还未落地）
             while (hero.transform.position.y >= 57f)
             {
                 yield return null;
             }
-            
+
             // 8. 恢复原始图层和无敌状态（玩家继续下落但不再穿墙）
             hero.gameObject.layer = originalLayer;
             PlayerData.instance.isInvincible = originalInvincible;
             Log.Info($"玩家 Y < 57，恢复原始图层: {originalLayer}，恢复无敌状态: {originalInvincible}，当前位置: {hero.transform.position.y}");
-            
+
             // 9. 等待落地（Y <= 53.8）
             while (hero.transform.position.y > 53.8f)
             {
                 yield return null;
             }
-            
+
             Log.Info($"玩家落地，最终位置: {hero.transform.position.y}");
             rb.linearVelocity = new Vector2(0f, rb.linearVelocity.y);
-            
+
             // 11. 播放恢复动画序列
             if (tk2dAnimator != null)
             {
                 tk2dAnimator.Play("FallToProstrate");
                 yield return new WaitForSeconds(1f);
-                
+
                 tk2dAnimator.Play("ProstrateRiseToKneel");
                 yield return new WaitForSeconds(1f);
-                
+
                 tk2dAnimator.Play("GetUpToIdle");
+                yield return new WaitForSeconds(0.3f);
             }
-            
+
             // 12. 恢复玩家控制和动画控制
             hero.RegainControl();
             hero.StartAnimationControl();
-            
+
+            // 13. 玩家恢复可控后再启动爬升阶段攻击，避免落地硬直期间被攻击
+            if (_attackControl != null && !_climbAttackEventSent)
+            {
+                _attackControl.SendEvent("CLIMB PHASE ATTACK");
+                _climbAttackEventSent = true;
+                Log.Info("玩家恢复可移动，已发送 CLIMB PHASE ATTACK 事件到 Attack Control FSM");
+            }
+
             Log.Info("玩家动画控制完成，恢复控制权和输入");
         }
 
@@ -2532,10 +2622,10 @@ namespace AnySilkBoss.Source.Behaviours
         public void MonitorPlayerClimbProgress()
         {
             if (_climbCompleteEventSent) return;
-            
+
             var hero = HeroController.instance;
             if (hero == null) return;
-            
+
             // 边界限制：X轴范围 [2, 78]
             Vector3 pos = hero.transform.position;
             if (pos.x < 2f)
@@ -2559,14 +2649,26 @@ namespace AnySilkBoss.Source.Behaviours
 
             // 处理collapse_gate：当玩家X > 20时恢复GameObject但禁用Animator
             HandleCollapseGateDuringClimb(pos.x);
-            
+
             // 检测玩家是否到达目标高度
             if (pos.y >= 133.5f)
             {
-                _climbCompleteEventSent = true;
-                _climbPhaseCompleted = true;  // 标记爬升完成
-                _phaseControl.SendEvent("CLIMB COMPLETE");
-                Log.Info("玩家到达目标高度，爬升阶段完成，发送 CLIMB COMPLETE 事件");
+                if (!_climbCompleteEventSent)
+                {
+                    _climbCompleteEventSent = true;
+                    _climbPhaseCompleted = true;
+                    if (_attackControl != null && !_climbAttackEventSent)
+                    {
+                        _attackControl.SendEvent("CLIMB PHASE ATTACK");
+                        _climbAttackEventSent = true;
+                        Log.Info("玩家提前爬到顶，补发 CLIMB PHASE ATTACK 事件");
+                    }
+                    _phaseControl.SendEvent("CLIMB COMPLETE");
+                    Log.Info("玩家到达目标高度，爬升阶段完成，发送 CLIMB COMPLETE 事件");
+
+                    // ⚠️ 爬升完成后，启动X轴监控协程，持续检测玩家X坐标直到X > 20
+                    StartCoroutine(MonitorPlayerXForCollapseGate());
+                }
             }
         }
 
@@ -2589,6 +2691,7 @@ namespace AnySilkBoss.Source.Behaviours
                     if (battleGate != null)
                     {
                         _collapseGate = battleGate.Find("boss_scene_collapse_gate")?.gameObject;
+                        Log.Info($"找到collapse_gate: {(_collapseGate != null ? "成功" : "失败")}");
                     }
                 }
             }
@@ -2608,7 +2711,8 @@ namespace AnySilkBoss.Source.Behaviours
                 Log.Info("已禁用collapse_gate和其Animator");
             }
 
-            // 爬升完成后（Y >= 133.5f），检测X > 20时恢复GameObject但禁用Animator
+            // ⚠️ 爬升完成后，检测X > 20时恢复GameObject但禁用Animator
+            // 注意：这个逻辑需要持续监控，不能只在Y >= 133.5f时触发一次
             if (_climbPhaseCompleted && playerX > 20f && !_collapseGate.activeSelf)
             {
                 _collapseGate.SetActive(true);
@@ -2617,7 +2721,7 @@ namespace AnySilkBoss.Source.Behaviours
                 {
                     animator.enabled = false;
                 }
-                Log.Info("爬升完成后恢复collapse_gate GameObject，但Animator仍禁用");
+                Log.Info($"玩家X > 20，恢复collapse_gate GameObject（X={playerX:F2}），但Animator仍禁用");
             }
         }
 
@@ -2627,9 +2731,289 @@ namespace AnySilkBoss.Source.Behaviours
         public void ResetClimbPhaseFlags()
         {
             _climbCompleteEventSent = false;
+            _climbAttackEventSent = false;  // 重置攻击事件标志
             _climbPhaseCompleted = false;
             _collapseGateDisabled = false;
             Log.Info("爬升阶段标志已重置");
+        }
+
+        /// <summary>
+        /// 恢复Boss的Z轴位置到0.01（原始值）
+        /// </summary>
+        public void RestoreBossZPosition()
+        {
+            Vector3 currentPos = transform.position;
+            currentPos.z = 0.01f;
+            transform.position = currentPos;
+            Log.Info($"恢复Boss Z轴到0.01，当前位置: {transform.position}");
+        }
+
+        /// <summary>
+        /// 快速移动Boss回到战斗场地
+        /// </summary>
+        public void MoveBossBackToArena()
+        {
+            StartCoroutine(MoveBossBackToArenaCoroutine());
+        }
+
+        private IEnumerator MoveBossBackToArenaCoroutine()
+        {
+            Log.Info("开始快速移动Boss回到战斗场地");
+
+            Vector3 startPos = transform.position;
+            Vector3 targetPos = new Vector3(startPos.x, 136f, startPos.z); // 回到Y=136战斗区域
+            float duration = 1.5f; // 1.5秒快速移动
+            float elapsed = 0f;
+
+            while (elapsed < duration)
+            {
+                elapsed += Time.deltaTime;
+                float t = Mathf.SmoothStep(0f, 1f, elapsed / duration);
+                transform.position = Vector3.Lerp(startPos, targetPos, t);
+                yield return null;
+            }
+
+            transform.position = targetPos;
+            Log.Info($"Boss已回到战斗场地: {transform.position}");
+        }
+
+        /// <summary>
+        /// 监控玩家X坐标，直到X > 20时恢复collapse_gate
+        /// </summary>
+        private IEnumerator MonitorPlayerXForCollapseGate()
+        {
+            var hero = HeroController.instance;
+            if (hero == null || _collapseGate == null)
+            {
+                Log.Warn("无法监控玩家X坐标或collapse_gate为null");
+                yield break;
+            }
+
+            Log.Info("开始监控玩家X坐标以恢复collapse_gate");
+
+            // 持续监控直到玩家X > 20或collapse_gate已恢复
+            while (hero != null && _collapseGate != null)
+            {
+                float playerX = hero.transform.position.x;
+
+                // 如果玩家X > 20且collapse_gate未激活，则恢复它
+                if (playerX > 20f && !_collapseGate.activeSelf)
+                {
+                    _collapseGate.SetActive(true);
+                    var animator = _collapseGate.GetComponent<Animator>();
+                    if (animator != null)
+                    {
+                        animator.enabled = false;
+                    }
+                    Log.Info($"玩家X坐标 > 20 ({playerX:F2})，已恢复collapse_gate GameObject，Animator保持禁用");
+                    yield break; // 恢复后退出监控
+                }
+
+                yield return new WaitForSeconds(0.1f); // 每0.1秒检查一次
+            }
+        }
+        #endregion
+
+        #region 丝线缠绕动画
+        /// <summary>
+        /// 初始化丝线缠绕动画，获取并克隆Silk_yank
+        /// </summary>
+        private void InitializeSilkYankClones()
+        {
+            if (_silkYankInitialized)
+            {
+                Log.Info("丝线缠绕已初始化，跳过");
+                return;
+            }
+
+            try
+            {
+                // 查找Silk_yank原始物体
+                var bossScene = GameObject.Find("Boss Scene");
+                if (bossScene == null)
+                {
+                    Log.Error("未找到Boss Scene物体");
+                    return;
+                }
+
+                // 查找路径: Boss Scene/Rubble Fields/Rubble Field M/Silk_yank
+                var rubbleFields = bossScene.transform.Find("Rubble Fields");
+                if (rubbleFields == null)
+                {
+                    Log.Error("未找到Rubble Fields物体");
+                    return;
+                }
+
+                var rubbleFieldM = rubbleFields.Find("Rubble Field M");
+                if (rubbleFieldM == null)
+                {
+                    Log.Error("未找到Rubble Field M物体");
+                    return;
+                }
+
+                var silkYank = rubbleFieldM.Find("Silk_yank");
+                if (silkYank == null)
+                {
+                    Log.Error("未找到Silk_yank物体");
+                    return;
+                }
+
+                _silkYankPrefab = silkYank.gameObject;
+                Log.Info($"成功找到Silk_yank物体: {_silkYankPrefab.name}");
+
+                // 创建四个克隆体，不要父物体
+                for (int i = 0; i < 4; i++)
+                {
+                    var clone = GameObject.Instantiate(_silkYankPrefab);
+                    clone.name = $"Silk_yank_Clone_{i}";
+                    clone.transform.SetParent(null);  // 不要父物体
+                    clone.SetActive(false);  // 初始禁用
+                    _silkYankClones[i] = clone;
+                    Log.Info($"创建丝线克隆体 {i}: {clone.name}");
+                }
+
+                _silkYankInitialized = true;
+                Log.Info("丝线缠绕动画初始化完成");
+            }
+            catch (System.Exception ex)
+            {
+                Log.Error($"初始化丝线缠绕失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 启用丝线缠绕动画，在四个位置显示
+        /// </summary>
+        private void ActivateSilkYankAnimation()
+        {
+            if (!_silkYankInitialized)
+            {
+                InitializeSilkYankClones();
+            }
+
+            if (!_silkYankInitialized || _silkYankClones[0] == null)
+            {
+                Log.Error("丝线缠绕未初始化，无法启用动画");
+                return;
+            }
+
+            var hero = HeroController.instance;
+            if (hero == null)
+            {
+                Log.Error("HeroController未找到，无法启用丝线缠绕");
+                return;
+            }
+
+            Vector3 heroPos = hero.transform.position;
+            float offsetDistance = 10f;  // 偏移距离
+
+            // 四个位置：左上、左下、右上、右下
+            Vector3[] positions = new Vector3[]
+            {
+                heroPos + new Vector3(-offsetDistance, offsetDistance, 0f),   // 左上
+                heroPos + new Vector3(-offsetDistance, -offsetDistance, 0f),  // 左下
+                heroPos + new Vector3(offsetDistance, offsetDistance, 0f),    // 右上
+                heroPos + new Vector3(offsetDistance, -offsetDistance, 0f)    // 右下
+            };
+
+            // 四个旋转角度（指向玩家）
+            float[] rotations = new float[]
+            {
+                225f,   // 左上指向中心
+                -45f,  // 左下指向中心
+                135f,    // 右上指向中心
+                45f    // 右下指向中心
+            };
+
+            for (int i = 0; i < 4; i++)
+            {
+                if (_silkYankClones[i] != null)
+                {
+                    // 设置位置和旋转
+                    _silkYankClones[i].transform.position = positions[i];
+                    _silkYankClones[i].transform.rotation = Quaternion.Euler(0f, 0f, rotations[i]);
+
+                    // 启用物体，动画会自动播放
+                    _silkYankClones[i].SetActive(true);
+
+                    Log.Info($"启用丝线缠绕 {i}: 位置={positions[i]}, 旋转={rotations[i]}°");
+                }
+            }
+
+            Log.Info("丝线缠绕动画启用完成");
+        }
+
+        /// <summary>
+        /// 禁用丝线缠绕动画
+        /// </summary>
+        private void DeactivateSilkYankAnimation()
+        {
+            for (int i = 0; i < 4; i++)
+            {
+                if (_silkYankClones[i] != null)
+                {
+                    _silkYankClones[i].SetActive(false);
+                }
+            }
+            Log.Info("丝线缠绕动画已禁用");
+        }
+
+        /// <summary>
+        /// 更新丝线位置跟随玩家（协程）
+        /// </summary>
+        /// <param name="duration">跟随持续时间</param>
+        private IEnumerator UpdateSilkYankPositions(float duration)
+        {
+            var hero = HeroController.instance;
+            if (hero == null)
+            {
+                Log.Warn("HeroController未找到，无法更新丝线位置");
+                yield break;
+            }
+
+            float elapsed = 0f;
+            float offsetDistance = 10f;  // 偏移距离
+
+            // 四个旋转角度（指向玩家）
+            float[] rotations = new float[]
+            {
+                225f,   // 左上指向中心
+                -45f,  // 左下指向中心
+                135f,    // 右上指向中心
+                45f    // 右下指向中心
+            };
+
+            while (elapsed < duration)
+            {
+                if (hero != null)
+                {
+                    Vector3 heroPos = hero.transform.position;
+
+                    // 四个位置：左上、左下、右上、右下
+                    Vector3[] positions = new Vector3[]
+                    {
+                        heroPos + new Vector3(-offsetDistance, offsetDistance, 0f),   // 左上
+                        heroPos + new Vector3(-offsetDistance, -offsetDistance, 0f),  // 左下
+                        heroPos + new Vector3(offsetDistance, offsetDistance, 0f),    // 右上
+                        heroPos + new Vector3(offsetDistance, -offsetDistance, 0f)    // 右下
+                    };
+
+                    // 更新所有丝线位置
+                    for (int i = 0; i < 4; i++)
+                    {
+                        if (_silkYankClones[i] != null && _silkYankClones[i].activeSelf)
+                        {
+                            _silkYankClones[i].transform.position = positions[i];
+                            _silkYankClones[i].transform.rotation = Quaternion.Euler(0f, 0f, rotations[i]);
+                        }
+                    }
+                }
+
+                elapsed += Time.deltaTime;
+                yield return null;
+            }
+
+            Log.Info($"丝线跟随完成，持续时间: {duration}秒");
         }
         #endregion
     }

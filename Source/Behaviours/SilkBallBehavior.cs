@@ -531,19 +531,13 @@ namespace AnySilkBoss.Source.Behaviours
             hitWallEvent = FsmEvent.GetFsmEvent("HIT WALL");
             hitHeroEvent = FsmEvent.GetFsmEvent("HIT HERO");
 
-            var events = controlFSM!.FsmEvents.ToList();
+            var events = controlFSM!.Fsm.Events.ToList();
             if (!events.Contains(prepareEvent)) events.Add(prepareEvent);
             if (!events.Contains(releaseEvent)) events.Add(releaseEvent);
             if (!events.Contains(hitWallEvent)) events.Add(hitWallEvent);
             if (!events.Contains(hitHeroEvent)) events.Add(hitHeroEvent);
 
-            // 使用反射设置事件
-            var fsmType = controlFSM.Fsm.GetType();
-            var eventsField = fsmType.GetField("events", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            if (eventsField != null)
-            {
-                eventsField.SetValue(controlFSM.Fsm, events.ToArray());
-            }
+            controlFSM.Fsm.Events = events.ToArray();
         }
 
         /// <summary>
@@ -559,6 +553,8 @@ namespace AnySilkBoss.Source.Behaviours
             accelerationVar = new FsmFloat("Acceleration") { Value = acceleration };
             maxSpeedVar = new FsmFloat("MaxSpeed") { Value = maxSpeed };
             controlFSM.FsmVariables.FloatVariables = new FsmFloat[] { accelerationVar, maxSpeedVar };
+
+            controlFSM.FsmVariables.Init();
         }
         #endregion
 
