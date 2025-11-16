@@ -185,7 +185,7 @@ namespace AnySilkBoss.Source.Behaviours
             _shootEvent = FsmEvent.GetFsmEvent($"SHOOT {handName}");
 
             // 将事件添加到FSM的事件列表中
-            var existingEvents = handFSM.FsmEvents.ToList();
+            var existingEvents = handFSM.Fsm.Events.ToList();
             
             if (!existingEvents.Contains(_orbitStartEvent))
             {
@@ -196,17 +196,7 @@ namespace AnySilkBoss.Source.Behaviours
                 existingEvents.Add(_shootEvent);
             }
 
-            // 使用反射设置FsmEvents
-            var fsmType = handFSM.Fsm.GetType();
-            var eventsField = fsmType.GetField("events", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            if (eventsField != null)
-            {
-                eventsField.SetValue(handFSM.Fsm, existingEvents.ToArray());
-            }
-            else
-            {
-                Log.Error($"{handName} 未找到events字段");
-            }
+            handFSM.Fsm.Events = existingEvents.ToArray();
         }
 
         /// <summary>
@@ -235,9 +225,8 @@ namespace AnySilkBoss.Source.Behaviours
                 Log.Error($"{handName} 未找到ORBIT START事件: ORBIT START {handName}");
                 return;
             }
-            var fsmType = handFSM!.Fsm.GetType();
             // 创建从Idle到Orbit Start的转换
-            var idleState = handFSM.FsmStates.FirstOrDefault(state => state.Name == "Idle");
+            var idleState = handFSM!.FsmStates.FirstOrDefault(state => state.Name == "Idle");
             if (idleState != null)
             {
                 var idleToOrbitStartTransition = new FsmTransition
@@ -252,7 +241,7 @@ namespace AnySilkBoss.Source.Behaviours
             }
 
             // 添加全局转换
-            var existingTransitions = handFSM.FsmGlobalTransitions.ToList();
+            var existingTransitions = handFSM.Fsm.GlobalTransitions.ToList();
             existingTransitions.Add(new FsmTransition
             {
                 FsmEvent = _orbitStartEvent,
@@ -260,16 +249,7 @@ namespace AnySilkBoss.Source.Behaviours
                 toFsmState = orbitStartState
             });
 
-            // 使用反射设置FsmGlobalTransitions
-            var globalTransitionsField = fsmType.GetField("globalTransitions", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            if (globalTransitionsField != null)
-            {
-                globalTransitionsField.SetValue(handFSM.Fsm, existingTransitions.ToArray());
-            }
-            else
-            {
-                Log.Error($"{handName} 未找到globalTransitions字段");
-            }
+            handFSM.Fsm.GlobalTransitions = existingTransitions.ToArray();
 
         }
 

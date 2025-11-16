@@ -177,6 +177,13 @@ internal class BossBehavior : MonoBehaviour
         // 为移动丝球状态添加全局中断监听
         AddDashStatesGlobalInterruptHandling();
 
+        // 添加爬升阶段修复
+        InitializeClimbCastProtection();
+        AddFlipScaleToStaggerPause();
+        SetupControlIdlePendingTransitions();
+        _bossControlFsm.Fsm.InitData();
+        _bossControlFsm.Fsm.InitEvents();
+        _bossControlFsm.FsmVariables.Init();
         Log.Info("Boss Control FSM修改完成");
     }
 
@@ -389,6 +396,16 @@ internal class BossBehavior : MonoBehaviour
             realTime = false
         });
 
+        if (pointIndex == 0 && _bossControlFsm != null)
+        {
+            var dashPendingVar = EnsureBoolVariable(_bossControlFsm, "Silk Ball Dash Pending");
+            actions.Insert(0, new SetBoolValue
+            {
+                boolVariable = dashPendingVar,
+                boolValue = new FsmBool(false)
+            });
+        }
+
         state.Actions = actions.ToArray();
         return state;
     }
@@ -567,13 +584,6 @@ internal class BossBehavior : MonoBehaviour
     {
         if (_bossControlFsm == null) return;
 
-        var dashAntic0State = _bossControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Dash Antic 0");
-        if (dashAntic0State == null)
-        {
-            Log.Warn("未找到Dash Antic 0状态，跳过添加全局监听");
-            return;
-        }
-
         var idleState = _bossControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Idle");
         if (idleState == null)
         {
@@ -590,14 +600,6 @@ internal class BossBehavior : MonoBehaviour
         // 使用反射添加到FSM的全局转换列表
         var globalTransitions = _bossControlFsm.FsmGlobalTransitions.ToList();
         
-        // 添加SILK BALL DASH START全局转换
-        globalTransitions.Add(new FsmTransition
-        {
-            FsmEvent = FsmEvent.GetFsmEvent("SILK BALL DASH START"),
-            toState = "Dash Antic 0",
-            toFsmState = dashAntic0State
-        });
-
         // 添加FORCE IDLE全局转换，用于强制Boss回到Idle状态
         globalTransitions.Add(new FsmTransition
         {
@@ -616,21 +618,21 @@ internal class BossBehavior : MonoBehaviour
                 toFsmState = lockState
             });
         }
-
+        _bossControlFsm.Fsm.GlobalTransitions = globalTransitions.ToArray();
         // 使用反射设置FsmGlobalTransitions（因为它是只读属性）
-        var fsmType = _bossControlFsm.Fsm.GetType();
-        var globalTransitionsField = fsmType.GetField("globalTransitions",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        // var fsmType = _bossControlFsm.Fsm.GetType();
+        // var globalTransitionsField = fsmType.GetField("globalTransitions",
+        //     System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
-        if (globalTransitionsField != null)
-        {
-            globalTransitionsField.SetValue(_bossControlFsm.Fsm, globalTransitions.ToArray());
-            Log.Info("已通过反射添加SILK BALL DASH START、FORCE IDLE和BIG SILK BALL LOCK到全局转换（FsmGlobalTransitions）");
-        }
-        else
-        {
-            Log.Error("未找到globalTransitions字段，无法设置全局转换");
-        }
+        // if (globalTransitionsField != null)
+        // {
+        //     globalTransitionsField.SetValue(_bossControlFsm.Fsm, globalTransitions.ToArray());
+        //     Log.Info("已通过反射添加FORCE IDLE与BIG SILK BALL LOCK到全局转换（FsmGlobalTransitions）");
+        // }
+        // else
+        // {
+        //     Log.Error("未找到globalTransitions字段，无法设置全局转换");
+        // }
     }
 
     /// <summary>
@@ -1362,6 +1364,15 @@ internal class BossBehavior : MonoBehaviour
             everyFrame = true
         });
 
+        // ⚠️ 关键：添加一个长时间Wait来"锁住"状态，防止瞬发Action导致状态立即完成
+        // 实际的完成由MoveToRoamTarget或CheckRoamMoveTimeout中的代码主动发送FINISHED事件
+        // 这个Wait只是占位，不会真正等到999秒
+        actions.Add(new Wait
+        {
+            time = new FsmFloat(999f),
+            finishEvent = null  // 不设置finishEvent，依靠代码手动发送FINISHED
+        });
+
         moveState.Actions = actions.ToArray();
     }
 
@@ -1569,9 +1580,7 @@ internal class BossBehavior : MonoBehaviour
             }
             return;
         }
-        
-        // 平滑移动
-        float moveSpeed = 5f;
+        float moveSpeed = 6f;  // 
         Vector3 direction = (_currentRoamTarget - currentPos).normalized;
         transform.position += direction * moveSpeed * Time.deltaTime;
     }
@@ -1582,16 +1591,239 @@ internal class BossBehavior : MonoBehaviour
     public void CheckRoamMoveTimeout()
     {
         if (_roamMoveComplete) return;
-        
+    
         if (Time.time - _roamMoveStartTime > 3f)
         {
-            Log.Warn("漫游移动超时，强制完成");
+            Log.Warn($"漫游移动超时（3秒），强制完成。当前位置: {transform.position}，目标: {_currentRoamTarget}");
             _roamMoveComplete = true;
             if (_bossControlFsm != null)
             {
                 _bossControlFsm.SendEvent("FINISHED");
             }
         }
+    }
+
+    #endregion
+
+    #region 爬升阶段修复
+
+    /// <summary>
+    /// 初始化爬升Cast保护
+    /// </summary>
+    private void InitializeClimbCastProtection()
+    {
+        var controlFsm = FSMUtility.LocateMyFSM(gameObject, "Control");
+        if (controlFsm == null) return;
+        
+        // 创建Climb Cast Prepare状态
+        CreateClimbCastPrepareState();
+        
+        // 重新初始化FSM
+        controlFsm.Fsm.InitData();
+        controlFsm.Fsm.InitEvents();
+        
+        Log.Info("爬升Cast保护初始化完成");
+    }
+
+    /// <summary>
+    /// 创建爬升Cast保护状态（在Control FSM中）
+    /// 用于保护长时间的Cast动画
+    /// </summary>
+    private void CreateClimbCastPrepareState()
+    {
+        var controlFsm = FSMUtility.LocateMyFSM(gameObject, "Control");
+        if (controlFsm == null) return;
+        
+        // 检查是否已存在
+        if (controlFsm.FsmStates.Any(s => s.Name == "Climb Cast Prepare"))
+        {
+            Log.Info("Climb Cast Prepare状态已存在，跳过创建");
+            return;
+        }
+        
+        // 创建新状态
+        var climbCastPrepareState = new FsmState(controlFsm.Fsm)
+        {
+            Name = "Climb Cast Prepare",
+            Description = "爬升Cast动画保护状态（长Wait时间）"
+        };
+        
+        var actions = new List<FsmStateAction>();
+
+        var climbCastPendingVar = EnsureBoolVariable(controlFsm, "Climb Cast Pending");
+        actions.Add(new SetBoolValue
+        {
+            boolVariable = climbCastPendingVar,
+            boolValue = new FsmBool(false)
+        });
+        
+        // 添加Wait动作（时间更长，用于保护Cast动画）
+        actions.Add(new Wait
+        {
+            time = new FsmFloat(2.5f), // 比原版的0.8秒更长
+            finishEvent = FsmEvent.Finished,
+            realTime = false
+        });
+        
+        climbCastPrepareState.Actions = actions.ToArray();
+        
+        // 添加转换：FINISHED → Idle
+        var idleState = controlFsm.FsmStates.FirstOrDefault(s => s.Name == "Idle");
+        if (idleState != null)
+        {
+            climbCastPrepareState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.Finished,
+                    toState = "Idle",
+                    toFsmState = idleState
+                }
+            };
+        }
+        
+        // 添加到FSM
+        var states = controlFsm.FsmStates.ToList();
+        states.Add(climbCastPrepareState);
+        controlFsm.Fsm.States = states.ToArray();
+        
+        Log.Info("创建Climb Cast Prepare状态完成");
+    }
+
+    private void SetupControlIdlePendingTransitions()
+    {
+        if (_bossControlFsm == null)
+        {
+            Log.Warn("_bossControlFsm未初始化，无法配置Idle布尔检测");
+            return;
+        }
+
+        var idleState = _bossControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Idle");
+        if (idleState == null)
+        {
+            Log.Warn("未找到Idle状态，无法配置布尔检测");
+            return;
+        }
+
+        var climbCastState = _bossControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Climb Cast Prepare");
+        var dashAntic0State = _bossControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Dash Antic 0");
+
+        var climbPendingVar = EnsureBoolVariable(_bossControlFsm, "Climb Cast Pending");
+        var dashPendingVar = EnsureBoolVariable(_bossControlFsm, "Silk Ball Dash Pending");
+
+        var actions = idleState.Actions?.ToList() ?? new List<FsmStateAction>();
+        actions.RemoveAll(action => action is BoolTest boolTest &&
+            (boolTest.boolVariable == climbPendingVar || boolTest.boolVariable == dashPendingVar));
+
+        var climbBridgeEvent = FsmEvent.GetFsmEvent("CLIMB CAST BRIDGE");
+        var dashBridgeEvent = FsmEvent.GetFsmEvent("SILK BALL DASH BRIDGE");
+
+        if (dashAntic0State != null)
+        {
+            actions.Insert(2, new BoolTest
+            {
+                boolVariable = dashPendingVar,
+                isTrue = dashBridgeEvent,
+                isFalse = FsmEvent.GetFsmEvent("NULL"),
+                everyFrame = true
+            });
+        }
+
+        if (climbCastState != null)
+        {
+            actions.Insert(2, new BoolTest
+            {
+                boolVariable = climbPendingVar,
+                isTrue = climbBridgeEvent,
+                isFalse = FsmEvent.GetFsmEvent("NULL"),
+                everyFrame = true
+            });
+        }
+
+        idleState.Actions = actions.ToArray();
+
+        var transitions = idleState.Transitions?.ToList() ?? new List<FsmTransition>();
+        transitions.RemoveAll(t => t.FsmEvent == climbBridgeEvent || t.FsmEvent == dashBridgeEvent);
+
+        if (climbCastState != null)
+        {
+            transitions.Add(new FsmTransition
+            {
+                FsmEvent = climbBridgeEvent,
+                toState = climbCastState.Name,
+                toFsmState = climbCastState
+            });
+        }
+
+        if (dashAntic0State != null)
+        {
+            transitions.Add(new FsmTransition
+            {
+                FsmEvent = dashBridgeEvent,
+                toState = dashAntic0State.Name,
+                toFsmState = dashAntic0State
+            });
+        }
+
+        idleState.Transitions = transitions.ToArray();
+
+
+
+        Log.Info("Idle状态布尔检测配置完成");
+    }
+
+    private FsmBool EnsureBoolVariable(PlayMakerFSM targetFsm, string variableName)
+    {
+        var boolVars = targetFsm.FsmVariables.BoolVariables.ToList();
+        var existing = boolVars.FirstOrDefault(v => v.Name == variableName);
+        if (existing != null)
+        {
+            return existing;
+        }
+
+        var newVar = new FsmBool(variableName) { Value = false };
+        boolVars.Add(newVar);
+        targetFsm.FsmVariables.BoolVariables = boolVars.ToArray();
+        targetFsm.FsmVariables.Init();
+        Log.Info($"创建Control FSM Bool变量: {variableName}");
+        return newVar;
+    }
+
+    /// <summary>
+    /// 在Stagger Pause状态中添加翻转回来的动作
+    /// </summary>
+    private void AddFlipScaleToStaggerPause()
+    {
+        var staggerPauseState = _bossControlFsm!.FsmStates
+            .FirstOrDefault(s => s.Name == "Stagger Pause");
+        
+        if (staggerPauseState == null)
+        {
+            Log.Warn("未找到Stagger Pause状态");
+            return;
+        }
+        
+        // 检查是否已存在FlipScale
+        if (staggerPauseState.Actions.OfType<FlipScale>().Any())
+        {
+            Log.Info("Stagger Pause中已存在FlipScale，跳过添加");
+            return;
+        }
+        
+        var actions = staggerPauseState.Actions.ToList();
+        
+        // 在状态开头添加FlipScale（翻转回来）
+        actions.Insert(0, new FlipScale
+        {
+            gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+            flipHorizontally = true,
+            flipVertically = false,
+            everyFrame = false
+        });
+        
+        staggerPauseState.Actions = actions.ToArray();
+        
+        Log.Info("在Stagger Pause中添加FlipScale完成");
     }
 
     #endregion

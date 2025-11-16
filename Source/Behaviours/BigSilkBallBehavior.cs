@@ -171,7 +171,7 @@ namespace AnySilkBoss.Source.Behaviours
                 lastHeroX = heroObject.transform.position.x;
                 Log.Info($"成功获取英雄引用，初始X位置: {lastHeroX}");
             }
-            
+            SilkSpool silkSpool = SilkSpool.Instance;
             // 从根物品获取组件（Animator等）
             GetComponentReferences(rootObject);
 
@@ -411,18 +411,12 @@ namespace AnySilkBoss.Source.Behaviours
             startChargeEvent = FsmEvent.GetFsmEvent("START CHARGE");
             animationCompleteEvent = FsmEvent.GetFsmEvent("ANIMATION COMPLETE");
 
-            var events = controlFSM!.FsmEvents.ToList();
+            var events = controlFSM!.Fsm.Events.ToList();
             if (!events.Contains(startChargeEvent)) events.Add(startChargeEvent);
             if (!events.Contains(animationCompleteEvent)) events.Add(animationCompleteEvent);
 
-            // 使用反射设置事件
-            var fsmType = controlFSM.Fsm.GetType();
-            var eventsField = fsmType.GetField("events", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            if (eventsField != null)
-            {
-                eventsField.SetValue(controlFSM.Fsm, events.ToArray());
-                Log.Info("FSM 事件注册完成");
-            }
+            controlFSM.Fsm.Events = events.ToArray();
+            Log.Info("FSM 事件注册完成");
         }
 
         /// <summary>
@@ -444,6 +438,8 @@ namespace AnySilkBoss.Source.Behaviours
 
             // Int 变量（可以为空）
             controlFSM.FsmVariables.IntVariables = new FsmInt[] { };
+
+            controlFSM.FsmVariables.Init();
         }
         #endregion
 

@@ -40,7 +40,7 @@ namespace AnySilkBoss.Source.Managers
         
         // 自动补充池机制（默认不启用）
         private bool _enableAutoPooling = true;
-        private const int MIN_POOL_SIZE = 80;
+        private const int MIN_POOL_SIZE = 120;  // 从80扩大到120，预留大丝球爆炸产生的约80个丝球
         private const float POOL_GENERATION_INTERVAL = 0.1f;
         #endregion
 
@@ -389,11 +389,18 @@ namespace AnySilkBoss.Source.Managers
 
         /// <summary>
         /// 从对象池获取可用丝球（如果没有则创建新实例）
+        /// ⚠️ 关键修复：只从明确被回收的丝球中获取（IsAvailable=true且isActive=false）
+        /// 不会复用场上还在活动的丝球，避免大丝球爆炸时复用其他丝球
         /// </summary>
         private SilkBallBehavior? GetAvailableSilkBall()
         {
-            // 先查找池中可用的丝球
-            var availableBall = _silkBallPool.FirstOrDefault(b => b != null && b.IsAvailable);
+            // ⚠️ 严格筛选：只使用明确被回收的丝球（IsAvailable=true且isActive=false）
+            // 这些丝球是通过撞墙/撞玩家等显式回收的
+            var availableBall = _silkBallPool.FirstOrDefault(b => 
+                b != null && 
+                b.IsAvailable &&           // 标记为可用
+                !b.isActive            // 确认未激活
+            );
 
             if (availableBall != null)
             {
@@ -404,19 +411,11 @@ namespace AnySilkBoss.Source.Managers
             // 没有可用的，创建新实例
             Log.Info($"池中无可用丝球，创建新实例... (当前池大小: {_silkBallPool.Count})");
             
-            // 调试：输出池中所有丝球的状态
-            for (int i = 0; i < _silkBallPool.Count; i++)
-            {
-                var ball = _silkBallPool[i];
-                if (ball != null)
-                {
-                    Log.Info($"  池中丝球 #{i}: {ball.gameObject.name}, IsAvailable={ball.IsAvailable}, isActive={ball.isActive}");
-                }
-                else
-                {
-                    Log.Warn($"  池中丝球 #{i}: null");
-                }
-            }
+            // 调试：输出池中丝球的状态统计
+            int activeCount = _silkBallPool.Count(b => b != null && b.isActive);
+            int availableCount = _silkBallPool.Count(b => b != null && b.IsAvailable);
+            int enabledCount = _silkBallPool.Count(b => b != null && b.gameObject.activeSelf);
+            Log.Info($"  池统计 - 总数:{_silkBallPool.Count}, 激活:{activeCount}, 可用:{availableCount}, GameObject启用:{enabledCount}");
             
             return CreateNewSilkBallInstance();
         }
