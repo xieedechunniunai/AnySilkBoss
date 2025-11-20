@@ -55,6 +55,10 @@ internal class BossBehavior : MonoBehaviour
     public FsmFloat? RoutePoint1Y;
     public FsmFloat? RoutePoint2X;
     public FsmFloat? RoutePoint2Y;
+    
+    // ⚠️ Phase2 Special点位（左下或右下）
+    public FsmFloat? RoutePointSpecialX;
+    public FsmFloat? RoutePointSpecialY;
 
     // 时间变量
     public FsmFloat? IdleWaitTime;  // Idle等待时间
@@ -63,11 +67,13 @@ internal class BossBehavior : MonoBehaviour
     private GameObject? _targetPoint0;
     private GameObject? _targetPoint1;
     private GameObject? _targetPoint2;
+    private GameObject? _targetPointSpecial;  // Special点位目标
 
     // FsmGameObject变量（用于存储目标点引用）
     private FsmGameObject? _fsmTargetPoint0;
     private FsmGameObject? _fsmTargetPoint1;
     private FsmGameObject? _fsmTargetPoint2;
+    private FsmGameObject? _fsmTargetPointSpecial;
 
     // 原版Dash动画（我们将直接修改其fps）
     private tk2dSpriteAnimationClip? _originalDashClip;
@@ -179,7 +185,6 @@ internal class BossBehavior : MonoBehaviour
 
         // 添加爬升阶段修复
         InitializeClimbCastProtection();
-        AddFlipScaleToStaggerPause();
         SetupControlIdlePendingTransitions();
         _bossControlFsm.Fsm.InitData();
         _bossControlFsm.Fsm.InitEvents();
@@ -209,6 +214,10 @@ internal class BossBehavior : MonoBehaviour
         RoutePoint1Y = new FsmFloat("Route Point 1 Y") { Value = 0f };
         RoutePoint2X = new FsmFloat("Route Point 2 X") { Value = 0f };
         RoutePoint2Y = new FsmFloat("Route Point 2 Y") { Value = 0f };
+        
+        // ⚠️ Phase2 Special点位
+        RoutePointSpecialX = new FsmFloat("Route Point Special X") { Value = 0f };
+        RoutePointSpecialY = new FsmFloat("Route Point Special Y") { Value = 0f };
 
         // 4. 初始化时间变量
         IdleWaitTime = new FsmFloat("Idle Wait Time") { Value = IDLE_WAIT_TIME };
@@ -217,6 +226,7 @@ internal class BossBehavior : MonoBehaviour
         _fsmTargetPoint0 = new FsmGameObject("Target Point 0") { Value = _targetPoint0 };
         _fsmTargetPoint1 = new FsmGameObject("Target Point 1") { Value = _targetPoint1 };
         _fsmTargetPoint2 = new FsmGameObject("Target Point 2") { Value = _targetPoint2 };
+        _fsmTargetPointSpecial = new FsmGameObject("Target Point Special") { Value = _targetPointSpecial };
 
         // 5. 添加到FSM变量列表
         var floatVars = _bossControlFsm.FsmVariables.FloatVariables.ToList();
@@ -226,6 +236,8 @@ internal class BossBehavior : MonoBehaviour
         floatVars.Add(RoutePoint1Y);
         floatVars.Add(RoutePoint2X);
         floatVars.Add(RoutePoint2Y);
+        floatVars.Add(RoutePointSpecialX);
+        floatVars.Add(RoutePointSpecialY);
         floatVars.Add(IdleWaitTime);
         _bossControlFsm.FsmVariables.FloatVariables = floatVars.ToArray();
 
@@ -233,11 +245,19 @@ internal class BossBehavior : MonoBehaviour
         gameObjectVars.Add(_fsmTargetPoint0);
         gameObjectVars.Add(_fsmTargetPoint1);
         gameObjectVars.Add(_fsmTargetPoint2);
+        gameObjectVars.Add(_fsmTargetPointSpecial);
         _bossControlFsm.FsmVariables.GameObjectVariables = gameObjectVars.ToArray();
+        
+        // ⚠️ 创建Special Attack变量（Phase2特殊攻击标志）
+        EnsureBoolVariable(_bossControlFsm, "Special Attack");
 
-        Log.Info("Route Point变量（X/Y分离）、时间变量和目标点GameObject变量已创建并添加到BossControl FSM");
+        Log.Info("Route Point变量（包括Special）、时间变量、目标点GameObject变量和Special Attack变量已创建");
 
-        // 创建所有状态
+        // 创建所有状态（包括Special路径）
+        var dashAnticSpecialState = CreateDashAnticState(-1);  // -1表示Special
+        var dashToSpecialState = CreateDashToPointState(-1);
+        var idleAtSpecialState = CreateIdleAtPointState(-1);
+        
         var dashAntic0State = CreateDashAnticState(0);
         var dashToPoint0State = CreateDashToPointState(0);
         var idleAtPoint0State = CreateIdleAtPointState(0);
@@ -252,6 +272,9 @@ internal class BossBehavior : MonoBehaviour
 
         // 添加到FSM
         var states = _bossControlFsm.FsmStates.ToList();
+        states.Add(dashAnticSpecialState);
+        states.Add(dashToSpecialState);
+        states.Add(idleAtSpecialState);
         states.Add(dashAntic0State);
         states.Add(dashToPoint0State);
         states.Add(idleAtPoint0State);
@@ -263,8 +286,9 @@ internal class BossBehavior : MonoBehaviour
         states.Add(dashEndState);
         _bossControlFsm.Fsm.States = states.ToArray();
 
-        // 设置转换
+        // 设置转换（包括Special路径）
         SetupSilkBallDashTransitions(
+            dashAnticSpecialState, dashToSpecialState, idleAtSpecialState,
             dashAntic0State, dashToPoint0State, idleAtPoint0State,
             dashAntic1State, dashToPoint1State, idleAtPoint1State,
             dashAntic2State, dashToPoint2State,
@@ -280,14 +304,20 @@ internal class BossBehavior : MonoBehaviour
     }
 
     /// <summary>
-    /// 设置移动丝球状态链的转换关系
+    /// 设置移动丝球状态链的转换关系（包括Special路径）
     /// </summary>
     private void SetupSilkBallDashTransitions(
+        FsmState dashAnticSpecial, FsmState dashToSpecial, FsmState idleAtSpecial,
         FsmState dashAntic0, FsmState dashToPoint0, FsmState idleAtPoint0,
         FsmState dashAntic1, FsmState dashToPoint1, FsmState idleAtPoint1,
         FsmState dashAntic2, FsmState dashToPoint2,
         FsmState dashEnd)
     {
+        // Special路径（Phase2才使用）
+        dashAnticSpecial.Transitions = new FsmTransition[] { new FsmTransition { FsmEvent = FsmEvent.Finished, toState = dashToSpecial.Name, toFsmState = dashToSpecial } };
+        dashToSpecial.Transitions = new FsmTransition[] { new FsmTransition { FsmEvent = FsmEvent.Finished, toState = idleAtSpecial.Name, toFsmState = idleAtSpecial } };
+        idleAtSpecial.Transitions = new FsmTransition[] { new FsmTransition { FsmEvent = FsmEvent.Finished, toState = dashAntic0.Name, toFsmState = dashAntic0 } };
+        
         // Point 0
         dashAntic0.Transitions = new FsmTransition[] { new FsmTransition { FsmEvent = FsmEvent.Finished, toState = dashToPoint0.Name, toFsmState = dashToPoint0 } };
         dashToPoint0.Transitions = new FsmTransition[] { new FsmTransition { FsmEvent = FsmEvent.Finished, toState = idleAtPoint0.Name, toFsmState = idleAtPoint0 } };
@@ -316,6 +346,8 @@ internal class BossBehavior : MonoBehaviour
                 }
             };
         }
+        
+        Log.Info("移动丝球状态链转换设置完成（包括Special路径）");
     }
 
     /// <summary>
@@ -323,10 +355,13 @@ internal class BossBehavior : MonoBehaviour
     /// </summary>
     private FsmState CreateDashAnticState(int pointIndex)
     {
+        string stateName = pointIndex == -1 ? "Dash Antic Special" : $"Dash Antic {pointIndex}";
+        string description = pointIndex == -1 ? "准备冲刺到Special点位" : $"准备冲刺到点位 {pointIndex}";
+        
         var state = new FsmState(_bossControlFsm!.Fsm)
         {
-            Name = $"Dash Antic {pointIndex}",
-            Description = $"准备冲刺到点位 {pointIndex}"
+            Name = stateName,
+            Description = description
         };
 
         var actions = new List<FsmStateAction>();
@@ -336,6 +371,9 @@ internal class BossBehavior : MonoBehaviour
 
         switch (pointIndex)
         {
+            case -1:  // Special点位
+                targetObject = _fsmTargetPointSpecial;
+                break;
             case 0:
                 targetObject = _fsmTargetPoint0;
                 break;
@@ -421,6 +459,10 @@ internal class BossBehavior : MonoBehaviour
 
         switch (pointIndex)
         {
+            case -1:  // Special点位
+                targetX = RoutePointSpecialX;
+                targetY = RoutePointSpecialY;
+                break;
             case 0:
                 targetX = RoutePoint0X;
                 targetY = RoutePoint0Y;
@@ -640,10 +682,13 @@ internal class BossBehavior : MonoBehaviour
     /// </summary>
     private FsmState CreateDashToPointState(int pointIndex)
     {
+        string stateName = pointIndex == -1 ? "Dash To Special" : $"Dash To Point {pointIndex}";
+        string description = pointIndex == -1 ? "冲刺到Special点位" : $"冲刺到点位 {pointIndex}";
+        
         var state = new FsmState(_bossControlFsm!.Fsm)
         {
-            Name = $"Dash To Point {pointIndex}",
-            Description = $"冲刺到点位 {pointIndex}"
+            Name = stateName,
+            Description = description
         };
 
         var actions = new List<FsmStateAction>();
@@ -654,6 +699,10 @@ internal class BossBehavior : MonoBehaviour
 
         switch (pointIndex)
         {
+            case -1:  // Special点位
+                targetX = RoutePointSpecialX;
+                targetY = RoutePointSpecialY;
+                break;
             case 0:
                 targetX = RoutePoint0X;
                 targetY = RoutePoint0Y;
@@ -744,10 +793,13 @@ internal class BossBehavior : MonoBehaviour
     /// </summary>
     private FsmState CreateIdleAtPointState(int pointIndex)
     {
+        string stateName = pointIndex == -1 ? "Idle At Special" : $"Idle At Point {pointIndex}";
+        string description = pointIndex == -1 ? "在Special点位等待" : $"在点位 {pointIndex} 等待";
+        
         var state = new FsmState(_bossControlFsm!.Fsm)
         {
-            Name = $"Idle At Point {pointIndex}",
-            Description = $"在点位 {pointIndex} 等待"
+            Name = stateName,
+            Description = description
         };
 
         var actions = new List<FsmStateAction>();
@@ -868,11 +920,15 @@ internal class BossBehavior : MonoBehaviour
     #region Helper方法
 
     /// <summary>
-    /// 创建3个隐形目标点GameObject（位置动态设置）
+    /// 创建隐形目标点GameObject（位置动态设置）
     /// </summary>
     private void CreateInvisibleTargetPoints()
     {
-        // 创建3个隐形目标点，初始位置设为(0,0,0)
+        // 创建隐形目标点，初始位置设为(0,0,0)
+        _targetPointSpecial = new GameObject("DashTargetPointSpecial");
+        _targetPointSpecial.transform.position = Vector3.zero;
+        _targetPointSpecial.SetActive(true);
+        
         _targetPoint0 = new GameObject("DashTargetPoint0");
         _targetPoint0.transform.position = Vector3.zero;
         _targetPoint0.SetActive(true); // 虽然隐形但需要激活
@@ -885,14 +941,19 @@ internal class BossBehavior : MonoBehaviour
         _targetPoint2.transform.position = Vector3.zero;
         _targetPoint2.SetActive(true);
 
-        Log.Info("已创建3个隐形目标点GameObject");
+        Log.Info("已创建隐形目标点GameObject（包括Special）");
     }
 
     /// <summary>
     /// 更新隐形目标点的位置（由AttackControl调用）
     /// </summary>
-    public void UpdateTargetPointPositions(Vector3 point0, Vector3 point1, Vector3 point2)
+    public void UpdateTargetPointPositions(Vector3 point0, Vector3 point1, Vector3 point2, Vector3? pointSpecial = null)
     {
+        if (pointSpecial.HasValue && _targetPointSpecial != null)
+        {
+            _targetPointSpecial.transform.position = pointSpecial.Value;
+        }
+        
         if (_targetPoint0 != null)
         {
             _targetPoint0.transform.position = point0;
@@ -1058,7 +1119,7 @@ internal class BossBehavior : MonoBehaviour
         var managerObj = GameObject.Find("AnySilkBossManager");
         if (managerObj != null)
         {
-            var silkBallManager = managerObj.GetComponent<AnySilkBoss.Source.Managers.SilkBallManager>();
+            var silkBallManager = managerObj.GetComponent<Managers.SilkBallManager>();
             if (silkBallManager != null)
             {
                 silkBallManager.RecycleAllActiveSilkBalls();
@@ -1602,6 +1663,35 @@ internal class BossBehavior : MonoBehaviour
             }
         }
     }
+    
+    /// <summary>
+    /// 在Idle状态检测Dash Pending，并根据Special Attack决定走哪条路径
+    /// </summary>
+    public void CheckAndTriggerDashPath()
+    {
+        if (_bossControlFsm == null) return;
+        
+        var dashPendingVar = _bossControlFsm.FsmVariables.FindFsmBool("Silk Ball Dash Pending");
+        if (dashPendingVar == null || !dashPendingVar.Value) return;
+        
+        var specialAttackVar = _bossControlFsm.FsmVariables.FindFsmBool("Special Attack");
+        bool isPhase2 = specialAttackVar != null && specialAttackVar.Value;
+        
+        // 重置Pending标志
+        dashPendingVar.Value = false;
+        
+        // 根据Phase2决定触发哪个事件
+        if (isPhase2)
+        {
+            _bossControlFsm.SendEvent("SILK BALL DASH SPECIAL BRIDGE");
+            Log.Info("触发Phase2 Special路径");
+        }
+        else
+        {
+            _bossControlFsm.SendEvent("SILK BALL DASH BRIDGE");
+            Log.Info("触发普通Dash路径");
+        }
+    }
 
     #endregion
 
@@ -1707,9 +1797,11 @@ internal class BossBehavior : MonoBehaviour
 
         var climbCastState = _bossControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Climb Cast Prepare");
         var dashAntic0State = _bossControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Dash Antic 0");
+        var dashAnticSpecialState = _bossControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Dash Antic Special");
 
         var climbPendingVar = EnsureBoolVariable(_bossControlFsm, "Climb Cast Pending");
         var dashPendingVar = EnsureBoolVariable(_bossControlFsm, "Silk Ball Dash Pending");
+        var specialAttackVar = EnsureBoolVariable(_bossControlFsm, "Special Attack");
 
         var actions = idleState.Actions?.ToList() ?? new List<FsmStateAction>();
         actions.RemoveAll(action => action is BoolTest boolTest &&
@@ -1717,9 +1809,22 @@ internal class BossBehavior : MonoBehaviour
 
         var climbBridgeEvent = FsmEvent.GetFsmEvent("CLIMB CAST BRIDGE");
         var dashBridgeEvent = FsmEvent.GetFsmEvent("SILK BALL DASH BRIDGE");
+        var dashSpecialBridgeEvent = FsmEvent.GetFsmEvent("SILK BALL DASH SPECIAL BRIDGE");
 
-        if (dashAntic0State != null)
+        // ⚠️ 添加一个CallMethod来动态判断应该走哪条路径
+        if (dashAnticSpecialState != null && dashAntic0State != null)
         {
+            actions.Insert(2, new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("CheckAndTriggerDashPath") { Value = "CheckAndTriggerDashPath" },
+                parameters = new FsmVar[0],
+                everyFrame = true
+            });
+        }
+        else if (dashAntic0State != null)
+        {
+            // 只有普通路径
             actions.Insert(2, new BoolTest
             {
                 boolVariable = dashPendingVar,
@@ -1743,7 +1848,7 @@ internal class BossBehavior : MonoBehaviour
         idleState.Actions = actions.ToArray();
 
         var transitions = idleState.Transitions?.ToList() ?? new List<FsmTransition>();
-        transitions.RemoveAll(t => t.FsmEvent == climbBridgeEvent || t.FsmEvent == dashBridgeEvent);
+        transitions.RemoveAll(t => t.FsmEvent == climbBridgeEvent || t.FsmEvent == dashBridgeEvent || t.FsmEvent == dashSpecialBridgeEvent);
 
         if (climbCastState != null)
         {
@@ -1752,6 +1857,16 @@ internal class BossBehavior : MonoBehaviour
                 FsmEvent = climbBridgeEvent,
                 toState = climbCastState.Name,
                 toFsmState = climbCastState
+            });
+        }
+
+        if (dashAnticSpecialState != null)
+        {
+            transitions.Add(new FsmTransition
+            {
+                FsmEvent = dashSpecialBridgeEvent,
+                toState = dashAnticSpecialState.Name,
+                toFsmState = dashAnticSpecialState
             });
         }
 
@@ -1787,43 +1902,6 @@ internal class BossBehavior : MonoBehaviour
         targetFsm.FsmVariables.Init();
         Log.Info($"创建Control FSM Bool变量: {variableName}");
         return newVar;
-    }
-
-    /// <summary>
-    /// 在Stagger Pause状态中添加翻转回来的动作
-    /// </summary>
-    private void AddFlipScaleToStaggerPause()
-    {
-        var staggerPauseState = _bossControlFsm!.FsmStates
-            .FirstOrDefault(s => s.Name == "Stagger Pause");
-        
-        if (staggerPauseState == null)
-        {
-            Log.Warn("未找到Stagger Pause状态");
-            return;
-        }
-        
-        // 检查是否已存在FlipScale
-        if (staggerPauseState.Actions.OfType<FlipScale>().Any())
-        {
-            Log.Info("Stagger Pause中已存在FlipScale，跳过添加");
-            return;
-        }
-        
-        var actions = staggerPauseState.Actions.ToList();
-        
-        // 在状态开头添加FlipScale（翻转回来）
-        actions.Insert(0, new FlipScale
-        {
-            gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
-            flipHorizontally = true,
-            flipVertically = false,
-            everyFrame = false
-        });
-        
-        staggerPauseState.Actions = actions.ToArray();
-        
-        Log.Info("在Stagger Pause中添加FlipScale完成");
     }
 
     #endregion

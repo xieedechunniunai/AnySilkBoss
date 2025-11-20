@@ -3,6 +3,7 @@ using UnityEngine;
 using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
 using AnySilkBoss.Source.Tools;
+using AnySilkBoss.Source.Managers;
 using System.Linq;
 
 namespace AnySilkBoss.Source.Behaviours
@@ -49,7 +50,7 @@ namespace AnySilkBoss.Source.Behaviours
         [Header("爆炸参数")]
         public string burstAnimationName = "Silk_Cocoon_Intro_Burst";  // 爆炸动画名称
         public float burstDuration = 11.53f;     // 爆炸持续时间（根据动画实际时长）
-        public int ballsPerWave = 3;   
+        public int ballsPerWave = 3;
         [Header("吸收蓄力参数")]
         public float absorbDuration = 10f;       // 保底持续时间
         public float absorbSpawnRate = 10f;      // 每秒生成数量
@@ -63,7 +64,7 @@ namespace AnySilkBoss.Source.Behaviours
         public float shootSpeedRandomRange = 8f; // 速度随机范围（±单位/秒）
         public float shootAngleRandomRange = 15f; // 角度随机范围（±度）
         public float shootGravityScale = 0.35f;   // 抛射重力缩放
-        
+
         // 7波抛射配置：(生成角度, 生成半径倍数, 抛射角度, 球数量, 波间隔)
         // 半径基于碰撞箱radius=5
         private readonly (float spawnAngle, float radiusMult, float shootAngle, int ballCount, float interval)[] _shootWaveConfigs = new[]
@@ -93,17 +94,24 @@ namespace AnySilkBoss.Source.Behaviours
         private PlayMakerFSM? controlFSM;
         private Animator? animator;
         private Managers.SilkBallManager? silkBallManager;
-        
+
         [Header("内部引用")]
         public Transform? heartTransform;  // heart子物品的Transform，用于跟随BOSS（需要public供FSM Action访问）
         public GameObject? collisionBox;   // 碰撞箱GameObject（Z=0位置，实际碰撞）
         public Transform? collisionBoxTransform;  // 碰撞箱Transform
         private BigSilkBallCollisionBox? collisionBoxScript;  // 碰撞箱脚本
-        
+
         // 英雄引用（用于碰撞箱位置跟随）
         private GameObject? heroObject;
         private float lastHeroX = 0f;
         private Vector3 collisionBoxBaseLocalPos;  // 碰撞箱的基础本地位置
+
+        // 吸收音效资源（从原版预制体提取）
+        private AudioClip? absorbAudioClip;
+        private GameObject? absorbAudioPlayerPrefab;
+        private float absorbAudioPitchMin = 1f;
+        private float absorbAudioPitchMax = 1f;
+        private float absorbAudioVolume = 1f;  // 缓存的吸收音效 action（从小丝球 Disappear 状态提取）
         #endregion
 
         #region FSM 变量引用
@@ -123,7 +131,7 @@ namespace AnySilkBoss.Source.Behaviours
         private int absorbedCount = 0;            // 已吸收数量
         private float currentScale = 0.1f;        // 当前缩放
         private bool shouldStopSpawning = false;  // 是否停止生成
-        
+
         // 强制覆盖Animator控制的标志
         // 只覆盖heart的缩放（蓄力动画），位置（包括Z轴）保持原版
         private bool forceOverrideScale = false;            // 是否强制覆盖缩放
@@ -146,14 +154,14 @@ namespace AnySilkBoss.Source.Behaviours
 
             bossObject = boss;
             heartTransform = heart;  // 保存heart引用
-            
+
             // heart和所有子物品保持原版相对位置（包括Z轴），只通过移动根物品的XY轴跟随BOSS
             if (heartTransform != null)
             {
                 Log.Info($"heart保持原版相对位置: {heartTransform.localPosition}");
                 Log.Info($"将只调整根物品XY轴跟随BOSS，Z轴保持原版");
             }
-            
+
             // 获取PhaseControlBehavior引用
             if (boss != null)
             {
@@ -163,7 +171,7 @@ namespace AnySilkBoss.Source.Behaviours
                     Log.Warn("未找到 PhaseControlBehavior 组件");
                 }
             }
-            
+
             // 获取英雄引用（用于碰撞箱位置跟随）
             heroObject = HeroController.instance?.gameObject;
             if (heroObject != null)
@@ -189,14 +197,14 @@ namespace AnySilkBoss.Source.Behaviours
         {
             // 更新碰撞箱X轴位置，跟随英雄移动
             UpdateCollisionBoxPosition();
-            
+
             // 调试快捷键
             if (Input.GetKeyDown(KeyCode.T))
             {
                 LogBigSilkBallFSMInfo();
             }
         }
-        
+
         /// <summary>
         /// 更新碰撞箱X轴位置，跟随英雄移动
         /// 由于大丝球在Z=57的背景，视角移动会导致显示位置和碰撞箱位置偏差
@@ -204,25 +212,25 @@ namespace AnySilkBoss.Source.Behaviours
         private void UpdateCollisionBoxPosition()
         {
             if (collisionBox == null || heroObject == null) return;
-            
+
             float currentHeroX = heroObject.transform.position.x;
-            
+
             // 定义英雄X轴范围和对应的碰撞箱本地X轴相对偏移
             // 英雄X轴从 29 到 46 之间，碰撞箱本地X轴从 -2.5 到 6.8 相对偏移
             float heroMinX = 29f;
             float heroMaxX = 46f;
             float collisionBoxRelativeMinX = -2.5f;
             float collisionBoxRelativeMaxX = 6.8f;
-            
+
             // 将当前英雄X轴映射到碰撞箱相对X轴的范围
             // 使用 Mathf.InverseLerp 将值归一化到 0-1 范围，然后用 Mathf.Lerp 映射到目标范围
             float t = Mathf.InverseLerp(heroMinX, heroMaxX, currentHeroX);
             float targetRelativeX = Mathf.Lerp(collisionBoxRelativeMinX, collisionBoxRelativeMaxX, t);
-            
+
             Vector3 currentLocalPos = collisionBox.transform.localPosition;
             currentLocalPos.x = collisionBoxBaseLocalPos.x + targetRelativeX; // 加上基础本地X和计算出的相对偏移
             collisionBox.transform.localPosition = currentLocalPos;
-            
+
         }
 
         /// <summary>
@@ -266,7 +274,7 @@ namespace AnySilkBoss.Source.Behaviours
             else
             {
                 Log.Info($"找到 Animator 组件，RuntimeAnimatorController: {animator.runtimeAnimatorController?.name ?? "null"}");
-                
+
                 // 验证是否有可用的动画片段
                 if (animator.runtimeAnimatorController != null)
                 {
@@ -295,6 +303,11 @@ namespace AnySilkBoss.Source.Behaviours
                 {
                     Log.Warn("未找到 SilkBallManager 组件");
                 }
+                else
+                {
+                    // 提取吸收音效
+                    ExtractAbsorbAudioAction();
+                }
             }
             else
             {
@@ -310,24 +323,24 @@ namespace AnySilkBoss.Source.Behaviours
             // 在根物品下创建碰撞箱GameObject
             collisionBox = new GameObject("CollisionBox");
             collisionBox.transform.parent = transform;
-            
+
             // 设置位置：XY跟heart一致(-9.4, -2.9)，Z轴设为0（世界坐标）
             collisionBoxBaseLocalPos = new Vector3(-6.4f, -5f, -57.4491f);  // 保存基础本地位置
             collisionBox.transform.localPosition = collisionBoxBaseLocalPos;
-            
+
             // 添加碰撞箱脚本
             collisionBoxScript = collisionBox.AddComponent<BigSilkBallCollisionBox>();
             collisionBoxScript.parentBehavior = this;
-            
+
             // 保存Transform引用
             collisionBoxTransform = collisionBox.transform;
-            
+
             // 设置初始缩放
             collisionBox.transform.localScale = Vector3.one * initialScale;
-            
+
             // 设置Layer
             collisionBox.layer = LayerMask.NameToLayer("Terrain");
-            
+
             Log.Info($"碰撞箱已创建 - 世界位置: {collisionBox.transform.position}, 本地位置: {collisionBox.transform.localPosition}, 初始缩放: {initialScale}");
         }
 
@@ -704,12 +717,12 @@ namespace AnySilkBoss.Source.Behaviours
         {
             // 保存当前heart的缩放，防止Animator重置
             // 根物品停止移动，heart的位置自然跟随根物品，只需要固定缩放
-            
+
             if (heartTransform != null)
             {
                 targetHeartScale = heartTransform.localScale;
                 forceOverrideScale = true;     // 继续覆盖heart缩放
-                
+
                 Log.Info($"固定状态 - 根物品位置: {transform.position}, heart缩放: {targetHeartScale}");
             }
             else
@@ -736,11 +749,11 @@ namespace AnySilkBoss.Source.Behaviours
             absorbedCount = 0;
             currentScale = initialScale;
             shouldStopSpawning = false;
-            
+
             // 启用强制覆盖缩放
             forceOverrideScale = true;
             targetHeartScale = Vector3.one * currentScale;
-            
+
             // 同时更新碰撞箱缩放
             if (collisionBoxScript != null)
             {
@@ -757,14 +770,14 @@ namespace AnySilkBoss.Source.Behaviours
             while (elapsed < absorbDuration && !shouldStopSpawning)
             {
                 elapsed += Time.deltaTime;
-                
+
                 // 定时生成小丝球
                 if (elapsed >= nextSpawnTime)
                 {
                     SpawnAbsorbBall();
                     nextSpawnTime = elapsed + spawnInterval;
                 }
-                
+
                 yield return null;
             }
 
@@ -793,7 +806,7 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 Log.Info($"播放爆炸动画: {burstAnimationName}");
                 animator.Play(burstAnimationName);
-                
+
                 // 验证动画是否成功播放
                 var clips = animator.runtimeAnimatorController?.animationClips;
                 if (clips != null)
@@ -826,7 +839,7 @@ namespace AnySilkBoss.Source.Behaviours
                 Log.Info($"小丝球不可被吸收 (canBeAbsorbed={silkBall?.canBeAbsorbed})");
                 return;
             }
-            
+
             if (!isAbsorbing)
             {
                 // 吸收阶段已结束，但仍然回收还没来得及吸收的小丝球
@@ -834,7 +847,7 @@ namespace AnySilkBoss.Source.Behaviours
                 silkBall.RecycleToPoolWithZTransition();
                 return;
             }
-            
+
             if (shouldStopSpawning)
             {
                 // 已经达到最大，不再增加缩放
@@ -846,7 +859,7 @@ namespace AnySilkBoss.Source.Behaviours
 
             // 增加计数
             absorbedCount++;
-            
+
             // 增加缩放
             currentScale += scaleIncreasePerAbsorb;
             if (currentScale >= maxScale)
@@ -855,18 +868,21 @@ namespace AnySilkBoss.Source.Behaviours
                 shouldStopSpawning = true;
                 Log.Info($"达到最大缩放 {maxScale}，停止生成新的小丝球");
             }
-            
+
             // 更新heart缩放
             targetHeartScale = Vector3.one * currentScale;
-            
+
             // 更新碰撞箱缩放
             if (collisionBoxScript != null)
             {
                 collisionBoxScript.SetScale(currentScale);
             }
-            
+
             Log.Info($"吸收小丝球 #{absorbedCount} - 当前缩放: {currentScale:F2}");
-            
+
+            // 播放吸收音效（使用小丝球的 Disappear 音效）
+            PlayAbsorbAudio();
+
             // 回收小丝球到对象池（Z轴过渡动画）
             silkBall.RecycleToPoolWithZTransition();
         }
@@ -890,13 +906,13 @@ namespace AnySilkBoss.Source.Behaviours
                 // 上半部分：90度到270度
                 angle = Random.Range(90f, 270f);
             }
-            
-                float angleRad = angle * Mathf.Deg2Rad;
-                Vector2 direction = new Vector2(Mathf.Cos(angleRad), Mathf.Sin(angleRad));
+
+            float angleRad = angle * Mathf.Deg2Rad;
+            Vector2 direction = new Vector2(Mathf.Cos(angleRad), Mathf.Sin(angleRad));
 
             // 生成位置（从碰撞箱的世界位置计算）
             Vector3 spawnPosition = collisionBoxTransform.position + new Vector3(direction.x, direction.y, 0f) * absorbSpawnRadius;
-            
+
             // 生成小丝球
             var behavior = silkBallManager.SpawnSilkBall(
                 spawnPosition,
@@ -908,15 +924,15 @@ namespace AnySilkBoss.Source.Behaviours
                 customTarget: collisionBoxTransform,  // 追踪碰撞箱
                 ignoreWall: true  // 忽略墙壁碰撞
             );
-            
+
             if (behavior != null)
             {
                 // 标记为可被吸收（吸收阶段的小丝球）
                 behavior.canBeAbsorbed = true;
-                
+
                 // 启动过期回收机制（15秒后自动回收，防止遗留）
                 StartCoroutine(RecycleAbsorbBallAfterTimeout(behavior, 15f));
-                
+
                 // 延迟发送PREPARE和RELEASE事件（等待FSM初始化）
                 StartCoroutine(ReleaseAbsorbBall(behavior.gameObject));
             }
@@ -929,7 +945,7 @@ namespace AnySilkBoss.Source.Behaviours
         {
             // 等待一帧确保FSM完全初始化
             yield return null;
-            
+
             if (silkBall != null)
             {
                 var fsm = silkBall.GetComponent<PlayMakerFSM>();
@@ -951,8 +967,11 @@ namespace AnySilkBoss.Source.Behaviours
         private IEnumerator RecycleAbsorbBallAfterTimeout(SilkBallBehavior behavior, float timeout)
         {
             yield return new WaitForSeconds(timeout);
-            
-            if (behavior != null && behavior.gameObject != null)
+
+            // ⚠️ 严格检查：只回收仍然active且canBeAbsorbed的丝球
+            // 如果丝球已经被回收（撞墙、撞玩家等），就不要再次回收
+            if (behavior != null && behavior.gameObject != null &&
+                behavior.isActive && behavior.canBeAbsorbed)
             {
                 Log.Info($"吸收小丝球超时 ({timeout}秒)，自动回收");
                 behavior.RecycleToPoolWithZTransition();
@@ -978,21 +997,21 @@ namespace AnySilkBoss.Source.Behaviours
             for (int wave = 0; wave < _shootWaveConfigs.Length; wave++)
             {
                 var config = _shootWaveConfigs[wave];
-                
+
                 // 生成这一波的所有小丝球
                 for (int i = 0; i < config.ballCount; i++)
                 {
                     SpawnShootBall(config.spawnAngle, config.radiusMult, config.shootAngle);
                 }
-                
+
                 Log.Info($"第 {wave + 1}/{_shootWaveConfigs.Length} 波抛射完成 - 生成{config.ballCount}个球");
-                
+
                 // 等待间隔
                 yield return new WaitForSeconds(config.interval);
             }
 
             Log.Info("抛射波次完成");
-            
+
             // 通知PhaseControl
             NotifyPhaseControl("ShootComplete");
 
@@ -1019,17 +1038,17 @@ namespace AnySilkBoss.Source.Behaviours
             float spawnAngleRad = spawnAngle * Mathf.Deg2Rad;
             Vector2 spawnOffset = new Vector2(Mathf.Cos(spawnAngleRad), Mathf.Sin(spawnAngleRad)) * spawnRadius;
             Vector3 spawnPosition = collisionBoxTransform.position + new Vector3(spawnOffset.x, spawnOffset.y, 0f);
-            
+
             // 添加角度随机偏移（±shootAngleRandomRange度）
             float angleOffset = Random.Range(-shootAngleRandomRange, shootAngleRandomRange);
             float finalShootAngle = shootAngle + angleOffset;
             float shootAngleRad = finalShootAngle * Mathf.Deg2Rad;
             Vector2 shootDirection = new Vector2(Mathf.Cos(shootAngleRad), Mathf.Sin(shootAngleRad));
-            
+
             // 添加速度随机偏移（±shootSpeedRandomRange）
             float speedOffset = Random.Range(-shootSpeedRandomRange, shootSpeedRandomRange);
             float finalShootSpeed = shootSpeed + speedOffset;
-            
+
             // 生成小丝球
             var behavior = silkBallManager.SpawnSilkBall(
                 spawnPosition,
@@ -1039,20 +1058,20 @@ namespace AnySilkBoss.Source.Behaviours
                 scale: 1f,
                 enableRotation: true
             );
-            
+
             if (behavior != null)
             {
                 var rb = behavior.GetComponent<Rigidbody2D>();
-                
+
                 if (rb != null)
                 {
                     // 设置重力（抛射阶段使用shootGravityScale）
-                    rb.gravityScale = shootGravityScale+Random.Range(-0.1f, 0.1f);
+                    rb.gravityScale = shootGravityScale + Random.Range(-0.1f, 0.1f);
                     rb.bodyType = RigidbodyType2D.Dynamic;
-                    
+
                     // 启动1秒保护时间（避免刚生成就碰到Terrain层的大丝球而消失）
                     behavior.StartProtectionTime(1f);
-                    
+
                     // 切换到重力状态并设置初始速度
                     var fsm = behavior.GetComponent<PlayMakerFSM>();
                     if (fsm != null)
@@ -1163,10 +1182,10 @@ namespace AnySilkBoss.Source.Behaviours
 
             float angleRad = angle * Mathf.Deg2Rad;
             Vector2 direction = new Vector2(Mathf.Cos(angleRad), Mathf.Sin(angleRad));
-            
+
             // 从碰撞箱位置计算生成位置
             Vector3 spawnPosition = collisionBoxTransform.position + new Vector3(direction.x, direction.y, 0f) * radius;
-            
+
             // 直接从 SilkBallManager 的对象池生成小丝球
             var behavior = silkBallManager.SpawnSilkBall(
                 spawnPosition,
@@ -1176,21 +1195,21 @@ namespace AnySilkBoss.Source.Behaviours
                 scale: 1f,
                 enableRotation: true
             );
-            
+
             if (behavior != null)
             {
                 var rb = behavior.GetComponent<Rigidbody2D>();
-                
+
                 if (rb != null)
                 {
                     // 设置重力为0（最终爆炸只需径向速度）
                     rb.gravityScale = finalBurstGravityScale;
                     rb.bodyType = RigidbodyType2D.Dynamic;
                     rb.linearVelocity = Vector2.zero;  // 初始静止
-                    
+
                     // 启动1秒保护时间（避免刚生成就碰到Terrain层的大丝球而消失）
                     behavior.StartProtectionTime(1f);
-                    
+
                     // 释放但保持静止
                     var fsm = behavior.GetComponent<PlayMakerFSM>();
                     if (fsm != null)
@@ -1200,11 +1219,11 @@ namespace AnySilkBoss.Source.Behaviours
                         // 延迟后发送RELEASE事件
                         StartCoroutine(SetToGravityStateStaticWithPrepare(fsm));
                     }
-                    
+
                     return behavior.gameObject;
                 }
             }
-            
+
             return null;
         }
 
@@ -1215,7 +1234,7 @@ namespace AnySilkBoss.Source.Behaviours
         {
             // 等待PREPARE完成
             yield return new WaitForSeconds(0.1f);
-            
+
             // 检查FSM是否还存在（小丝球可能已被销毁）
             if (fsm != null && fsm.Fsm != null)
             {
@@ -1236,12 +1255,12 @@ namespace AnySilkBoss.Source.Behaviours
 
             // 计算径向方向
             Vector3 direction = (ball.transform.position - collisionBoxTransform.position).normalized;
-            
+
             // 根据球在哪一圈计算速度倍数
             // 简单估算：通过距离判断是哪一圈
             float distance = Vector3.Distance(ball.transform.position, collisionBoxTransform.position);
             float speedMultiplier = 1f;
-            
+
             if (distance <= ringRadii[0] + 0.5f)
             {
                 // 内圈
@@ -1252,11 +1271,11 @@ namespace AnySilkBoss.Source.Behaviours
                 // 外圈
                 speedMultiplier = outerRingSpeedMultiplier;
             }
-            
+
             // 设置速度
             Vector2 velocity = new Vector2(direction.x, direction.y) * burstSpeed * speedMultiplier;
             rb.linearVelocity = velocity;
-            
+
             // 启动1秒保护时间（在此期间不会因碰到英雄或墙壁消失）
             behavior.StartProtectionTime(1f);
         }
@@ -1318,7 +1337,7 @@ namespace AnySilkBoss.Source.Behaviours
             Log.Info($"GameObject: {gameObject.name}");
             Log.Info($"Enabled: {animator.enabled}");
             Log.Info($"RuntimeAnimatorController: {animator.runtimeAnimatorController?.name ?? "null"}");
-            
+
             // 分析参数
             Log.Info("--- Animator 参数 ---");
             if (animator.parameterCount > 0)
@@ -1327,7 +1346,7 @@ namespace AnySilkBoss.Source.Behaviours
                 {
                     var param = animator.GetParameter(i);
                     string valueStr = "";
-                    
+
                     switch (param.type)
                     {
                         case UnityEngine.AnimatorControllerParameterType.Float:
@@ -1343,7 +1362,7 @@ namespace AnySilkBoss.Source.Behaviours
                             valueStr = "Trigger";
                             break;
                     }
-                    
+
                     Log.Info($"  [{i}] {param.name} ({param.type}) - {valueStr}");
                 }
             }
@@ -1360,7 +1379,7 @@ namespace AnySilkBoss.Source.Behaviours
                 string layerName = animator.GetLayerName(i);
                 float layerWeight = animator.GetLayerWeight(i);
                 Log.Info($"  [{i}] {layerName} - Weight: {layerWeight}");
-                
+
                 // 当前状态信息
                 var currentState = animator.GetCurrentAnimatorStateInfo(i);
                 Log.Info($"      当前状态: Hash={currentState.shortNameHash}, NormalizedTime={currentState.normalizedTime:F2}, Length={currentState.length:F2}s");
@@ -1377,9 +1396,9 @@ namespace AnySilkBoss.Source.Behaviours
                     foreach (var clip in clips)
                     {
                         Log.Info($"  - {clip.name} (Length: {clip.length:F2}s, FPS: {clip.frameRate})");
-                        
+
                         // 检查是否是爆炸动画
-                        if (clip.name.Contains("Burst") || clip.name.Contains("burst") || 
+                        if (clip.name.Contains("Burst") || clip.name.Contains("burst") ||
                             clip.name.Contains("Intro"))
                         {
                             Log.Info($"    ★ 可能的爆炸动画！");
@@ -1391,12 +1410,133 @@ namespace AnySilkBoss.Source.Behaviours
                     Log.Info("  无动画片段");
                 }
             }
-            
+
             // 当前播放信息
             Log.Info("--- 当前播放状态 ---");
             Log.Info($"Speed: {animator.speed}");
-            
+
             Log.Info("=== Animator 分析完成 ===");
+        }
+
+        /// <summary>
+        /// 提取大丝球吸收小丝球时使用的音效资源
+        /// 优先从原版 Reaper Silk Bundle 预制体的 Control FSM/Disappear 状态中读取 PlayAudioEvent 的参数
+        /// 若失败，再回退尝试自定义丝球预制体（兼容旧实现）
+        /// </summary>
+        private void ExtractAbsorbAudioAction()
+        {
+            try
+            {
+                GameObject sourcePrefab = null;
+
+                // 1. 优先从 AssetManager 获取原版 Reaper Silk Bundle 预制体
+                var assetManager = AssetManager.Instance;
+                if (assetManager != null)
+                {
+                    sourcePrefab = assetManager.Get<GameObject>("Reaper Silk Bundle");
+                }
+
+                // 2. 如果原版预制体获取失败，回退到 SilkBallManager 的自定义预制体
+                if (sourcePrefab == null && silkBallManager?.CustomSilkBallPrefab != null)
+                {
+                    sourcePrefab = silkBallManager.CustomSilkBallPrefab;
+                }
+
+                if (sourcePrefab == null)
+                {
+                    Log.Warn("无法提取吸收音效：找不到 Reaper Silk Bundle 或自定义丝球预制体");
+                    return;
+                }
+
+                // 尝试在预制体上查找 Control FSM
+                var controlFsm = sourcePrefab.GetComponents<PlayMakerFSM>()
+                    .FirstOrDefault(fsm => fsm.FsmName == "Control");
+
+                if (controlFsm == null)
+                {
+                    Log.Warn("无法提取吸收音效：预制体上未找到 Control FSM");
+                    return;
+                }
+
+                // 查找 Disappear 状态
+                var disappearState = controlFsm.FsmStates.FirstOrDefault(s => s.Name == "Disappear");
+                if (disappearState == null)
+                {
+                    Log.Warn("无法提取吸收音效：Control FSM 中未找到 Disappear 状态");
+                    return;
+                }
+
+                // 在 Disappear 状态中查找 PlayAudioEvent 动作
+                foreach (var action in disappearState.Actions)
+                {
+                    if (action is PlayAudioEvent audioAction)
+                    {
+                        // 提取音频资源引用（不克隆 Action，避免 FSM 上下文问题）
+                        // 显式转换 Object 到具体类型
+                        absorbAudioClip = audioAction.audioClip?.Value as AudioClip;
+                        absorbAudioPlayerPrefab = audioAction.audioPlayerPrefab?.Value as GameObject;
+                        absorbAudioPitchMin = audioAction.pitchMin?.Value ?? 1f;
+                        absorbAudioPitchMax = audioAction.pitchMax?.Value ?? 1f;
+                        absorbAudioVolume = audioAction.volume?.Value ?? 1f;
+
+                        Log.Info($"成功提取吸收音效资源：{absorbAudioClip?.name ?? "unknown"}");
+                        return;
+                    }
+                }
+
+                Log.Warn("无法提取吸收音效：Disappear 状态中未找到 PlayAudioEvent 动作");
+            }
+            catch (System.Exception ex)
+            {
+                Log.Error($"提取吸收音效失败：{ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 播放吸收音效（使用 Unity 原生音频播放，不依赖 FSM Action）
+        /// </summary>
+        private void PlayAbsorbAudio()
+        {
+            if (absorbAudioClip == null || absorbAudioPlayerPrefab == null)
+            {
+                return;
+            }
+            try
+            {
+                // 实例化音频播放器
+                var audioPlayerInstance = Instantiate(absorbAudioPlayerPrefab, transform.position, Quaternion.identity);
+                var audioSource = audioPlayerInstance.GetComponent<AudioSource>();
+
+                if (audioSource != null)
+                {
+                    audioSource.clip = absorbAudioClip;
+                    // 强制设置为 2D 音效 (0.0f)，忽略 3D 距离衰减
+                    // 因为大丝球 Z=57，距离 Listener 太远
+                    audioSource.spatialBlend = 0f;
+
+                    float randomPitch = UnityEngine.Random.Range(absorbAudioPitchMin, absorbAudioPitchMax);
+                    audioSource.pitch = randomPitch;
+                    audioSource.volume = absorbAudioVolume > 0.01f ? absorbAudioVolume : 1f;
+
+                    audioPlayerInstance.SetActive(true);
+                    audioSource.Play();
+
+                    Destroy(audioPlayerInstance, absorbAudioClip.length / randomPitch + 0.5f);
+                }
+                else
+                {
+                    // 备用方案
+                    AudioSource.PlayClipAtPoint(absorbAudioClip, Camera.main.transform.position, absorbAudioVolume);
+                    Destroy(audioPlayerInstance);
+                }
+            }
+            catch (System.Exception ex)
+            {
+                Log.Error($"播放吸收音效失败：{ex.Message}");
+                // 清空缓存，避免重复报错
+                absorbAudioClip = null;
+                absorbAudioPlayerPrefab = null;
+            }
         }
         #endregion
     }
@@ -1434,13 +1574,13 @@ namespace AnySilkBoss.Source.Behaviours
             // 移动根物品的XY轴到BOSS胸前，Z轴保持原版（57.4491）
             Vector3 bossPosition = bigSilkBallBehavior.bossObject.transform.position;
             Vector3 targetPosition = bossPosition + bigSilkBallBehavior.chestOffset;
-            
+
             // 根物品XY轴跟随BOSS，Z轴保持原版
             Vector3 rootPosition = bigSilkBallBehavior.transform.position;
             rootPosition.x = targetPosition.x;
             rootPosition.y = targetPosition.y;
             // Z轴保持原版值（应该已经是57.4491，不需要修改）
-            
+
             bigSilkBallBehavior.transform.position = rootPosition;
         }
     }

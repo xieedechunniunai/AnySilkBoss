@@ -67,8 +67,6 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 //Log.Info($"[大丝球碰撞箱] 检测到小丝球: {other.gameObject.name} (根物体: {silkBall.gameObject.name})");
                 parentBehavior.OnAbsorbBall(silkBall);
-                // 播放吸收音效
-                PlayAbsorbAudio();
             }
         }
 
@@ -85,8 +83,6 @@ namespace AnySilkBoss.Source.Behaviours
 
             Log.Info($"[大丝球碰撞箱] 小丝球主动报告碰撞: {silkBall.gameObject.name}");
             parentBehavior.OnAbsorbBall(silkBall);
-            // 播放吸收音效
-            PlayAbsorbAudio();
         }
 
         /// <summary>
@@ -95,60 +91,6 @@ namespace AnySilkBoss.Source.Behaviours
         public void SetScale(float scale)
         {
             transform.localScale = Vector3.one * scale;
-        }
-
-        /// <summary>
-        /// 播放吸收音效
-        /// </summary>
-        private void PlayAbsorbAudio()
-        {
-            try
-            {
-                // 尝试从SilkSpool获取音频事件
-                var silkSpool = SilkSpool.Instance;
-                if (silkSpool != null)
-                {
-                    // 使用反射获取cursedAudio字段
-                    var audioField = silkSpool.GetType().GetField("cursedAudio", 
-                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                    
-                    if (audioField != null)
-                    {
-                        var audioEvent = audioField.GetValue(silkSpool);
-                        if (audioEvent != null)
-                        {
-                            // 调用SpawnAndPlayOneShot方法
-                            var method = audioEvent.GetType().GetMethod("SpawnAndPlayOneShot", 
-                                new[] { typeof(GameObject), typeof(Vector3), typeof(AudioSource) });
-                            
-                            if (method != null)
-                            {
-                                // 获取Audio.DefaultUIAudioSourcePrefab
-                                var audioClass = System.Type.GetType("Audio, Assembly-CSharp");
-                                if (audioClass != null)
-                                {
-                                    var prefabField = audioClass.GetField("DefaultUIAudioSourcePrefab", 
-                                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-                                    
-                                    if (prefabField != null)
-                                    {
-                                        var audioPrefab = prefabField.GetValue(null) as GameObject;
-                                        if (audioPrefab != null)
-                                        {
-                                            method.Invoke(audioEvent, new object?[] { audioPrefab, transform.position, null });
-                                            //Log.Info("成功播放吸收音效");
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            catch (System.Exception ex)
-            {
-                Log.Error($"播放吸收音效失败: {ex.Message}");
-            }
         }
     }
 }

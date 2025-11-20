@@ -819,8 +819,12 @@ namespace AnySilkBoss.Source.Behaviours
                 Vector3 direction = (_hero.transform.position - _ownerTransform.position).normalized;
                 if (direction != Vector3.zero)
                 {
-                    // 计算朝向玩家的角度（Z轴旋转），并添加5度顺时针偏移
-                    float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg + 180f + 10f;
+                    // ⚠️ 根据旋转方向调整10度偏移：顺时针+10°，逆时针-10°
+                    float rotationDirection = Mathf.Sign(currentSpeed); // +1=顺时针, -1=逆时针
+                    float angleOffset = 10f * rotationDirection;
+                    
+                    // 计算朝向玩家的角度（Z轴旋转），并添加方向性偏移
+                    float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg + 180f + angleOffset;
                     Quaternion targetRotation = Quaternion.Euler(0f, 0f, angle);
 
                     // 使用更快的插值速度来跟上环绕运动
