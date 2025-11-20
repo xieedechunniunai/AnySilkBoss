@@ -9,6 +9,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using AnySilkBoss.Source.Tools;
 using AnySilkBoss.Source.Managers;
+using System.Linq;
 namespace AnySilkBoss.Source;
 
 /// <summary>
@@ -19,7 +20,7 @@ public class Plugin : BaseUnityPlugin
 {
     private static Harmony _harmony = null!;
     private GameObject AnySilkBossManager = null!;
-    
+
     // 全局状态
     public static Plugin Instance { get; private set; }
     public static bool IsBossSaveLoaded { get; set; } = false;
@@ -31,12 +32,12 @@ public class Plugin : BaseUnityPlugin
     {
         Log.Init(Logger);
         Plugin.Instance = this;
-        
+
         SceneManager.activeSceneChanged += OnSceneChange;
-        
+
         // 延迟应用Harmony补丁，等待游戏完全初始化
         StartCoroutine(DelayedPatchApplication());
-        
+
         Log.Info("AnySilkBoss plugin loaded!");
     }
 
@@ -44,7 +45,7 @@ public class Plugin : BaseUnityPlugin
     {
         // 等待几帧，确保游戏完全初始化
         yield return new WaitForSeconds(1f);
-        
+
         try
         {
             _harmony = new Harmony(MyPluginInfo.PLUGIN_GUID);
@@ -63,14 +64,16 @@ public class Plugin : BaseUnityPlugin
         // 更新是否在Boss房间的状态
         Plugin.IsInBossRoom = newScene.name == "Cradle_03";
 
-        if (Plugin.IsInBossRoom)
+        if (newScene.name == "Cradle_03")
         {
-            Log.Info($"切换到Boss场景: {newScene.name}");
+            // 重置所有平台状态
+            ResetBossPlatforms();
         }
-        
+
         // 当从主菜单加载存档时创建管理器
         if (oldScene.name == "Menu_Title")
         {
+            ResetBossPlatforms();
             CreateManager();
             return;
         }
@@ -87,33 +90,141 @@ public class Plugin : BaseUnityPlugin
 
             // 添加资源管理器组件
             AnySilkBossManager.AddComponent<AssetManager>();
-            
+
             // 添加 DamageHero 事件管理器组件
             AnySilkBossManager.AddComponent<DamageHeroEventManager>();
-            
+
             // 添加丝球管理器组件
             AnySilkBossManager.AddComponent<SilkBallManager>();
-            
+
             // 添加大丝球管理器组件
             AnySilkBossManager.AddComponent<BigSilkBallManager>();
-            
+
             // 添加存档管理器组件
             AnySilkBossManager.AddComponent<SaveSwitchManager>();
-            
+
             // 添加死亡管理器组件
             AnySilkBossManager.AddComponent<DeathManager>();
-            
+
             // 添加工具恢复管理器组件
             AnySilkBossManager.AddComponent<ToolRestoreManager>();
-            
+
             // 添加单根丝线管理器组件
             AnySilkBossManager.AddComponent<SingleWebManager>();
-            
+
             Log.Info("创建持久化管理器和所有组件");
         }
         else
         {
             Log.Info("找到已存在的持久化管理器");
+        }
+    }
+
+    /// <summary>
+    /// 重置 Boss 房间的所有平台状态（将倒塌的平台恢复）
+    /// </summary>
+    private void ResetBossPlatforms()
+    {
+        try
+        {
+            if(IsInBossRoom)
+            {
+                // 查找所有包含 cradle_plat 的物品
+                var allObjects = Resources.FindObjectsOfTypeAll<GameObject>();
+                var cradlePlats = allObjects.Where(x => x.name.Contains("cradle_plat") && !x.name.Contains("spike")).ToList();
+                var cradleSpikePlats = allObjects.Where(x => x.name.Contains("cradle_spike_plat")).ToList();
+
+                Log.Info($"找到 {cradlePlats.Count} 个 cradle_plat 物品");
+                Log.Info($"找到 {cradleSpikePlats.Count} 个 cradle_spike_plat 物品");
+
+                // 处理 cradle_plat：禁用子物品 crank_hit
+                foreach (var plat in cradlePlats)
+                {
+                    Transform crankHit = plat.transform.Find("crank_hit");
+                    if (crankHit != null)
+                    {
+                        crankHit.gameObject.SetActive(false);
+                        Log.Info($"已禁用 {plat.name} 的子物品 crank_hit");
+                    }
+                    else
+                    {
+                        Log.Warn($"{plat.name} 没有找到子物品 crank_hit");
+                    }
+                }
+
+                // 处理 cradle_spike_plat：修改 spikes hit 的 DamageHero 组件
+                foreach (var spikePlat in cradleSpikePlats)
+                {
+                    Transform spikesHit = spikePlat.transform.Find("spikes hit");
+                    if (spikesHit != null)
+                    {
+                        DamageHero damageHero = spikesHit.GetComponent<DamageHero>();
+                        if (damageHero != null)
+                        {
+                            damageHero.damageDealt = 2;
+                            damageHero.hazardType = (int)GlobalEnums.HazardType.NON_HAZARD;
+                            Log.Info($"已修改 {spikePlat.name} 的 spikes hit - damageDealt=2, hazardType=NON_HAZARD");
+                        }
+                        else
+                        {
+                            Log.Warn($"{spikePlat.name} 的 spikes hit 没有 DamageHero 组件");
+                        }
+                    }
+                    else
+                    {
+                        Log.Warn($"{spikePlat.name} 没有找到子物品 spikes hit");
+                    }
+                }
+            }
+            // 检查 GameManager
+            if (GameManager.instance == null)
+            {
+                Log.Warn("GameManager.instance 为 null，无法重置平台");
+                return;
+            }
+
+            // 检查 sceneData
+            var sceneData = GameManager.instance.sceneData;
+            if (sceneData == null)
+            {
+                Log.Warn("sceneData 为 null，无法重置平台");
+                return;
+            }
+
+            // 检查 persistentBools
+            if (sceneData.persistentBools == null)
+            {
+                Log.Warn("persistentBools 为 null，无法重置平台");
+                return;
+            }
+
+            // 检查 serializedList
+            if (sceneData.persistentBools.serializedList == null)
+            {
+                Log.Warn("serializedList 为 null，无法重置平台");
+                return;
+            }
+
+            var cradleItems = sceneData.persistentBools.serializedList.FindAll(x => x.SceneName == "Cradle_03" && x.ID.Contains("plat"));
+            if (cradleItems.Count == 0)
+            {
+                return;
+            }
+            int resetCount = 0;
+            foreach (var platform in cradleItems)
+            {
+                bool oldValue = platform.Value;
+                platform.Value = false;
+                resetCount++;
+                Log.Info($"平台 {platform.ID} - 原状态: {oldValue} → 新状态: FALSE");
+            }
+
+            Log.Info($"成功重置 {resetCount} 个平台");
+        }
+        catch (System.Exception ex)
+        {
+            Log.Error($"重置平台失败: {ex.Message}");
+            Log.Error($"堆栈跟踪: {ex.StackTrace}");
         }
     }
 

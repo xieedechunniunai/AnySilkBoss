@@ -80,8 +80,6 @@ namespace AnySilkBoss.Source.Behaviours
 
         private void Update()
         {
-            // 更新阶段状态
-            UpdatePhaseState();
             if (Input.GetKeyDown(KeyCode.T))
             {
                 LogPhaseControlFSMInfo();
@@ -180,7 +178,6 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 Log.Warn("未找到子物品 haze2 (8)");
             }
-            // ---新增Hand和FingerBlade初始化---
             _handLObj = GameObject.Find("Hand L");
             _handRObj = GameObject.Find("Hand R");
             if (_handLObj != null)
@@ -225,7 +222,88 @@ namespace AnySilkBoss.Source.Behaviours
             // 修改各阶段血量（翻2倍）
             ModifyPhaseHP();
 
+            // ⚠️ 修改Set P4状态，添加Special Attack设置
+            ModifySetP4State();
+
+            // ⚠️ 修改Set P6状态，添加P6 Web Attack触发标记
+            ModifySetP6State();
+
             Log.Info("阶段行为修改完成");
+        }
+
+        /// <summary>
+        /// 修改Set P4状态，在进入P4时启用Special Attack
+        /// </summary>
+        private void ModifySetP4State()
+        {
+            var setP4State = _phaseControl.FsmStates.FirstOrDefault(s => s.Name == "Set P4");
+            if (setP4State == null)
+            {
+                Log.Warn("未找到Set P4状态，跳过Special Attack设置");
+                return;
+            }
+
+            var actions = setP4State.Actions.ToList();
+
+            // 在状态开头添加设置Special Attack = true的action
+            actions.Insert(0, new SetFsmBool
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                fsmName = new FsmString("Phase Control") { Value = "Phase Control" },
+                variableName = new FsmString("Special Attack") { Value = "Special Attack" },
+                setValue = new FsmBool(true),
+                everyFrame = false
+            });
+
+            // 同时需要设置到Attack Control FSM和Control FSM
+            actions.Insert(1, new SetFsmBool
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                fsmName = new FsmString("Attack Control") { Value = "Attack Control" },
+                variableName = new FsmString("Special Attack") { Value = "Special Attack" },
+                setValue = new FsmBool(true),
+                everyFrame = false
+            });
+
+            actions.Insert(2, new SetFsmBool
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                fsmName = new FsmString("Control") { Value = "Control" },
+                variableName = new FsmString("Special Attack") { Value = "Special Attack" },
+                setValue = new FsmBool(true),
+                everyFrame = false
+            });
+
+            setP4State.Actions = actions.ToArray();
+            Log.Info("Set P4状态已修改：添加Special Attack设置（Phase Control、Attack Control、Control FSM）");
+        }
+
+        /// <summary>
+        /// 修改Set P6状态，在进入P6时启用P6 Web Attack
+        /// </summary>
+        private void ModifySetP6State()
+        {
+            var setP6State = _phaseControl.FsmStates.FirstOrDefault(s => s.Name == "Set P6");
+            if (setP6State == null)
+            {
+                Log.Warn("未找到Set P6状态，跳过P6 Web Attack设置");
+                return;
+            }
+
+            var actions = setP6State.Actions.ToList();
+
+            // 在状态末尾添加设置Do P6 Web Attack = true的action
+            actions.Add(new SetFsmBool
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                fsmName = new FsmString("Attack Control") { Value = "Attack Control" },
+                variableName = new FsmString("Do P6 Web Attack") { Value = "Do P6 Web Attack" },
+                setValue = new FsmBool(true),
+                everyFrame = false
+            });
+
+            setP6State.Actions = actions.ToArray();
+            Log.Info("Set P6状态已修改：添加P6 Web Attack触发标记（Attack Control FSM）");
         }
 
         /// <summary>
@@ -259,282 +337,6 @@ namespace AnySilkBoss.Source.Behaviours
             Log.Info("所有阶段血量修改完成！");
         }
 
-        /// <summary>
-        /// 更新阶段状态
-        /// </summary>
-        private void UpdatePhaseState()
-        {
-            if (_phaseControl == null || _bossPhaseIndex == null) return;
-
-            // 获取当前FSM状态名称
-            string currentStateName = _phaseControl.ActiveStateName;
-
-            // 根据当前状态更新BossPhaseIndex
-            int newPhaseIndex = GetPhaseIndexFromState(currentStateName);
-
-            if (newPhaseIndex != _bossPhaseIndex.Value)
-            {
-                _bossPhaseIndex.Value = newPhaseIndex;
-                Log.Info($"BossPhaseIndex更新为: {newPhaseIndex} (当前状态: {currentStateName})");
-
-                // 触发阶段改变事件
-                OnPhaseChanged(_currentPhase, newPhaseIndex);
-                _currentPhase = newPhaseIndex;
-            }
-
-            // 检查各阶段标志
-            CheckPhaseFlags();
-        }
-
-        /// <summary>
-        /// 根据状态名称获取阶段索引
-        /// </summary>
-        private int GetPhaseIndexFromState(string stateName)
-        {
-            return stateName switch
-            {
-                "Init" => 0,
-                "Set P1" => 1,
-                "P1" => 1,
-                "HP Check 1" => 1,
-                "Set P2" => 2,
-                "P2" => 2,
-                "HP Check 2" => 2,
-                "Set P3" => 3,
-                "Set P3 Web Strand" => 3,
-                "P3" => 3,
-                "HP Check 3" => 3,
-                "HP Check 2.5" => 2,
-                "Big Silk Ball Prepare" => 3,
-                "Big Silk Ball Move To Center" => 3,
-                "Big Silk Ball Spawn" => 3,
-                "Big Silk Ball Wait" => 3,
-                "Big Silk Ball End" => 3,
-                "Big Silk Ball Return" => 3,
-                "Big Silk Ball Roar" => 3, // 新增怒吼状态
-                "Big Silk Ball Roar To Center" => 3, // 新增怒吼后移动状态
-                "MID STAGGER" => 4,
-                "Mid Stagger" => 4,
-                "Stagger Hit" => 4,
-                "Stagger Fall" => 4,
-                "Stagger Pause" => 4,
-                "BG Break Sequence" => 5,
-                "Rubble M" => 5,
-                "Rubble Sides" => 5,
-                "Set P4" => 6,
-                "P4" => 6,
-                "HP Check 4" => 6,
-                "Set P5" => 7,
-                "P5" => 7,
-                "HP Check 5" => 7,
-                "Set P6" => 8,
-                "P6" => 8,
-                "HP Check 6" => 8,
-                _ => _bossPhaseIndex?.Value ?? 0 // 保持当前值
-            };
-        }
-
-        /// <summary>
-        /// 检查各阶段标志
-        /// </summary>
-        private void CheckPhaseFlags()
-        {
-            // 检查P1-P6阶段标志
-            for (int i = 1; i <= 6; i++)
-            {
-                string phaseFlagName = $"P{i}";
-                var phaseFlagVar = _phaseControl.FsmVariables.GetFsmBool(phaseFlagName);
-
-                if (phaseFlagVar != null && phaseFlagVar.Value && !_phaseFlags[i])
-                {
-                    OnPhaseFlagSet(i);
-                    _phaseFlags[i] = true;
-                }
-                else if (phaseFlagVar != null && !phaseFlagVar.Value && _phaseFlags[i])
-                {
-                    OnPhaseFlagCleared(i);
-                    _phaseFlags[i] = false;
-                }
-            }
-
-            // 检查特殊阶段标志
-            CheckSpecialPhaseFlags();
-        }
-
-        /// <summary>
-        /// 检查特殊阶段标志（硬直、背景破坏等）
-        /// </summary>
-        private void CheckSpecialPhaseFlags()
-        {
-            // 硬直阶段标志
-            var staggerFlagVar = _phaseControl.FsmVariables.GetFsmBool("Stagger");
-            if (staggerFlagVar != null && staggerFlagVar.Value && !_phaseFlags[4])
-            {
-                Log.Info("硬直阶段标志被设置");
-                _phaseFlags[4] = true;
-            }
-            else if (staggerFlagVar != null && !staggerFlagVar.Value && _phaseFlags[4])
-            {
-                Log.Info("硬直阶段标志被清除");
-                _phaseFlags[4] = false;
-            }
-
-            // 背景破坏阶段标志
-            var bgBreakFlagVar = _phaseControl.FsmVariables.GetFsmBool("BG Break");
-            if (bgBreakFlagVar != null && bgBreakFlagVar.Value && !_phaseFlags[5])
-            {
-                Log.Info("背景破坏阶段标志被设置");
-                _phaseFlags[5] = true;
-            }
-            else if (bgBreakFlagVar != null && !bgBreakFlagVar.Value && _phaseFlags[5])
-            {
-                Log.Info("背景破坏阶段标志被清除");
-                _phaseFlags[5] = false;
-            }
-        }
-
-        /// <summary>
-        /// 阶段改变时的处理
-        /// </summary>
-        private void OnPhaseChanged(int oldPhase, int newPhase)
-        {
-            Log.Info($"阶段改变: {GetPhaseName(oldPhase)} -> {GetPhaseName(newPhase)}");
-
-            // ========== 在这里添加阶段改变时的逻辑 ==========
-            switch (newPhase)
-            {
-                case 1:
-                    OnPhase1Start();
-                    break;
-                case 2:
-                    OnPhase2Start();
-                    break;
-                case 3:
-                    OnPhase3Start();
-                    break;
-                case 4:
-                    OnPhase4Start();
-                    break;
-                case 5:
-                    OnPhase5Start();
-                    break;
-                case 6:
-                    OnPhase6Start();
-                    break;
-                case 7:
-                    OnPhase7Start();
-                    break;
-                case 8:
-                    OnPhase8Start();
-                    break;
-                default:
-                    Log.Info($"未知阶段: {newPhase}");
-                    break;
-            }
-        }
-
-        /// <summary>
-        /// 阶段标志设置时的处理
-        /// </summary>
-        private void OnPhaseFlagSet(int phase)
-        {
-            Log.Info($"P{phase} 标志已设置");
-
-            // ========== 在这里添加阶段标志设置时的逻辑 ==========
-        }
-
-        /// <summary>
-        /// 阶段标志清除时的处理
-        /// </summary>
-        private void OnPhaseFlagCleared(int phase)
-        {
-            Log.Info($"P{phase} 标志已清除");
-
-            // ========== 在这里添加阶段标志清除时的逻辑 ==========
-        }
-
-        /// <summary>
-        /// 获取阶段名称
-        /// </summary>
-        private string GetPhaseName(int phaseIndex)
-        {
-            return phaseIndex switch
-            {
-                0 => "初始化",
-                1 => "P1",
-                2 => "P2",
-                3 => "P3",
-                4 => "硬直阶段",
-                5 => "背景破坏",
-                6 => "P4",
-                7 => "P5",
-                8 => "P6",
-                _ => $"未知阶段({phaseIndex})"
-            };
-        }
-
-        #region 各阶段开始处理
-        private void OnPhase1Start()
-        {
-            Log.Info("P1阶段开始");
-            // ========== 在这里添加P1特定逻辑 ==========
-        }
-
-        private void OnPhase2Start()
-        {
-            Log.Info("P2阶段开始");
-            // ========== 在这里添加P2特定逻辑 ==========
-        }
-
-        private void OnPhase3Start()
-        {
-            Log.Info("P3阶段开始");
-            // ========== 在这里添加P3特定逻辑 ==========
-        }
-
-        private void OnPhase4Start()
-        {
-            Log.Info("硬直阶段开始");
-            // ========== 在这里添加硬直阶段特定逻辑 ==========
-        }
-
-        private void OnPhase5Start()
-        {
-            Log.Info("背景破坏阶段开始");
-            // ========== 在这里添加背景破坏阶段特定逻辑 ==========
-        }
-
-        private void OnPhase6Start()
-        {
-            Log.Info("P4阶段开始");
-            // ========== 在这里添加P4特定逻辑 ==========
-        }
-
-        private void OnPhase7Start()
-        {
-            Log.Info("P5阶段开始");
-            // ========== 在这里添加P5特定逻辑 ==========
-        }
-
-        private void OnPhase8Start()
-        {
-            Log.Info("P6阶段开始");
-            // ========== 在这里添加P6特定逻辑 ==========
-        }
-        #endregion
-
-        /// <summary>
-        /// 获取指定阶段的血量
-        /// </summary>
-        public int GetPhaseHP(int phase)
-        {
-            if (_phaseControl == null || phase < 1 || phase > 6) return 0;
-
-            string hpVarName = $"P{phase} HP";
-            var hpVar = _phaseControl.FsmVariables.GetFsmInt(hpVarName);
-
-            return hpVar?.Value ?? 0;
-        }
 
         /// <summary>
         /// 设置指定阶段的血量
@@ -552,7 +354,6 @@ namespace AnySilkBoss.Source.Behaviours
                 Log.Info($"{hpVarName} 设置为: {hp}");
             }
         }
-
         /// <summary>
         /// 给Boss增加血量（释放大招时回血）
         /// </summary>
@@ -1344,14 +1145,10 @@ namespace AnySilkBoss.Source.Behaviours
                 y = new FsmFloat(0f),
                 everyFrame = false
             });
-            actions.Add(new SetScale
-            {
-                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
-                x = new FsmFloat { Value = 1f },
-                y = new FsmFloat { Value = 1f },
-                z = new FsmFloat { Value = 1f },
-                everyFrame = false,
-            });
+
+            // 注意：不使用 SetScale action，因为它会导致 NullReferenceException
+            // Boss 的缩放会在后续的 RestoreBossTransform 中通过协程渐变恢复
+
             actions.Add(new Tk2dWatchAnimationEvents
             {
                 gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
@@ -2123,6 +1920,15 @@ namespace AnySilkBoss.Source.Behaviours
                 boolVars.Add(climbPhaseActive);
                 _phaseControl.FsmVariables.BoolVariables = boolVars.ToArray();
                 Log.Info("创建 Climb Phase Active 变量");
+            }
+
+            // ⚠️ 创建Phase2特殊攻击变量
+            if (!boolVars.Any(v => v.Name == "Special Attack"))
+            {
+                var specialAttack = new FsmBool("Special Attack") { Value = false };
+                boolVars.Add(specialAttack);
+                _phaseControl.FsmVariables.BoolVariables = boolVars.ToArray();
+                Log.Info("创建 Special Attack 变量（用于Phase2特殊攻击）");
             }
         }
 

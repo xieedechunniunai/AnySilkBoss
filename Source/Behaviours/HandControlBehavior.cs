@@ -22,6 +22,10 @@ namespace AnySilkBoss.Source.Behaviours
         [Header("手部状态")]
         public bool isActive = false;           // 手部是否激活
         public bool isAttacking = false;        // 手部是否正在攻击
+        
+        [Header("环绕攻击配置")]
+        public float orbitRotationDirection = 1f;  // 环绕旋转方向：1=顺时针，-1=逆时针
+        public float bladeShootInterval = 0.5f;    // 单个指针发射间隔
 
         // 私有变量
         private PlayMakerFSM? handFSM;          // 手部的FSM
@@ -276,7 +280,11 @@ namespace AnySilkBoss.Source.Behaviours
                 if (fingerBladeBehaviors[i] != null)
                 {
                     // 设置每个Finger Blade的环绕偏移角度（使用固定值，不加随机）
-                    fingerBladeBehaviors[i].SetOrbitParameters(7f, 200f, orbitOffsets[i]);
+                    // 速度通过方向调整：正数=顺时针，负数=逆时针
+                    float adjustedSpeed = 200f * orbitRotationDirection;
+                    // ⚠️ 偏移角度也要根据旋转方向调整，防止贴图和攻击位置不符
+                    float adjustedOffset = orbitOffsets[i] * orbitRotationDirection;
+                    fingerBladeBehaviors[i].SetOrbitParameters(7f, adjustedSpeed, adjustedOffset);
 
                     
                     // 获取Control FSM
@@ -307,25 +315,33 @@ namespace AnySilkBoss.Source.Behaviours
         }
 
         /// <summary>
-        /// 开始SHOOT序列 - 每0.5秒触发一个Finger Blade
+        /// 开始SHOOT序列 - 按配置间隔触发一个Finger Blade
         /// </summary>
         public void StartShootSequence()
         {
             StartCoroutine(ShootSequence());
         }
+        
+        /// <summary>
+        /// 设置环绕政击参数（供外部调用）
+        /// </summary>
+        public void SetOrbitAttackConfig(float rotationDirection, float shootInterval)
+        {
+            orbitRotationDirection = rotationDirection;
+            bladeShootInterval = shootInterval;
+            Log.Info($"{handName} 设置环绕攻击参数: 方向={rotationDirection}, 间隔={shootInterval}秒");
+        }
 
         /// <summary>
-        /// SHOOT序列协程 - 每0.5秒发送SHOOT事件给一个Finger Blade
+        /// SHOOT序列协程 - 按配置间隔发送SHOOT事件给一个Finger Blade
         /// </summary>
         private IEnumerator ShootSequence()
         {
-            float shootInterval = 0.5f;
-
             for (int i = 0; i < fingerBladeBehaviors.Length; i++)
             {
                 if (i > 0) // 第一个Finger Blade不需要等待
                 {
-                    yield return new WaitForSeconds(shootInterval);
+                    yield return new WaitForSeconds(bladeShootInterval);
                 }
 
                 if (fingerBladeBehaviors[i] != null)

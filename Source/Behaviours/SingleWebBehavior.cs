@@ -117,7 +117,7 @@ namespace AnySilkBoss.Source.Behaviours
                 // 默认禁用，等待攻击时启用
                 _damageHero.enabled = false;
             }
-
+            gameObject.transform.SetScaleX(2f);
             // 4. 修改 Control FSM
             ModifyControlFsm();
 

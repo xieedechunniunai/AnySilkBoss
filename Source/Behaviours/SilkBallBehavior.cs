@@ -356,9 +356,16 @@ namespace AnySilkBoss.Source.Behaviours
             _isAvailable = false;
             isActive = true;
 
-            // 发送 PREPARE 事件
+            // ⚠️ 确保FSM已经初始化并处于Idle状态
             if (controlFSM != null)
             {
+                // 如果FSM还在Init状态，强制切换到Idle
+                if (controlFSM.Fsm.ActiveStateName == "Init")
+                {
+                    controlFSM.Fsm.SetState("Idle");
+                }
+                
+                // 发送 PREPARE 事件
                 controlFSM.SendEvent("PREPARE");
             }
         }
