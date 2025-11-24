@@ -93,7 +93,7 @@ namespace AnySilkBoss.Source.Behaviours
                 Log.Info($"=== 阶段控制器 FSM 信息 ===");
                 Log.Info($"FSM名称: {_phaseControl.FsmName}");
                 Log.Info($"当前状态: {_phaseControl.ActiveStateName}");
-                FsmAnalyzer.WriteFsmReport(_phaseControl, "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\暂存\\_phaseControlFsm.txt");
+                FsmAnalyzer.WriteFsmReport(_phaseControl, "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\_phaseControlFsm.txt");
             }
         }
 

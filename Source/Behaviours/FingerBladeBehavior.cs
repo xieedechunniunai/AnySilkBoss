@@ -1,10 +1,12 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
 using System.Linq;
 using System;
 using AnySilkBoss.Source.Tools;
+using GenericVariableExtension;
 
 namespace AnySilkBoss.Source.Behaviours
 {
@@ -18,11 +20,6 @@ namespace AnySilkBoss.Source.Behaviours
         public string parentHandName = "";       // 父手部名称
         public HandControlBehavior? parentHand; // 父手部Behavior引用
 
-        [Header("Finger Blade状态")]
-        public bool isActive = false;            // 是否激活
-        public bool isAttacking = false;         // 是否正在攻击
-        public bool isOrbiting = false;           // 是否正在环绕
-
         [Header("环绕参数")]
         public float orbitRadius = 7f;             // 环绕半径（增大到6f）
         public float orbitSpeed = 200f;           // 环绕速度（稍微减慢）
@@ -32,19 +29,16 @@ namespace AnySilkBoss.Source.Behaviours
         private PlayMakerFSM? controlFSM;        // Control FSM
         private PlayMakerFSM? tinkFSM;           // Tink FSM
         private Transform? playerTransform;      // 玩家Transform
-		// 运行时缓存：新增的FSM变量引用，确保动作字段绑定到同一实例
-		private FsmFloat? _orbitRadiusVar;
-		private FsmFloat? _orbitSpeedVar;
-		private FsmFloat? _orbitOffsetVar;
+                                                 // 运行时缓存：新增的FSM变量引用，确保动作字段绑定到同一实例
+        private FsmFloat? _orbitRadiusVar;
+        private FsmFloat? _orbitSpeedVar;
+        private FsmFloat? _orbitOffsetVar;
+        private FsmFloat? _trackTimeVar;         // Track Time 变量缓存
+        private FsmBool? _specialAttackVar;      // Special Attack 变量缓存
 
-		// 事件引用缓存
-		private FsmEvent? _orbitStartEvent;
-		private FsmEvent? _shootEvent;
-
-        // 事件
-        public System.Action? OnBladeActivated;
-        public System.Action? OnBladeDeactivated;
-        public System.Action? OnBladeAttack;
+        // 事件引用缓存
+        private FsmEvent? _orbitStartEvent;
+        private FsmEvent? _shootEvent;
 
         /// <summary>
         /// 初始化Finger Blade
@@ -92,13 +86,36 @@ namespace AnySilkBoss.Source.Behaviours
                 Log.Warn($"Finger Blade {bladeIndex} ({gameObject.name}) 未找到Control FSM");
             }
             AddDynamicVariables();
+            AddCustomStompStates();
+            AddCustomSwipeStates();
+            ModifyAnticPullState();  // 修改 Antic Pull 状态的等待时间
+            ModifyAnticPauseState(); // 修改 Antic Pause 状态，添加二阶段追踪判断
+
+            // 统一初始化FSM（在所有状态和事件添加完成后）
+            RelinkFingerBladeEventReferences();
         }
 
 
 
         private void Update()
         {
-
+            if (Input.GetKeyDown(KeyCode.T) && bladeIndex == 1)
+            {
+                LogHandFSMInfo();
+            }
+        }
+        private void LogHandFSMInfo()
+        {
+            if (controlFSM != null)
+            {
+                Log.Info($"FSM名称: {controlFSM.FsmName}");
+                Log.Info($"当前状态: {controlFSM.ActiveStateName}");
+                FsmAnalyzer.WriteFsmReport(controlFSM, "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\FingerBladeControlFSM.txt");
+            }
+            else
+            {
+                Log.Warn($"手部FSM未找到");
+            }
         }
         /// <summary>
         /// 新增动态变量
@@ -106,108 +123,62 @@ namespace AnySilkBoss.Source.Behaviours
         public void AddDynamicVariables()
         {
             if (controlFSM == null) return;
-            
-			// 复用已存在的变量，否则创建并添加
-			var floatVars = controlFSM.FsmVariables.FloatVariables.ToList();
-			_orbitRadiusVar = floatVars.FirstOrDefault(v => v.Name == "OrbitRadius");
-			_orbitSpeedVar = floatVars.FirstOrDefault(v => v.Name == "OrbitSpeed");
-			_orbitOffsetVar = floatVars.FirstOrDefault(v => v.Name == "OrbitOffset");
 
-			bool added = false;
-			if (_orbitRadiusVar == null)
-			{
-				_orbitRadiusVar = new FsmFloat("OrbitRadius") { Value = orbitRadius };
-				floatVars.Add(_orbitRadiusVar);
-				added = true;
-			}
-			else
-			{
-				_orbitRadiusVar.Value = orbitRadius;
-			}
+            // 复用已存在的变量，否则创建并添加
+            var floatVars = controlFSM.FsmVariables.FloatVariables.ToList();
+            _orbitRadiusVar = floatVars.FirstOrDefault(v => v.Name == "OrbitRadius");
+            _orbitSpeedVar = floatVars.FirstOrDefault(v => v.Name == "OrbitSpeed");
+            _orbitOffsetVar = floatVars.FirstOrDefault(v => v.Name == "OrbitOffset");
 
-			if (_orbitSpeedVar == null)
-			{
-				_orbitSpeedVar = new FsmFloat("OrbitSpeed") { Value = orbitSpeed };
-				floatVars.Add(_orbitSpeedVar);
-				added = true;
-			}
-			else
-			{
-				_orbitSpeedVar.Value = orbitSpeed;
-			}
+            bool added = false;
+            if (_orbitRadiusVar == null)
+            {
+                _orbitRadiusVar = new FsmFloat("OrbitRadius") { Value = orbitRadius };
+                floatVars.Add(_orbitRadiusVar);
+                added = true;
+            }
+            else
+            {
+                _orbitRadiusVar.Value = orbitRadius;
+            }
 
-			if (_orbitOffsetVar == null)
-			{
-				_orbitOffsetVar = new FsmFloat("OrbitOffset") { Value = orbitOffset };
-				floatVars.Add(_orbitOffsetVar);
-				added = true;
-			}
-			else
-			{
-				_orbitOffsetVar.Value = orbitOffset;
-			}
+            if (_orbitSpeedVar == null)
+            {
+                _orbitSpeedVar = new FsmFloat("OrbitSpeed") { Value = orbitSpeed };
+                floatVars.Add(_orbitSpeedVar);
+                added = true;
+            }
+            else
+            {
+                _orbitSpeedVar.Value = orbitSpeed;
+            }
 
-			if (added)
-			{
-				controlFSM.FsmVariables.FloatVariables = floatVars.ToArray();
-			}
+            if (_orbitOffsetVar == null)
+            {
+                _orbitOffsetVar = new FsmFloat("OrbitOffset") { Value = orbitOffset };
+                floatVars.Add(_orbitOffsetVar);
+                added = true;
+            }
+            else
+            {
+                _orbitOffsetVar.Value = orbitOffset;
+            }
+
+            if (added)
+            {
+                controlFSM.FsmVariables.FloatVariables = floatVars.ToArray();
+            }
         }
 
 
         /// <summary>
-        /// 设置环绕参数
+        /// 设置环绕参数（已废弃，现在由Hand通过SetFsmFloat直接设置FSM变量）
         /// </summary>
+        [System.Obsolete("此方法已废弃，请使用Hand中的SetFsmFloat直接设置FSM变量")]
         public void SetOrbitParameters(float radius, float speed, float offset)
         {
-            orbitRadius = radius;
-            orbitSpeed = speed;
-            orbitOffset = offset;
-
-            // 同时更新FSM中的变量，供FingerBladeOrbitAction使用
-            if (controlFSM != null)
-            {
-                // 更新FSM变量（变量已在AddDynamicVariables中创建）
-				var radiusVar = _orbitRadiusVar ?? controlFSM.FsmVariables.GetFsmFloat("OrbitRadius");
-                if (radiusVar != null)
-                {
-                    radiusVar.Value = radius;
-                }
-                else
-                {
-                    Log.Warn($"Finger Blade {bladeIndex} 未找到OrbitRadius变量");
-                }
-
-				var speedVar = _orbitSpeedVar ?? controlFSM.FsmVariables.GetFsmFloat("OrbitSpeed");
-                if (speedVar != null)
-                {
-                    speedVar.Value = speed;
-                }
-                else
-                {
-                    Log.Warn($"Finger Blade {bladeIndex} 未找到OrbitSpeed变量");
-                }
-
-				var offsetVar = _orbitOffsetVar ?? controlFSM.FsmVariables.GetFsmFloat("OrbitOffset");
-                if (offsetVar != null)
-                {
-                    offsetVar.Value = offset;
-                }
-                else
-                {
-                    Log.Warn($"Finger Blade {bladeIndex} 未找到OrbitOffset变量");
-                }
-
-				// 验证变量是否正确设置（使用缓存的引用优先）
-				var verifyRadius = (_orbitRadiusVar ?? controlFSM.FsmVariables.GetFsmFloat("OrbitRadius"))?.Value ?? -1f;
-				var verifySpeed = (_orbitSpeedVar ?? controlFSM.FsmVariables.GetFsmFloat("OrbitSpeed"))?.Value ?? -1f;
-				var verifyOffset = (_orbitOffsetVar ?? controlFSM.FsmVariables.GetFsmFloat("OrbitOffset"))?.Value ?? -1f;
-
-            }
-            else
-            {
-                Log.Error($"Finger Blade {bladeIndex} ({gameObject.name}) Control FSM 为 null，无法设置FSM变量");
-            }
-
+            // 此方法保留仅用于兼容性，实际参数应由Hand通过SetFsmFloat设置
+            Log.Warn($"Finger Blade {bladeIndex} SetOrbitParameters 已废弃，请使用SetFsmFloat");
         }
 
         /// <summary>
@@ -223,7 +194,7 @@ namespace AnySilkBoss.Source.Behaviours
 
             // 将事件添加到FSM的事件列表中
             var existingEvents = controlFSM.FsmEvents.ToList();
-            
+
             if (!existingEvents.Contains(_orbitStartEvent))
             {
                 existingEvents.Add(_orbitStartEvent);
@@ -251,14 +222,17 @@ namespace AnySilkBoss.Source.Behaviours
         /// </summary>
         private void RelinkFingerBladeEventReferences()
         {
-            if (controlFSM == null) return;
-
-            // 重新初始化FSM数据，确保所有事件引用正确
-            controlFSM.Fsm.InitData();
-            controlFSM.Fsm.InitEvents();
-
+            StartCoroutine(MyCoroutine());
         }
-
+        IEnumerator MyCoroutine()
+        {
+            yield return new WaitForSeconds(0.1f);
+            if (controlFSM == null) yield break;
+            controlFSM.FsmVariables.Init();
+            controlFSM.Fsm.InitStates();
+            controlFSM.Fsm.InitData();
+            controlFSM.Fsm.InitEvents(); 
+        }
         /// <summary>
         /// 添加环绕攻击全局转换 - 新版本：两个独立状态
         /// </summary>
@@ -328,7 +302,6 @@ namespace AnySilkBoss.Source.Behaviours
             }
 
             // 重新链接所有事件引用
-            RelinkFingerBladeEventReferences();
         }
         /// <summary>
         /// 创建Orbit Start状态（接收环绕指令，持续环绕）
@@ -403,12 +376,12 @@ namespace AnySilkBoss.Source.Behaviours
         {
             // 动作1：开始环绕（持续环绕，直到收到SHOOT事件）
             // 使用变量引用，这样可以在运行时动态获取最新值
-			var orbitAction = new FingerBladeOrbitAction
-			{
-				orbitRadius = _orbitRadiusVar ?? controlFSM!.FsmVariables.GetFsmFloat("OrbitRadius"),
-				orbitSpeed = _orbitSpeedVar ?? controlFSM!.FsmVariables.GetFsmFloat("OrbitSpeed"),
-				orbitOffset = _orbitOffsetVar ?? controlFSM!.FsmVariables.GetFsmFloat("OrbitOffset")
-			};
+            var orbitAction = new FingerBladeOrbitAction
+            {
+                orbitRadius = _orbitRadiusVar ?? controlFSM!.FsmVariables.GetFsmFloat("OrbitRadius"),
+                orbitSpeed = _orbitSpeedVar ?? controlFSM!.FsmVariables.GetFsmFloat("OrbitSpeed"),
+                orbitOffset = _orbitOffsetVar ?? controlFSM!.FsmVariables.GetFsmFloat("OrbitOffset")
+            };
 
             // 动作2：等待SHOOT事件（不设置超时，持续环绕）
             var waitForShootAction = new Wait
@@ -528,7 +501,7 @@ namespace AnySilkBoss.Source.Behaviours
                 finishEvent = FsmEvent.Finished
             };
 
-            orbitShootState.Actions = new FsmStateAction[] {  zeroGravityAction, zeroVelocityAction, activateDamager, activatePhysCollider, waitAction };
+            orbitShootState.Actions = new FsmStateAction[] { zeroGravityAction, zeroVelocityAction, activateDamager, activatePhysCollider, waitAction };
         }
 
         /// <summary>
@@ -553,7 +526,7 @@ namespace AnySilkBoss.Source.Behaviours
             orbitStartState.Transitions = new FsmTransition[] { shootTransition };
         }
 
-         private void AddOrbitPrepareTransitions(FsmState orbitPrepareState, FsmState orbitShootState)
+        private void AddOrbitPrepareTransitions(FsmState orbitPrepareState, FsmState orbitShootState)
         {
             var finishedTransition = new FsmTransition
             {
@@ -601,7 +574,7 @@ namespace AnySilkBoss.Source.Behaviours
 
             // 计算攻击方向（从当前位置指向玩家）
             Vector3 attackDirection = (playerPosition - currentPosition).normalized;
-            float attackAngle = Mathf.Atan2(attackDirection.y, attackDirection.x) * Mathf.Rad2Deg - 5f;
+            float attackAngle = Mathf.Atan2(attackDirection.y, attackDirection.x) * Mathf.Rad2Deg - 3f;
 
             // 设置Attack Rotation（攻击旋转角度）
             var attackRotationVar = controlFSM.FsmVariables.GetFsmFloat("Attack Rotation");
@@ -706,6 +679,179 @@ namespace AnySilkBoss.Source.Behaviours
         }
 
         /// <summary>
+        /// 添加自定义Stomp攻击状态（垂直和斜向）
+        /// </summary>
+        public void AddCustomStompStates()
+        {
+            if (controlFSM == null) return;
+
+            // 创建 Stomp 状态（三个方向）
+            CreateStompState("CUSTOM_STOMP_CENTER", "Custom Stomp Center Prepare", 90f, 1f, true, false);   // 垂直下砸
+            CreateStompState("CUSTOM_STOMP_LEFT", "Custom Stomp Left Prepare", 120f, 1f, false, false);     // 左侧斜向下（更偏向垂直）
+            CreateStompState("CUSTOM_STOMP_RIGHT", "Custom Stomp Right Prepare", 60f, 1f, false, false);    // 右侧斜向下（更偏向垂直）
+        }
+
+        /// <summary>
+        /// 创建 Stomp 状态（通用方法）- 简化版：只设置参数，然后跳转到 Attack Start Pause
+        /// </summary>
+        private void CreateStompState(string eventName, string paramsStateName, float rotation, float yScale, bool trackX, bool trackY)
+        {
+            if (controlFSM == null) return;
+
+            var customEvent = FsmEvent.GetFsmEvent(eventName);
+            var events = controlFSM.Fsm.Events.ToList();
+            if (!events.Contains(customEvent)) { events.Add(customEvent); controlFSM.Fsm.Events = events.ToArray(); }
+
+            // 创建参数设置状态（模仿原版 Set Stomp）
+            var setParamsState = new FsmState(controlFSM.Fsm) { Name = paramsStateName };
+            var actions = new List<FsmStateAction>();
+
+            // 设置 Attack Rotation（针尖旋转角度）
+            var rotationVar = controlFSM.FsmVariables.GetFsmFloat("Attack Rotation");
+            var setRotation = new SetFloatValue { floatVariable = rotationVar, floatValue = new FsmFloat(rotation), everyFrame = false };
+            actions.Add(setRotation);
+
+            // 计算 Attack Y（参考原版：Ground Y + Random(11, 12)）
+            var groundYVar = controlFSM.FsmVariables.GetFsmFloat("Ground Y");
+            var attackYVar = controlFSM.FsmVariables.GetFsmFloat("Attack Y");
+            var setGroundY = new SetFloatValue { floatVariable = attackYVar, floatValue = groundYVar, everyFrame = false };
+            var addYRandom = new FloatAddRandom { floatVariable = attackYVar, addMin = new FsmFloat(11f), addMax = new FsmFloat(12f) };
+            actions.Add(setGroundY);
+            actions.Add(addYRandom);
+
+            // 设置 Attack Y Scale
+            var attackYScaleVar = controlFSM.FsmVariables.GetFsmFloat("Attack Y Scale");
+            var setYScale = new SetFloatValue { floatVariable = attackYScaleVar, floatValue = new FsmFloat(yScale), everyFrame = false };
+            actions.Add(setYScale);
+
+            // 设置 Wait Min/Max（参考原版 Set Stomp）
+            var waitMinVar = controlFSM.FsmVariables.GetFsmFloat("Wait Min");
+            var waitMaxVar = controlFSM.FsmVariables.GetFsmFloat("Wait Max");
+            var setWaitMin = new SetFloatValue { floatVariable = waitMinVar, floatValue = new FsmFloat(0f), everyFrame = false };
+            var setWaitMax = new SetFloatValue { floatVariable = waitMaxVar, floatValue = new FsmFloat(0.2f), everyFrame = false };
+            actions.Add(setWaitMin);
+            actions.Add(setWaitMax);
+
+            // 设置 Quick Recover
+            var quickRecoverVar = controlFSM.FsmVariables.GetFsmBool("Quick Recover");
+            var setQuickRecover = new SetBoolValue { boolVariable = quickRecoverVar, boolValue = new FsmBool(false), everyFrame = false };
+            actions.Add(setQuickRecover);
+
+            // 设置 X Target Min/Max（边界限制）
+            var xTargetMinVar = controlFSM.FsmVariables.GetFsmFloat("X Target Min");
+            var xTargetMaxVar = controlFSM.FsmVariables.GetFsmFloat("X Target Max");
+            var setXMin = new SetFloatValue { floatVariable = xTargetMinVar, floatValue = new FsmFloat(20f), everyFrame = false };
+            var setXMax = new SetFloatValue { floatVariable = xTargetMaxVar, floatValue = new FsmFloat(57f), everyFrame = false };
+            actions.Add(setXMin);
+            actions.Add(setXMax);
+
+            setParamsState.Actions = actions.ToArray();
+
+            // 直接跳转到 Attack Start Pause（让原版流程接管）
+            var attackStartPauseState = controlFSM.FsmStates.FirstOrDefault(s => s.Name == "Attack Start Pause");
+            if (attackStartPauseState != null)
+            {
+                setParamsState.Transitions = new FsmTransition[] 
+                { 
+                    new FsmTransition { FsmEvent = FsmEvent.Finished, toState = "Attack Start Pause", toFsmState = attackStartPauseState } 
+                };
+            }
+
+            // 添加状态到FSM
+            var states = controlFSM.FsmStates.ToList();
+            states.Add(setParamsState);
+            controlFSM.Fsm.States = states.ToArray();
+
+            // 全局转换指向参数设置状态
+            var globalTrans = controlFSM.FsmGlobalTransitions.ToList();
+            globalTrans.Add(new FsmTransition { FsmEvent = customEvent, toState = paramsStateName, toFsmState = setParamsState });
+            controlFSM.Fsm.GlobalTransitions = globalTrans.ToArray();
+        }
+
+        /// <summary>
+        /// 添加自定义Swipe攻击状态（区分左右方向）
+        /// </summary>
+        public void AddCustomSwipeStates()
+        {
+            if (controlFSM == null) return;
+
+            // 创建 Swipe L 和 Swipe R 状态
+            // Swipe L: rotation=0°（向右），yScale=-1（贴图翻转以匹配向右攻击）
+            // Swipe R: rotation=180°（向左），yScale=1（贴图正常）
+            CreateSwipeState("CUSTOM_SWIPE_L", "Custom Swipe L Prepare", 0f, -1f, 23f, 55f); // 从左侧出现，朝向右，向右攻击
+            CreateSwipeState("CUSTOM_SWIPE_R", "Custom Swipe R Prepare", 180f, 1f, 23f, 55f); // 从右侧出现，朝向左，向左政击
+        }
+
+        /// <summary>
+        /// 创建 Swipe 状态（通用方法）- 简化版：只设置参数，然后跳转到 Attack Start Pause
+        /// </summary>
+        private void CreateSwipeState(string eventName, string paramsStateName, float rotation, float yScale, float xMin, float xMax)
+        {
+            if (controlFSM == null) return;
+
+            var customEvent = FsmEvent.GetFsmEvent(eventName);
+            var events = controlFSM.Fsm.Events.ToList();
+            if (!events.Contains(customEvent)) { events.Add(customEvent); controlFSM.Fsm.Events = events.ToArray(); }
+
+            // 创建参数设置状态（模仿原版 Set Swipe L/R）
+            var setParamsState = new FsmState(controlFSM.Fsm) { Name = paramsStateName };
+            var actions = new List<FsmStateAction>();
+
+            // 设置 Attack Rotation（针尖旋转角度）
+            var rotationVar = controlFSM.FsmVariables.GetFsmFloat("Attack Rotation");
+            var setRotation = new SetFloatValue { floatVariable = rotationVar, floatValue = new FsmFloat(rotation), everyFrame = false };
+            actions.Add(setRotation);
+
+            // 设置 Attack Y Scale
+            var attackYScaleVar = controlFSM.FsmVariables.GetFsmFloat("Attack Y Scale");
+            var setYScale = new SetFloatValue { floatVariable = attackYScaleVar, floatValue = new FsmFloat(yScale), everyFrame = false };
+            actions.Add(setYScale);
+
+            // 设置 Wait Min/Max（参考原版 Set Swipe L/R）
+            var waitMinVar = controlFSM.FsmVariables.GetFsmFloat("Wait Min");
+            var waitMaxVar = controlFSM.FsmVariables.GetFsmFloat("Wait Max");
+            var setWaitMin = new SetFloatValue { floatVariable = waitMinVar, floatValue = new FsmFloat(0f), everyFrame = false };
+            var setWaitMax = new SetFloatValue { floatVariable = waitMaxVar, floatValue = new FsmFloat(0.2f), everyFrame = false };
+            actions.Add(setWaitMin);
+            actions.Add(setWaitMax);
+
+            // 设置 Quick Recover
+            var quickRecoverVar = controlFSM.FsmVariables.GetFsmBool("Quick Recover");
+            var setQuickRecover = new SetBoolValue { boolVariable = quickRecoverVar, boolValue = new FsmBool(false), everyFrame = false };
+            actions.Add(setQuickRecover);
+
+            // 设置 X Target Min/Max（边界限制）
+            var xTargetMinVar = controlFSM.FsmVariables.GetFsmFloat("X Target Min");
+            var xTargetMaxVar = controlFSM.FsmVariables.GetFsmFloat("X Target Max");
+            var setXMin = new SetFloatValue { floatVariable = xTargetMinVar, floatValue = new FsmFloat(xMin), everyFrame = false };
+            var setXMax = new SetFloatValue { floatVariable = xTargetMaxVar, floatValue = new FsmFloat(xMax), everyFrame = false };
+            actions.Add(setXMin);
+            actions.Add(setXMax);
+
+            setParamsState.Actions = actions.ToArray();
+
+            // 直接跳转到 Attack Start Pause（让原版流程接管）
+            var attackStartPauseState = controlFSM.FsmStates.FirstOrDefault(s => s.Name == "Attack Start Pause");
+            if (attackStartPauseState != null)
+            {
+                setParamsState.Transitions = new FsmTransition[] 
+                { 
+                    new FsmTransition { FsmEvent = FsmEvent.Finished, toState = "Attack Start Pause", toFsmState = attackStartPauseState } 
+                };
+            }
+
+            // 添加状态到FSM
+            var states = controlFSM.FsmStates.ToList();
+            states.Add(setParamsState);
+            controlFSM.Fsm.States = states.ToArray();
+
+            // 全局转换指向参数设置状态
+            var globalTrans = controlFSM.FsmGlobalTransitions.ToList();
+            globalTrans.Add(new FsmTransition { FsmEvent = customEvent, toState = paramsStateName, toFsmState = setParamsState });
+            controlFSM.Fsm.GlobalTransitions = globalTrans.ToArray();
+        }
+
+        /// <summary>
         /// 立即停止环绕（供FSM调用）
         /// </summary>
         public void StopOrbitImmediately()
@@ -721,6 +867,243 @@ namespace AnySilkBoss.Source.Behaviours
                     rb2d.angularVelocity = 0f;
                 }
             }
+        }
+
+        /// <summary>
+        /// 检查是否为二阶段 Swipe 攻击，并发送相应事件（供FSM调用）
+        /// </summary>
+        public void CheckAndSendPhase2SwipeEvent()
+        {
+            if (controlFSM == null) return;
+
+            // 获取变量
+            var rotationVar = controlFSM.FsmVariables.GetFsmFloat("Attack Rotation");
+            var specialAttackVar = controlFSM.FsmVariables.GetFsmBool("Special Attack");
+
+            if (rotationVar == null || specialAttackVar == null) return;
+
+            float rotation = rotationVar.Value;
+            bool isSpecialAttack = specialAttackVar.Value;
+
+            // 检查是否为 Swipe 攻击（Rotation 接近 0 或 180）
+            bool isSwipe = (Mathf.Abs(rotation) < 2f) || (Mathf.Abs(rotation - 180f) < 2f);
+
+            // 如果是 Swipe 且 Special Attack 为 true，发送事件
+            if (isSwipe && isSpecialAttack)
+            {
+                controlFSM.SendEvent("IS_PHASE2_SWIPE");
+                Log.Info($"Finger Blade {bladeIndex} 检测到二阶段 Swipe 攻击，Rotation={rotation}, Special Attack={isSpecialAttack}");
+            }
+        }
+
+        /// <summary>
+        /// 修改 Antic Pull 状态：调整等待时间
+        /// </summary>
+        private void ModifyAnticPullState()
+        {
+            if (controlFSM == null) return;
+
+            var anticPullState = controlFSM.FsmStates.FirstOrDefault(s => s.Name == "Antic Pull");
+            if (anticPullState == null)
+            {
+                Log.Warn($"Finger Blade {bladeIndex} 未找到 Antic Pull 状态");
+                return;
+            }
+
+            var actions = anticPullState.Actions.ToList();
+            int waitCount = 0;
+            int waitBoolCount = 0;
+
+            // 遍历所有动作，修改 Wait 和 WaitBool 的时间
+            for (int i = 0; i < actions.Count; i++)
+            {
+                // 修改第一个 Wait 的 time 为 0.48
+                if (actions[i] is Wait wait)
+                {
+                    waitCount++;
+                    if (waitCount == 1)
+                    {
+                        wait.time = new FsmFloat(0.48f);
+                        Log.Info($"Finger Blade {bladeIndex} Antic Pull: 第1个Wait时间已修改为0.45s");
+                    }
+                }
+                // 修改第一个 WaitBool 的 time 为 0.36
+                else if (actions[i] is WaitBool waitBool)
+                {
+                    waitBoolCount++;
+                    if (waitBoolCount == 1)
+                    {
+                        waitBool.time = new FsmFloat(0.36f);
+                        Log.Info($"Finger Blade {bladeIndex} Antic Pull: 第1个WaitBool时间已修改为0.33s");
+                    }
+                }
+            }
+            actions.Insert(0, new WaitBool
+            {
+                boolTest = controlFSM.FsmVariables.GetFsmBool("Special Attack"),
+                time = new FsmFloat(0.25f),
+                finishEvent = FsmEvent.Finished,
+                realTime = false
+            });
+            anticPullState.Actions = actions.ToArray();
+            Log.Info($"Finger Blade {bladeIndex} Antic Pull 状态已修改完成");
+        }
+
+        /// <summary>
+        /// 修改 Antic Pause 状态：添加二阶段Swipe追踪判断
+        /// </summary>
+        private void ModifyAnticPauseState()
+        {
+            if (controlFSM == null) return;
+
+            var anticPauseState = controlFSM.FsmStates.FirstOrDefault(s => s.Name == "Antic Pause");
+            if (anticPauseState == null)
+            {
+                Log.Warn($"Finger Blade {bladeIndex} 未找到 Antic Pause 状态");
+                return;
+            }
+
+            // 添加 Special Attack 和 Track Time 变量，并缓存引用
+            var boolVars = controlFSM.FsmVariables.BoolVariables.ToList();
+            _specialAttackVar = boolVars.FirstOrDefault(v => v.Name == "Special Attack");
+            if (_specialAttackVar == null)
+            {
+                _specialAttackVar = new FsmBool("Special Attack") { Value = false };
+                boolVars.Add(_specialAttackVar);
+                controlFSM.FsmVariables.BoolVariables = boolVars.ToArray();
+            }
+
+            var floatVars = controlFSM.FsmVariables.FloatVariables.ToList();
+            _trackTimeVar = floatVars.FirstOrDefault(v => v.Name == "Track Time");
+            if (_trackTimeVar == null)
+            {
+                _trackTimeVar = new FsmFloat("Track Time") { Value = 1f };
+                floatVars.Add(_trackTimeVar);
+                controlFSM.FsmVariables.FloatVariables = floatVars.ToArray();
+            }
+
+            // 创建追踪状态
+            CreatePhase2TrackState();
+
+            Log.Info($"Finger Blade {bladeIndex} Antic Pause 状态已修改");
+        }
+
+        /// <summary>
+        /// 创建二阶段追踪状态
+        /// </summary>
+        private void CreatePhase2TrackState()
+        {
+            if (controlFSM == null) return;
+
+            var trackState = new FsmState(controlFSM.Fsm) { Name = "Phase2 Track" };
+            var actions = new List<FsmStateAction>();
+
+            // 追踪玩家
+            var trackAction = new FingerBladeTrackAction
+            {
+                targetX = null,
+                targetY = null,
+                attackRotation = controlFSM.FsmVariables.GetFsmFloat("Attack Rotation"),
+                trackHeroX = false,
+                trackHeroY = true,
+                trackSpeed = 3f
+            };
+            actions.Add(trackAction);
+
+            // 等待追踪时间
+            var waitTrack = new Wait
+            {
+                time = _trackTimeVar,
+                finishEvent = FsmEvent.Finished
+            };
+            actions.Add(waitTrack);
+
+            trackState.Actions = actions.ToArray();
+
+            // 添加转换：Track -> Antic Pull
+            var anticPullState = controlFSM.FsmStates.FirstOrDefault(s => s.Name == "Antic Pull");
+            if (anticPullState != null)
+            {
+                trackState.Transitions = new FsmTransition[]
+                {
+                    new FsmTransition { FsmEvent = FsmEvent.Finished, toState = "Antic Pull", toFsmState = anticPullState }
+                };
+            }
+
+            // 添加状态到FSM
+            var states = controlFSM.Fsm.States.ToList();
+            states.Add(trackState);
+            controlFSM.Fsm.States = states.ToArray();
+
+            // 初始化所有 Actions（关键步骤！）
+            foreach (var action in trackState.Actions)
+            {
+                action.Init(trackState);
+            }
+
+            Log.Info($"Finger Blade {bladeIndex} Phase2 Track 状态已创建并初始化");
+
+            // 修改 Antic Pause 的转换逻辑
+            ModifyAnticPauseTransitions(trackState);
+        }
+
+        /// <summary>
+        /// 修改 Antic Pause 的转换：添加二阶段Swipe判断
+        /// </summary>
+        private void ModifyAnticPauseTransitions(FsmState trackState)
+        {
+            if (controlFSM == null) return;
+
+            var anticPauseState = controlFSM.FsmStates.FirstOrDefault(s => s.Name == "Antic Pause");
+            if (anticPauseState == null) return;
+
+            // 在 Antic Pause 末尾添加判断逻辑
+            var actions = anticPauseState.Actions.ToList();
+
+            // 获取/创建 Bool 变量
+            var rotationVar = controlFSM.FsmVariables.GetFsmFloat("Attack Rotation");
+            var specialAttackVar = _specialAttackVar;
+            
+            // 创建 "Is Swipe" Bool 变量用于存储 Float 比较结果
+            var boolVars = controlFSM.FsmVariables.BoolVariables.ToList();
+            var isSwipeVar = boolVars.FirstOrDefault(v => v.Name == "Is Swipe");
+            if (isSwipeVar == null)
+            {
+                isSwipeVar = new FsmBool("Is Swipe") { Value = false };
+                boolVars.Add(isSwipeVar);
+                controlFSM.FsmVariables.BoolVariables = boolVars.ToArray();
+            }
+
+            // 注册事件
+            var events = controlFSM.Fsm.Events.ToList();
+            var isPhase2SwipeEvent = FsmEvent.GetFsmEvent("IS_PHASE2_SWIPE");
+            if (!events.Contains(isPhase2SwipeEvent))
+            {
+                events.Add(isPhase2SwipeEvent);
+            }
+            controlFSM.Fsm.Events = events.ToArray();
+
+            // 使用 CallMethod 调用自定义判断方法
+            var checkPhase2Swipe = new CallMethod
+            {
+                behaviour = this,
+                methodName = "CheckAndSendPhase2SwipeEvent",
+                parameters = new FsmVar[0],
+                everyFrame = false
+            };
+            actions.Add(checkPhase2Swipe);
+
+            anticPauseState.Actions = actions.ToArray();
+
+            // 修改转换：只有 IS_PHASE2_SWIPE 事件才跳转到 Phase2 Track
+            var transitions = anticPauseState.Transitions.ToList();
+            transitions.Add(new FsmTransition
+            {
+                FsmEvent = isPhase2SwipeEvent,
+                toState = "Phase2 Track",
+                toFsmState = trackState
+            });
+            anticPauseState.Transitions = transitions.ToArray();
         }
     }
 
@@ -811,24 +1194,25 @@ namespace AnySilkBoss.Source.Behaviours
                 Vector3 targetPosition = _hero.transform.position + offset;
 
                 // 移动Finger Blade到目标位置（只调整X和Y坐标）
+                // 使用更高的插值速度（30f）确保快速跟随玩家移动
                 Vector3 currentPos = _ownerTransform.position;
-                Vector3 newPos = Vector3.Lerp(currentPos, targetPosition, Time.deltaTime * 8f);
+                Vector3 newPos = Vector3.Lerp(currentPos, targetPosition, Time.deltaTime * 30f);
                 _ownerTransform.position = new Vector3(newPos.x, newPos.y, currentPos.z); // 保持Z坐标不变
 
                 // 让Finger Blade朝向玩家（只调整Rotation的Z轴）
                 Vector3 direction = (_hero.transform.position - _ownerTransform.position).normalized;
                 if (direction != Vector3.zero)
                 {
-                    // ⚠️ 根据旋转方向调整10度偏移：顺时针+10°，逆时针-10°
+                    // 根据旋转方向调整10度偏移：顺时针+10°，逆时针-10°
                     float rotationDirection = Mathf.Sign(currentSpeed); // +1=顺时针, -1=逆时针
                     float angleOffset = 10f * rotationDirection;
-                    
+
                     // 计算朝向玩家的角度（Z轴旋转），并添加方向性偏移
                     float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg + 180f + angleOffset;
                     Quaternion targetRotation = Quaternion.Euler(0f, 0f, angle);
 
-                    // 使用更快的插值速度来跟上环绕运动
-                    _ownerTransform.rotation = Quaternion.Lerp(_ownerTransform.rotation, targetRotation, Time.deltaTime * 20f);
+                    // 使用更高的插值速度（50f）确保旋转快速跟上位置变化
+                    _ownerTransform.rotation = Quaternion.Lerp(_ownerTransform.rotation, targetRotation, Time.deltaTime * 30f);
                 }
 
                 // 累积时间在计算和更新之后进行，保持初始相位
@@ -844,7 +1228,7 @@ namespace AnySilkBoss.Source.Behaviours
         public override void OnExit()
         {
             _isOrbiting = false;
-            
+
             // 立即停止移动，确保没有惯性
             if (_ownerTransform != null)
             {
@@ -856,7 +1240,7 @@ namespace AnySilkBoss.Source.Behaviours
                     rb2d.angularVelocity = 0f;
                 }
             }
-            
+
             Debug.Log($"FingerBladeOrbitAction: 环绕攻击结束 - {Owner.name}，立即停止移动");
         }
 
@@ -868,5 +1252,407 @@ namespace AnySilkBoss.Source.Behaviours
             _isOrbiting = false;
         }
 
+    }
+
+    /// <summary>
+    /// 自定义追踪Action - 支持水平/垂直独立追踪
+    /// </summary>
+    public class FingerBladeTrackAction : FsmStateAction
+    {
+        public FsmFloat? targetX;
+        public FsmFloat? targetY;
+        public FsmFloat? attackRotation;
+        public bool trackHeroX;
+        public bool trackHeroY;
+        public float trackSpeed = 15f;
+
+        private GameObject? _hero;
+        private Vector3 _offset;
+
+        public override void Reset()
+        {
+            targetX = null;
+            targetY = null;
+            attackRotation = null;
+            trackHeroX = false;
+            trackHeroY = false;
+            trackSpeed = 15f;
+        }
+
+        public override void OnEnter()
+        {
+            _hero = HeroController.instance?.gameObject;
+            if (_hero == null) { Finish(); return; }
+
+            float tx = targetX != null ? targetX.Value : Owner.transform.position.x;
+            float ty = targetY != null ? targetY.Value : Owner.transform.position.y;
+
+            // 计算相对于玩家的初始偏移量
+            // 如果启用追踪，将保持此相对偏移
+            _offset = new Vector3(tx - _hero.transform.position.x, ty - _hero.transform.position.y, 0f);
+
+            // 初始旋转设置
+            if (attackRotation != null)
+            {
+                Owner.transform.rotation = Quaternion.Euler(0f, 0f, attackRotation.Value);
+            }
+        }
+
+        public override void OnUpdate()
+        {
+            if (_hero == null) return;
+
+            float destX = (targetX != null) ? targetX.Value : Owner.transform.position.x;
+            float destY = (targetY != null) ? targetY.Value : Owner.transform.position.y;
+
+            // 如果启用追踪，基于当前玩家位置 + 初始偏移 更新目标位置
+            if (trackHeroX) destX = _hero.transform.position.x + _offset.x;
+            if (trackHeroY)
+            {
+                // 特殊处理：如果启用Y轴追踪（主要用于Swipe），将targetY视为相对Hero的Offset
+                float offsetVal = (targetY != null) ? targetY.Value : _offset.y;
+                destY = _hero.transform.position.y + offsetVal;
+            }
+
+            // 限制 Y 轴最低高度
+            if (destY < 132f) destY = 132f;
+            Vector3 dest = new Vector3(destX, destY, Owner.transform.position.z);
+            Owner.transform.position = Vector3.Lerp(Owner.transform.position, dest, Time.deltaTime * trackSpeed);
+
+            // 持续更新旋转以确保正确
+            if (attackRotation != null)
+            {
+                Owner.transform.rotation = Quaternion.Lerp(Owner.transform.rotation, Quaternion.Euler(0f, 0f, attackRotation.Value), Time.deltaTime * 20f);
+            }
+        }
+    }
+
+    public abstract class CustomEaseFsmAction : FsmStateAction
+    {
+        public override void Reset()
+        {
+            this.easeType = CustomEaseFsmAction.EaseType.linear;
+            this.time = new FsmFloat { Value = 1f };
+            this.delay = new FsmFloat { UseVariable = true };
+            this.speed = new FsmFloat { UseVariable = true };
+            this.reverse = new FsmBool { Value = false };
+            this.realTime = false;
+            this.finishEvent = null;
+            this.ease = null;
+            this.runningTime = 0f;
+            this.lastTime = 0f;
+            this.percentage = 0f;
+            this.fromFloats = new float[0];
+            this.toFloats = new float[0];
+            this.resultFloats = new float[0];
+            this.finishAction = false;
+            this.start = false;
+            this.finished = false;
+            this.isRunning = false;
+        }
+
+        public override void OnEnter()
+        {
+            this.finished = false;
+            this.isRunning = false;
+            this.SetEasingFunction();
+            this.runningTime = 0f;
+            this.percentage = (this.reverse.IsNone ? 0f : (this.reverse.Value ? 1f : 0f));
+            this.finishAction = false;
+            this.startTime = FsmTime.RealtimeSinceStartup;
+            this.lastTime = FsmTime.RealtimeSinceStartup - this.startTime;
+            this.delayTime = (this.delay.IsNone ? 0f : (this.delayTime = this.delay.Value));
+            this.start = true;
+        }
+
+        public override void OnExit()
+        {
+        }
+
+        public override void OnUpdate()
+        {
+            if (this.start && !this.isRunning)
+            {
+                if (this.delayTime >= 0f)
+                {
+                    if (this.realTime)
+                    {
+                        this.deltaTime = FsmTime.RealtimeSinceStartup - this.startTime - this.lastTime;
+                        this.lastTime = FsmTime.RealtimeSinceStartup - this.startTime;
+                        this.delayTime -= this.deltaTime;
+                    }
+                    else
+                    {
+                        this.delayTime -= Time.deltaTime;
+                    }
+                }
+                else
+                {
+                    this.isRunning = true;
+                    this.start = false;
+                    this.startTime = FsmTime.RealtimeSinceStartup;
+                    this.lastTime = FsmTime.RealtimeSinceStartup - this.startTime;
+                }
+            }
+            if (this.isRunning && !this.finished)
+            {
+                if (this.reverse.IsNone || !this.reverse.Value)
+                {
+                    this.UpdatePercentage();
+                    if (this.percentage < 1f)
+                    {
+                        for (int i = 0; i < this.fromFloats.Length; i++)
+                        {
+                            this.resultFloats[i] = this.ease(this.fromFloats[i], this.toFloats[i], this.percentage);
+                        }
+                        return;
+                    }
+                    this.finishAction = true;
+                    this.finished = true;
+                    this.isRunning = false;
+                    return;
+                }
+                else
+                {
+                    this.UpdatePercentage();
+                    if (this.percentage > 0f)
+                    {
+                        for (int j = 0; j < this.fromFloats.Length; j++)
+                        {
+                            this.resultFloats[j] = this.ease(this.fromFloats[j], this.toFloats[j], this.percentage);
+                        }
+                        return;
+                    }
+                    this.finishAction = true;
+                    this.finished = true;
+                    this.isRunning = false;
+                }
+            }
+        }
+
+        protected void UpdatePercentage()
+        {
+            if (this.realTime)
+            {
+                this.deltaTime = FsmTime.RealtimeSinceStartup - this.startTime - this.lastTime;
+                this.lastTime = FsmTime.RealtimeSinceStartup - this.startTime;
+                if (!this.speed.IsNone)
+                {
+                    this.runningTime += this.deltaTime * this.speed.Value;
+                }
+                else
+                {
+                    this.runningTime += this.deltaTime;
+                }
+            }
+            else if (!this.speed.IsNone)
+            {
+                this.runningTime += Time.deltaTime * this.speed.Value;
+            }
+            else
+            {
+                this.runningTime += Time.deltaTime;
+            }
+            if (!this.reverse.IsNone && this.reverse.Value)
+            {
+                this.percentage = 1f - Mathf.Clamp01(this.runningTime / this.time.Value);
+                return;
+            }
+            this.percentage = Mathf.Clamp01(this.runningTime / this.time.Value);
+        }
+
+        protected void SetEasingFunction()
+        {
+            switch (this.easeType)
+            {
+                case CustomEaseFsmAction.EaseType.linear:
+                    this.ease = new CustomEaseFsmAction.EasingFunction(this.linear);
+                    return;
+                case CustomEaseFsmAction.EaseType.easeInOutQuad:
+                    this.ease = new CustomEaseFsmAction.EasingFunction(this.easeInOutQuad);
+                    return;
+                default:
+                    this.ease = new CustomEaseFsmAction.EasingFunction(this.linear);
+                    return;
+            }
+        }
+
+        protected float linear(float start, float end, float value)
+        {
+            return Mathf.Lerp(start, end, value);
+        }
+
+        protected float easeInOutQuad(float start, float end, float value)
+        {
+            value /= 0.5f;
+            end -= start;
+            if (value < 1f)
+            {
+                return end / 2f * value * value + start;
+            }
+            value -= 1f;
+            return -end / 2f * (value * (value - 2f) - 1f) + start;
+        }
+
+        [RequiredField]
+        public FsmFloat time;
+
+        public FsmFloat speed;
+
+        public FsmFloat delay;
+
+        public CustomEaseFsmAction.EaseType easeType = CustomEaseFsmAction.EaseType.linear;
+
+        public FsmBool reverse;
+
+        public FsmEvent finishEvent;
+
+        public bool realTime;
+
+        protected CustomEaseFsmAction.EasingFunction ease;
+        protected float runningTime;
+        protected float lastTime;
+        protected float startTime;
+        protected float deltaTime;
+        protected float delayTime;
+        protected float percentage;
+        protected float[] fromFloats = new float[0];
+        protected float[] toFloats = new float[0];
+        protected float[] resultFloats = new float[0];
+        protected bool finishAction;
+        protected bool start;
+        new protected bool finished;
+        protected bool isRunning;
+
+        protected delegate float EasingFunction(float start, float end, float value);
+
+        public enum EaseType
+        {
+            easeInQuad,
+            easeOutQuad,
+            easeInOutQuad,
+            easeInCubic,
+            easeOutCubic,
+            easeInOutCubic,
+            easeInQuart,
+            easeOutQuart,
+            easeInOutQuart,
+            easeInQuint,
+            easeOutQuint,
+            easeInOutQuint,
+            easeInSine,
+            easeOutSine,
+            easeInOutSine,
+            easeInExpo,
+            easeOutExpo,
+            easeInOutExpo,
+            easeInCirc,
+            easeOutCirc,
+            easeInOutCirc,
+            linear,
+            spring,
+            bounce,
+            easeInBack,
+            easeOutBack,
+            easeInOutBack,
+            elastic,
+            punch
+        }
+    }
+
+    [ActionCategory(ActionCategory.AnimateVariables)]
+    public class CustomAnimateRotationTo : CustomEaseFsmAction
+    {
+        public override void Reset()
+        {
+            base.Reset();
+            this.fromValue = null;
+            this.toValue = null;
+            this.finishInNextStep = false;
+        }
+
+        public override void OnEnter()
+        {
+            base.OnEnter();
+            this.objectTransform = base.Fsm.GetOwnerDefaultTarget(this.gameObject).transform;
+            if (this.objectTransform == null)
+            {
+                return;
+            }
+            if (this.fromValue.IsNone)
+            {
+                this.fromValue.Value = this.objectTransform.localEulerAngles.z;
+                if (this.negativeSpace)
+                {
+                    while (this.fromValue.Value > 0f)
+                    {
+                        this.fromValue.Value -= 360f;
+                    }
+                }
+            }
+            this.fromFloats = new float[1];
+            this.fromFloats[0] = this.fromValue.Value;
+            this.toFloats = new float[1];
+            this.toFloats[0] = this.toValue.Value;
+            this.resultFloats = new float[1];
+            this.finishInNextStep = false;
+        }
+
+        public override void OnExit()
+        {
+            base.OnExit();
+        }
+
+        public override void OnUpdate()
+        {
+            base.OnUpdate();
+            if (this.isRunning)
+            {
+                if (this.worldSpace)
+                {
+                    this.objectTransform.eulerAngles = new Vector3(0f, 0f, this.resultFloats[0]);
+                }
+                else
+                {
+                    this.objectTransform.localEulerAngles = new Vector3(0f, 0f, this.resultFloats[0]);
+                }
+            }
+            if (this.finishInNextStep)
+            {
+                base.Finish();
+                if (this.finishEvent != null)
+                {
+                    base.Fsm.Event(this.finishEvent);
+                }
+            }
+            if (this.finishAction && !this.finishInNextStep)
+            {
+                if (this.worldSpace)
+                {
+                    this.objectTransform.eulerAngles = new Vector3(0f, 0f, this.reverse.IsNone ? this.toValue.Value : (this.reverse.Value ? this.fromValue.Value : this.toValue.Value));
+                }
+                else
+                {
+                    this.objectTransform.localEulerAngles = new Vector3(0f, 0f, this.reverse.IsNone ? this.toValue.Value : (this.reverse.Value ? this.fromValue.Value : this.toValue.Value));
+                }
+                this.finishInNextStep = true;
+            }
+        }
+
+        public FsmOwnerDefault gameObject;
+
+        [RequiredField]
+        public FsmFloat fromValue;
+
+        [RequiredField]
+        public FsmFloat toValue;
+
+        public bool worldSpace;
+
+        public bool negativeSpace;
+
+        private Transform objectTransform;
+
+        private bool finishInNextStep;
     }
 }

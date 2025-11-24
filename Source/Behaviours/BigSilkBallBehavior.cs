@@ -255,7 +255,7 @@ namespace AnySilkBoss.Source.Behaviours
                 Log.Info($"=== 大丝球 Control FSM 信息 ===");
                 Log.Info($"FSM名称: {controlFSM.FsmName}");
                 Log.Info($"当前状态: {controlFSM.ActiveStateName}");
-                FsmAnalyzer.WriteFsmReport(controlFSM, "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\暂存\\_bigSilkBallControlFsm.txt");
+                FsmAnalyzer.WriteFsmReport(controlFSM, "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\_bigSilkBallControlFsm.txt");
             }
         }
 

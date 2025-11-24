@@ -352,6 +352,9 @@ namespace AnySilkBoss.Source.Behaviours
             // 重置状态
             ResetState();
 
+            // ⚠️ 强制重新获取并启用Glow（修复背景光缺失问题）
+            EnsureGlowEnabled();
+
             // 标记为不可用（正在使用中）
             _isAvailable = false;
             isActive = true;
@@ -437,6 +440,24 @@ namespace AnySilkBoss.Source.Behaviours
                 mainCollider.radius *= scale;
             }
 
+        }
+
+        /// <summary>
+        /// 强制重新获取并启用Glow（修复对象池复用时背景光缺失问题）
+        /// </summary>
+        private void EnsureGlowEnabled()
+        {
+            // 强制重新查找Glow（即使引用已存在，也重新查找以确保正确）
+            var glowTransform = transform.Find("Glow");
+            if (glowTransform != null)
+            {
+                Glow = glowTransform;
+                Glow.gameObject.SetActive(true);
+            }
+            else
+            {
+                Log.Warn($"未找到Glow子对象: {gameObject.name}");
+            }
         }
 
         /// <summary>
