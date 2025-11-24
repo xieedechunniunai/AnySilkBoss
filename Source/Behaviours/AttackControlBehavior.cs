@@ -131,8 +131,6 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 LogAttackControlFSMInfo();
             }
-
-
             // 移动丝球生成检测
             if (_isGeneratingSilkBall != null && _isGeneratingSilkBall.Value)
             {
@@ -155,7 +153,7 @@ namespace AnySilkBoss.Source.Behaviours
             Log.Info($"=== Attack Control FSM 信息 ===");
             Log.Info($"FSM名称: {_attackControlFsm.FsmName}");
             Log.Info($"当前状态: {_attackControlFsm.ActiveStateName}");
-            FsmAnalyzer.WriteFsmReport(_attackControlFsm, "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\暂存\\_attackControlFsm.txt");
+            FsmAnalyzer.WriteFsmReport(_attackControlFsm, "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\_attackControlFsm.txt");
         }
 
         private IEnumerator DelayedSetup()
@@ -311,9 +309,6 @@ namespace AnySilkBoss.Source.Behaviours
             ModifyAttackChoiceForSilkBall();
             // 新增：初始化后处理原版攻击Pattern补丁
             PatchOriginalAttackPatterns();
-
-
-
             // 重新链接所有事件引用
             RelinkAllEventReferences();
 

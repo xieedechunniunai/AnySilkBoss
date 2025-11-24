@@ -307,7 +307,7 @@ namespace AnySilkBoss.Source.Managers
             var patternControlFsm = FSMUtility.LocateMyFSM(_pattern1Template, "silk_boss_pattern_control");
             if (patternControlFsm != null)
             {
-                string outputPath1 = "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\暂存\\silk_boss_pattern_control.txt";
+                string outputPath1 = "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\silk_boss_pattern_control.txt";
                 FsmAnalyzer.WriteFsmReport(patternControlFsm, outputPath1);
                 Log.Info($"已导出 silk_boss_pattern_control FSM 到: {outputPath1}");
             }
@@ -333,7 +333,7 @@ namespace AnySilkBoss.Source.Managers
             var controlFsm = FSMUtility.LocateMyFSM(firstWebStrand, "Control");
             if (controlFsm != null)
             {
-                string outputPath2 = "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\暂存\\web_strand_control.txt";
+                string outputPath2 = "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\web_strand_control.txt";
                 FsmAnalyzer.WriteFsmReport(controlFsm, outputPath2);
                 Log.Info($"已导出 WebStrand Control FSM 到: {outputPath2}");
             }
@@ -342,7 +342,7 @@ namespace AnySilkBoss.Source.Managers
             var hornetCatchFsm = FSMUtility.LocateMyFSM(firstWebStrand, "Hornet Catch");
             if (hornetCatchFsm != null)
             {
-                string outputPath3 = "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\暂存\\web_strand_hornet_catch.txt";
+                string outputPath3 = "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\web_strand_hornet_catch.txt";
                 FsmAnalyzer.WriteFsmReport(hornetCatchFsm, outputPath3);
                 Log.Info($"已导出 WebStrand Hornet Catch FSM 到: {outputPath3}");
             }

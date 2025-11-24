@@ -127,7 +127,7 @@ public class Plugin : BaseUnityPlugin
     {
         try
         {
-            if(IsInBossRoom)
+            if (IsInBossRoom)
             {
                 // 查找所有包含 cradle_plat 的物品
                 var allObjects = Resources.FindObjectsOfTypeAll<GameObject>();
@@ -137,7 +137,7 @@ public class Plugin : BaseUnityPlugin
                 Log.Info($"找到 {cradlePlats.Count} 个 cradle_plat 物品");
                 Log.Info($"找到 {cradleSpikePlats.Count} 个 cradle_spike_plat 物品");
 
-                // 处理 cradle_plat：禁用子物品 crank_hit
+                // 处理 cradle_plat：禁用子物品 crank_hit 并重置位置
                 foreach (var plat in cradlePlats)
                 {
                     Transform crankHit = plat.transform.Find("crank_hit");
@@ -149,6 +149,31 @@ public class Plugin : BaseUnityPlugin
                     else
                     {
                         Log.Warn($"{plat.name} 没有找到子物品 crank_hit");
+                    }
+
+                    // 重置特定平台的位置
+                    switch (plat.name)
+                    {
+                        case "cradle_plat (6)":
+                            plat.transform.position = new Vector3(39.81f, 58.35f, -0.2602f);
+                            Log.Info($"已将 {plat.name} 重置到位置: 39.81, 58.35, -0.2602");
+                            break;
+                        case "cradle_plat (1)":
+                            plat.transform.position = new Vector3(49.01f, 64.94f, -0.2602f);
+                            Log.Info($"已将 {plat.name} 重置到位置: 49.01, 64.94, -0.2602");
+                            break;
+                        case "cradle_plat (7)":
+                            plat.transform.position = new Vector3(31.81f, 80.87f, -0.2602f);
+                            Log.Info($"已将 {plat.name} 重置到位置: 31.81, 80.87, -0.2602");
+                            break;
+                        case "cradle_plat (8)":
+                            plat.transform.position = new Vector3(48.9f, 93.74f, -0.2602f);
+                            Log.Info($"已将 {plat.name} 重置到位置: 48.9, 93.74, -0.2602");
+                            break;
+                        case "cradle_plat":
+                            plat.transform.position = new Vector3(31.27f, 108.25f, -0.2602f);
+                            Log.Info($"已将 {plat.name} 重置到位置: 31.27, 108.25, -0.2602");
+                            break;
                     }
                 }
 

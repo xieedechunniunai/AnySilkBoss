@@ -110,7 +110,7 @@ internal class BossBehavior : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.T) && _bossControlFsm != null)
         {
             Log.Info($"Boss FSM 信息: {_bossControlFsm.FsmName}");
-            FsmAnalyzer.WriteFsmReport(_bossControlFsm, "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\暂存\\_bossControlFsm.txt");
+            FsmAnalyzer.WriteFsmReport(_bossControlFsm, "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\_bossControlFsm.txt");
         }
     }
 
