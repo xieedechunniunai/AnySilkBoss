@@ -20,7 +20,7 @@ namespace AnySilkBoss.Source.Behaviours
         public float maxSpeed = 20f;               // 最大速度限制
         public float chaseTime = 6f;              // 追逐时长
         public float scale = 1f;                  // 整体缩放
-        
+
         [Header("自转参数")]
         public bool enableRotation = true;        // 是否启用自转
         public float rotationSpeed = 360f;        // 自转速度（度/秒），正值为逆时针
@@ -34,7 +34,7 @@ namespace AnySilkBoss.Source.Behaviours
         public bool ignoreWallCollision = false;  // 是否忽略墙壁碰撞（用于追踪大丝球的小丝球）
         private bool isProtected = false;         // 是否处于保护时间内（不会因碰到英雄或墙壁消失）
         public bool canBeAbsorbed = false;        // 是否可以被大丝球吸收（仅吸收阶段的小丝球为true）
-        
+
         // 对象池相关
         private bool _isAvailable = true;         // 是否可用（在对象池中）
         private Transform? _poolContainer;        // 对象池容器引用
@@ -134,7 +134,6 @@ namespace AnySilkBoss.Source.Behaviours
                         else if (damageHeroEventManager.HasDamageHero())
                         {
                             originalDamageHero = damageHeroEventManager.DamageHero;
-                            Log.Info("已从 DamageHeroEventManager 获取 DamageHero 引用");
                         }
                         else
                         {
@@ -195,7 +194,6 @@ namespace AnySilkBoss.Source.Behaviours
                 Glow = transform.Find("Glow");
                 if (Glow != null)
                 {
-                    Log.Info("找到 Glow 子物体");
                 }
             }
 
@@ -252,7 +250,7 @@ namespace AnySilkBoss.Source.Behaviours
                     {
                         damageHero.OnDamagedHero = originalDamageHero.OnDamagedHero;
                     }
-                     
+
                 }
                 else
                 {
@@ -289,20 +287,20 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 silkBallManager = manager;
             }
-            
+
             // 确保组件引用已获取（Awake可能还没执行）
             if (silkBallManager == null)
             {
                 GetComponentReferences();
             }
-            
+
             // 验证 silkBallManager 是否成功获取
             if (silkBallManager == null)
             {
                 Log.Error("无法获取 SilkBallManager 引用，InitializeOnce 失败");
                 return;
             }
-            
+
             // 设置层级为 Enemy Attack
             gameObject.layer = LayerMask.NameToLayer("Enemy Attack");
             if (spriteSilk != null)
@@ -315,12 +313,10 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 CreateControlFSM();
             }
-            
+
             // 确保初始状态正确
             isActive = false;
             _isAvailable = true;
-            
-            Log.Info($"丝球初始化完成: {gameObject.name}, IsAvailable={IsAvailable}, isActive={isActive}, _isAvailable={_isAvailable}");
         }
 
         /// <summary>
@@ -367,7 +363,7 @@ namespace AnySilkBoss.Source.Behaviours
                 {
                     controlFSM.Fsm.SetState("Idle");
                 }
-                
+
                 // 发送 PREPARE 事件
                 controlFSM.SendEvent("PREPARE");
             }
@@ -473,9 +469,7 @@ namespace AnySilkBoss.Source.Behaviours
 
             // 创建 FSM 组件
             controlFSM = gameObject.AddComponent<PlayMakerFSM>();
-            Log.Info("创建 Control FSM 组件");
             controlFSM.FsmName = "Control";
-            Log.Info("设置 Control FSM 名称");
 
             // 创建所有状态（在注册事件之前）
             var initState = CreateInitState();
@@ -500,15 +494,11 @@ namespace AnySilkBoss.Source.Behaviours
                 recycleState,
                 hasGravityState
             };
-
-            Log.Info("设置状态到 FSM");
-
             // 注册所有事件
             RegisterFSMEvents();
 
             // 创建 FSM 变量
             CreateFSMVariables();
-            Log.Info("创建 FSM 变量");
             // 添加状态动作
             AddInitActions(initState);
             AddIdleActions(idleState);
@@ -519,7 +509,6 @@ namespace AnySilkBoss.Source.Behaviours
             AddDisappearActions(disappearState);
             AddRecycleActions(recycleState);
             AddHasGravityActions(hasGravityState);
-            Log.Info("添加状态动作");
             // 添加状态转换
             AddInitTransitions(initState, idleState);
             AddIdleTransitions(idleState, prepareState);
@@ -529,11 +518,9 @@ namespace AnySilkBoss.Source.Behaviours
             AddHitHeroDisperseTransitions(hitHeroDisperseState, recycleState);
             AddDisappearTransitions(disappearState, recycleState);
             AddHasGravityTransitions(hasGravityState, disperseState, hitHeroDisperseState);
-            Log.Info("添加状态转换");
             // 初始化 FSM 数据和事件
             controlFSM.Fsm.InitData();
             controlFSM.Fsm.InitEvents();
-            Log.Info("初始化 FSM 数据和事件");
             // 确保 Started 标记为 true（PlayMakerFSM.Start() 会检查这个）
             // 通过反射设置 Started 为 true
             var fsmType = controlFSM.Fsm.GetType();
@@ -544,8 +531,6 @@ namespace AnySilkBoss.Source.Behaviours
             }
             // 立即设置初始状态（使用字符串）
             controlFSM.Fsm.SetState(initState.Name);
-            //Log.Info($"=== 丝球 Control FSM 创建完成，当前状态: {controlFSM.Fsm.ActiveStateName} ===");
-            Log.Info("=== 丝球 Control FSM 创建完成，当前状态: {controlFSM.Fsm.ActiveStateName} ===");
         }
 
         #region FSM 事件和变量注册
@@ -679,7 +664,7 @@ namespace AnySilkBoss.Source.Behaviours
             //     finishEvent = FsmEvent.Finished
             // };
 
-             initState.Actions = new FsmStateAction[] { };
+            initState.Actions = new FsmStateAction[] { };
         }
         private void AddIdleActions(FsmState idleState)
         {
@@ -1300,7 +1285,6 @@ namespace AnySilkBoss.Source.Behaviours
             if (spriteSilk != null)
             {
                 spriteSilk.gameObject.SetActive(false);
-                Log.Info($"已隐藏Sprite Silk子物体");
             }
             if (Glow != null)
             {
@@ -1330,8 +1314,6 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 controlFSM.Fsm.SetState("Idle");
             }
-
-            Log.Info($"丝球 {gameObject.name} 已回收到对象池");
         }
 
         /// <summary>
@@ -1353,7 +1335,7 @@ namespace AnySilkBoss.Source.Behaviours
 
             // 禁用伤害和碰撞
             DisableDamage();
-            
+
             if (mainCollider != null)
             {
                 mainCollider.enabled = false;
@@ -1437,23 +1419,23 @@ namespace AnySilkBoss.Source.Behaviours
                 {
                     return;
                 }
-                
+
                 // 如果处于保护时间内，忽略墙壁碰撞
                 if (isProtected)
                 {
                     return;
                 }
-                
+
                 controlFSM.SendEvent("HIT WALL");
                 return;
             }
 
             // 检查玩家碰撞（Hero Box 图层）
             int heroBoxLayer = LayerMask.NameToLayer("Hero Box");
-            
+
             if (otherObject.layer == heroBoxLayer)
             {
-                
+
                 // Debug.Log($"碰到玩家: {otherObject.name}, 发送 HIT HERO 事件");
                 controlFSM.SendEvent("HIT HERO");
                 return;
@@ -1510,12 +1492,12 @@ namespace AnySilkBoss.Source.Behaviours
             }
 
             rb2d = silkBallBehavior.GetComponent<Rigidbody2D>();
-            
+
             // 优先使用自定义目标，否则使用玩家
             if (silkBallBehavior.customTarget != null)
             {
                 playerTransform = silkBallBehavior.customTarget;
-                Debug.Log($"SilkBallChaseAction: 使用自定义目标 {playerTransform.gameObject.name}");
+                // Debug.Log($"SilkBallChaseAction: 使用自定义目标 {playerTransform.gameObject.name}");
             }
             else
             {
@@ -1578,12 +1560,12 @@ namespace AnySilkBoss.Source.Behaviours
             //     // 定义距离范围：最大距离40（吸收生成半径），最小距离0
             //     float maxDistance = 40f;
             //     float minDistance = 0f;
-                
+
             //     // 计算Z轴值：距离越近，Z轴越高（最高20），距离越远，Z轴越低（最低0）
             //     // 使用反向映射：distance = 0 -> z = 20, distance = 40 -> z = 0
             //     float normalizedDistance = Mathf.Clamp01((distance - minDistance) / (maxDistance - minDistance));
             //     float targetZ = 20f * (1f - normalizedDistance);
-                
+
             //     // 平滑更新Z轴位置
             //     Vector3 currentPos = silkBallBehavior.transform.position;
             //     currentPos.z = Mathf.Lerp(currentPos.z, targetZ, Time.deltaTime * 5f); // 使用5倍速度平滑过渡

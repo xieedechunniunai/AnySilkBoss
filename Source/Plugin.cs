@@ -10,6 +10,7 @@ using UnityEngine.SceneManagement;
 using AnySilkBoss.Source.Tools;
 using AnySilkBoss.Source.Managers;
 using System.Linq;
+using System.Threading.Tasks;
 namespace AnySilkBoss.Source;
 
 /// <summary>
@@ -108,11 +109,11 @@ public class Plugin : BaseUnityPlugin
 
             // 添加工具恢复管理器组件
             AnySilkBossManager.AddComponent<ToolRestoreManager>();
-
             // 添加单根丝线管理器组件
             AnySilkBossManager.AddComponent<SingleWebManager>();
-
+            AnySilkBossManager.AddComponent<LaceBossManager>();
             Log.Info("创建持久化管理器和所有组件");
+            // StartCoroutine(InitializeLaceBoss());
         }
         else
         {
@@ -252,13 +253,38 @@ public class Plugin : BaseUnityPlugin
             Log.Error($"堆栈跟踪: {ex.StackTrace}");
         }
     }
+    /// <summary>
+    /// 初始化并预加载 Lace Boss
+    /// </summary>
+    private IEnumerator InitializeLaceBoss()
+    {
+        Log.Info("[LaceBoss] 开始预加载 Lace Boss...");
 
+        var laceBossManager = AnySilkBossManager.GetComponent<LaceBossManager>();
+        if (laceBossManager == null)
+        {
+            Log.Error("[LaceBoss] 未找到 LaceBossManager 组件");
+            yield break;
+        }
+
+        // 预加载 Lace Boss
+        var preloadTask = laceBossManager.PreloadLaceBoss();
+        while (!preloadTask.IsCompleted)
+        {
+            yield return null;
+        }
+
+        if (laceBossManager.LaceBoss2Cache != null)
+        {
+            Log.Info("[LaceBoss] Lace Boss 预加载成功");
+        }
+        else
+        {
+            Log.Error("[LaceBoss] Lace Boss 预加载失败");
+        }
+    }
     private void OnDestroy()
     {
         _harmony.UnpatchSelf();
-        if (AssetManager.Instance != null)
-        {
-            AssetManager.Instance.UnloadAll();
-        }
     }
 }

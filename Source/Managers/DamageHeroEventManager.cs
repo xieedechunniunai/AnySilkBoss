@@ -45,14 +45,7 @@ namespace AnySilkBoss.Source.Managers
                 Log.Error("无法找到 AssetManager 组件");
                 yield break;
             }
-
-            // 等待 AssetManager 初始化完成
-            while (!_assetManager.IsInitialized())
-            {
-                yield return new WaitForSeconds(0.1f);
-            }
-
-            // 从 AssetManager 获取 Song Knight CrossSlash 预制体并提取 DamageHero 组件
+            // 从 AssetManager 获取预制体并提取 DamageHero 组件
             yield return ExtractDamageHeroFromPrefab();
 
             _initialized = true;
@@ -64,9 +57,6 @@ namespace AnySilkBoss.Source.Managers
         /// </summary>
         private IEnumerator ExtractDamageHeroFromPrefab()
         {
-            Log.Info("=== 开始从 Song Knight CrossSlash 预制体提取 DamageHero 组件 ===");
-
-            // 1. 从 AssetManager 获取 Song Knight CrossSlash 预制体
             var AbyssBulletPrefab = _assetManager?.Get<GameObject>("Abyss Bullet");
             if (AbyssBulletPrefab == null)
             {
@@ -74,10 +64,6 @@ namespace AnySilkBoss.Source.Managers
                 yield break;
             }
 
-
-            Log.Info("找到 'Abyss Bullet' 预制体");
-
-            // 3. 获取这个子物品的 DamageHero 组件
             _damageHero = AbyssBulletPrefab.GetComponent<DamageHero>();
             if (_damageHero == null)
             {
@@ -85,7 +71,6 @@ namespace AnySilkBoss.Source.Managers
                 yield break;
             }
 
-            // 4. 确保 OnDamagedHero 事件不为 null
             if (_damageHero.OnDamagedHero == null)
             {
                 Log.Warn("DamageHero.OnDamagedHero 为 null，初始化为空事件");
