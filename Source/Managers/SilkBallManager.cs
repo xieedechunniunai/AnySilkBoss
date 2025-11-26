@@ -37,7 +37,7 @@ namespace AnySilkBoss.Source.Managers
         // 对象池
         private readonly List<SilkBallBehavior> _silkBallPool = new List<SilkBallBehavior>();
         private GameObject? _poolContainer;
-        
+
         // 自动补充池机制（默认不启用）
         private bool _enableAutoPooling = true;
         private const int MIN_POOL_SIZE = 120;  // 从80扩大到120，预留大丝球爆炸产生的约80个丝球
@@ -73,8 +73,6 @@ namespace AnySilkBoss.Source.Managers
                 yield break;
             }
 
-            Log.Info("Starting SilkBallManager initialization...");
-
             // 获取同一 GameObject 上的 AssetManager 组件
             _assetManager = GetComponent<AssetManager>();
             if (_assetManager == null)
@@ -82,22 +80,12 @@ namespace AnySilkBoss.Source.Managers
                 Log.Error("无法找到 AssetManager 组件");
                 yield break;
             }
-
-            // 等待 AssetManager 初始化完成
-            while (!_assetManager.IsInitialized())
-            {
-                yield return new WaitForSeconds(0.1f);
-            }
-
-            // 创建自定义丝球预制体
             yield return CreateCustomSilkBallPrefab();
-
-            // 创建对象池容器
             CreatePoolContainer();
 
             _initialized = true;
             Log.Info("SilkBallManager initialization completed.");
-            
+
             // 启动自动补充池机制（默认不启用，可通过设置 _enableAutoPooling = true 来启用）
             StartCoroutine(AutoPoolGeneration());
         }
@@ -249,45 +237,6 @@ namespace AnySilkBoss.Source.Managers
                     circleCollider.isTrigger = true;
                 }
             }
-
-            // 粒子特效子物体（用于消散/消失）
-            Transform ptCollect = _customSilkBallPrefab.transform.Find("Pt Collect");
-            if (ptCollect != null)
-            {
-                Log.Info("找到 Pt Collect 子物体（快速消散特效），保留");
-            }
-
-            Transform ptDisappear = _customSilkBallPrefab.transform.Find("Pt Disappear");
-            if (ptDisappear != null)
-            {
-                Log.Info("找到 Pt Disappear 子物体（缓慢消失特效），保留");
-            }
-
-            Transform ptBreak = _customSilkBallPrefab.transform.Find("Pt Break");
-            if (ptBreak != null)
-            {
-                Log.Info("找到 Pt Break 子物体（破碎特效），保留");
-            }
-
-            // 其他视觉效果
-            Transform spriteCollect = _customSilkBallPrefab.transform.Find("Sprite Collect");
-            if (spriteCollect != null)
-            {
-                Log.Info("找到 Sprite Collect 子物体，保留");
-            }
-
-            Transform slashEffect = _customSilkBallPrefab.transform.Find("Slash Effect");
-            if (slashEffect != null)
-            {
-                Log.Info("找到 Slash Effect 子物体，保留");
-            }
-
-            Transform glow = _customSilkBallPrefab.transform.Find("Glow");
-            if (glow != null)
-            {
-                Log.Info("找到 Glow 子物体，保留");
-            }
-
             // Terrain Collider - 地形碰撞，可以移除或禁用
             Transform terrainCollider = _customSilkBallPrefab.transform.Find("Terrain Collider");
             if (terrainCollider != null)
@@ -396,27 +345,25 @@ namespace AnySilkBoss.Source.Managers
         {
             // ⚠️ 严格筛选：只使用明确被回收的丝球（IsAvailable=true且isActive=false）
             // 这些丝球是通过撞墙/撞玩家等显式回收的
-            var availableBall = _silkBallPool.FirstOrDefault(b => 
-                b != null && 
+            var availableBall = _silkBallPool.FirstOrDefault(b =>
+                b != null &&
                 b.IsAvailable &&           // 标记为可用
                 !b.isActive            // 确认未激活
             );
 
             if (availableBall != null)
             {
-                Log.Info($"从池中获取可用丝球: {availableBall.gameObject.name}");
                 return availableBall;
             }
 
             // 没有可用的，创建新实例
-            Log.Info($"池中无可用丝球，创建新实例... (当前池大小: {_silkBallPool.Count})");
-            
+
             // 调试：输出池中丝球的状态统计
             int activeCount = _silkBallPool.Count(b => b != null && b.isActive);
             int availableCount = _silkBallPool.Count(b => b != null && b.IsAvailable);
             int enabledCount = _silkBallPool.Count(b => b != null && b.gameObject.activeSelf);
             Log.Info($"  池统计 - 总数:{_silkBallPool.Count}, 激活:{activeCount}, 可用:{availableCount}, GameObject启用:{enabledCount}");
-            
+
             return CreateNewSilkBallInstance();
         }
 
@@ -455,8 +402,6 @@ namespace AnySilkBoss.Source.Managers
 
             // 加入池中
             _silkBallPool.Add(behavior);
-
-            Log.Info($"创建新丝球实例: {silkBallInstance.name}，当前池大小: {_silkBallPool.Count}");
             return behavior;
         }
 
@@ -473,7 +418,6 @@ namespace AnySilkBoss.Source.Managers
         /// </summary>
         public SilkBallBehavior? SpawnSilkBall(Vector3 position, float acceleration, float maxSpeed, float chaseTime, float scale, bool enableRotation = true, Transform? customTarget = null, bool ignoreWall = false)
         {
-            // 从池中获取可用丝球
             var behavior = GetAvailableSilkBall();
             if (behavior == null)
             {
@@ -483,8 +427,6 @@ namespace AnySilkBoss.Source.Managers
 
             // 准备丝球
             behavior.PrepareForUse(position, acceleration, maxSpeed, chaseTime, scale, enableRotation, customTarget, ignoreWall);
-
-            Log.Debug($"已生成丝球: {behavior.gameObject.name} at {position}");
             return behavior;
         }
 
@@ -531,22 +473,20 @@ namespace AnySilkBoss.Source.Managers
             {
                 // 等待间隔时间
                 yield return new WaitForSeconds(POOL_GENERATION_INTERVAL);
-                
+
                 // 如果未启用，跳过本次检查
                 if (!_enableAutoPooling)
                 {
                     continue;
                 }
-                
                 // 如果未初始化完成，跳过本次检查
                 if (!_initialized || _customSilkBallPrefab == null || _poolContainer == null)
                 {
                     continue;
                 }
-                
                 // 统计池中实际存在的对象数量（排除 null）
                 int currentPoolSize = _silkBallPool.Count(b => b != null);
-                
+
                 // 如果池内数量小于最小值，生成一个新实例到池中
                 if (currentPoolSize < MIN_POOL_SIZE)
                 {
@@ -555,7 +495,6 @@ namespace AnySilkBoss.Source.Managers
                     {
                         // 创建后立即回收，使其处于可用状态
                         newBall.RecycleToPool();
-                        Log.Debug($"自动补充池：生成新丝球，当前池大小: {currentPoolSize + 1}/{MIN_POOL_SIZE}");
                     }
                 }
             }

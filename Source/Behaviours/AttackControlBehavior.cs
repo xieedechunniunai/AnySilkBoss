@@ -28,6 +28,8 @@ namespace AnySilkBoss.Source.Behaviours
         [Header("手部控制")]
         public GameObject? handL;
         public GameObject? handR;
+        public GameObject? laceCircleSlash;
+
         public HandControlBehavior? handLBehavior;
         public HandControlBehavior? handRBehavior;
 
@@ -79,6 +81,7 @@ namespace AnySilkBoss.Source.Behaviours
         private FsmFloat? _totalDistanceTraveled; // 累计移动距离
         private FsmVector2? _lastBallPosition;    // 上次生成丝球的位置
 
+        private FsmGameObject? _laceSlashObj;
         // 移动丝球相关事件
         private FsmEvent? _silkBallStaticEvent;
         private FsmEvent? _silkBallDashEvent;
@@ -167,10 +170,6 @@ namespace AnySilkBoss.Source.Behaviours
             // 首先注册所有需要的事件
             RegisterAttackControlEvents();
             ModifyAttackControlFSM();
-
-
-
-            Log.Info("Attack Control 初始化完成（Hand 的环绕攻击状态将在其自身初始化时添加）");
         }
 
 
@@ -220,6 +219,16 @@ namespace AnySilkBoss.Source.Behaviours
                 {
                     Log.Warn("未找到 SilkBallManager 组件");
                 }
+                var assetManager = managerObj.GetComponent<Managers.AssetManager>();
+                if (assetManager != null)
+                {
+                    laceCircleSlash = assetManager.Get<GameObject>("lace_circle_slash");
+                    ModifyDashAttackState();
+                }
+                else
+                {
+                    Log.Warn("未找到 AssetManager 组件");
+                }
             }
             else
             {
@@ -260,7 +269,6 @@ namespace AnySilkBoss.Source.Behaviours
                 _cachedPlayRoarAudio.Owner = _attackControlFsm.gameObject;
             }
         }
-
         /// <summary>
         /// 修改Attack Control FSM
         /// </summary>
@@ -323,8 +331,6 @@ namespace AnySilkBoss.Source.Behaviours
         private void RegisterAttackControlEvents()
         {
             if (_attackControlFsm == null) return;
-
-            Log.Info("注册Attack Control FSM事件");
 
             // 创建或获取事件
             _orbitAttackEvent = FsmEvent.GetFsmEvent("ORBIT ATTACK");
@@ -431,7 +437,6 @@ namespace AnySilkBoss.Source.Behaviours
             }
 
             _attackControlFsm.Fsm.Events = existingEvents.ToArray();
-            Log.Info("Attack Control FSM事件注册成功");
         }
 
         /// <summary>
@@ -441,13 +446,10 @@ namespace AnySilkBoss.Source.Behaviours
         {
             if (_attackControlFsm == null) return;
 
-            Log.Info("重新链接Attack Control FSM事件引用");
-
             // 重新初始化FSM数据，确保所有事件引用正确
             _attackControlFsm.Fsm.InitData();
             _attackControlFsm.Fsm.InitEvents();
             _attackControlFsm.FsmVariables.Init();
-            Log.Info("Attack Control FSM事件引用重新链接完成");
         }
         private T? CloneAction<T>(string sourceStateName, int matchIndex = 0, Func<T, bool>? predicate = null) where T : FsmStateAction
         {
@@ -504,21 +506,13 @@ namespace AnySilkBoss.Source.Behaviours
             handL = GameObject.Find("Hand L");
             handR = GameObject.Find("Hand R");
 
-            Log.Info($"查找手部对象 - Hand L: {(handL != null ? handL.name : "未找到")}, Hand R: {(handR != null ? handR.name : "未找到")}");
-
             if (handL != null)
             {
                 handLBehavior = handL.GetComponent<HandControlBehavior>();
                 if (handLBehavior == null)
                 {
                     handLBehavior = handL.AddComponent<HandControlBehavior>();
-                    Log.Info("Hand L Behavior 组件已添加");
                 }
-                else
-                {
-                    Log.Info("Hand L Behavior 组件已存在");
-                }
-                Log.Info("Hand L Behavior 初始化完成");
             }
             else
             {
@@ -531,13 +525,7 @@ namespace AnySilkBoss.Source.Behaviours
                 if (handRBehavior == null)
                 {
                     handRBehavior = handR.AddComponent<HandControlBehavior>();
-                    Log.Info("Hand R Behavior 组件已添加");
                 }
-                else
-                {
-                    Log.Info("Hand R Behavior 组件已存在");
-                }
-                Log.Info("Hand R Behavior 初始化完成");
             }
             else
             {
@@ -565,9 +553,6 @@ namespace AnySilkBoss.Source.Behaviours
             AddOrbitAttackActions();
             // 创建子状态和添加转换
             CreateOrbitAttackSubStates();
-
-
-            Log.Info($"创建新状态: {newOrbitAttackState}");
         }
 
         /// <summary>
@@ -575,8 +560,6 @@ namespace AnySilkBoss.Source.Behaviours
         /// </summary>
         private void AddOrbitAttackActions()
         {
-            Log.Info("添加环绕攻击动作（拆分状态版本）");
-
             // ⚠️ 在发送事件前，根据Special Attack设置Hand配置
             var configureHandsAction = new CallMethod
             {
@@ -632,8 +615,6 @@ namespace AnySilkBoss.Source.Behaviours
                 sendToHandRAction,
                 finishAction
             };
-
-            Log.Info($"添加环绕攻击动作完成 - Hand L: {(handL != null ? handL.name : "null")}, Hand R: {(handR != null ? handR.name : "null")}");
         }
 
         /// <summary>
@@ -672,8 +653,6 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 SetOrbitAttackSubStateTransitions(orbitFirstShootState, orbitSecondShootState, _waitForHandsReadyState);
             }
-
-            Log.Info("环绕攻击子状态创建完成");
         }
         /// <summary>
         /// 设置Orbit First Shoot状态动作
@@ -740,14 +719,12 @@ namespace AnySilkBoss.Source.Behaviours
             // 设置各状态的转换
             orbitFirstShootState.Transitions = new FsmTransition[] { firstShootToWaitSecondTransition };
             orbitSecondShootState.Transitions = new FsmTransition[] { secondShootToFinishTransition };
-
-            Log.Info("环绕攻击子状态转换设置完成");
         }
 
         /// <summary>
         /// 添加环绕攻击状态的转换
         /// </summary>
-        private void AddOrbitAttackTransitions(FsmState orbitWaitState)
+        private void AddOrbitAttackTransitions(FsmState orbitFirstShootState)
         {
             var transitions = _handPtnChoiceState!.Transitions.ToList();
             transitions.Add(new FsmTransition
@@ -762,13 +739,11 @@ namespace AnySilkBoss.Source.Behaviours
             var finishedTransition = new FsmTransition
             {
                 FsmEvent = FsmEvent.Finished,
-                toState = "Orbit Wait",
-                toFsmState = orbitWaitState
+                toState = "Orbit First Shoot",
+                toFsmState = orbitFirstShootState
             };
 
             _orbitAttackState!.Transitions = new FsmTransition[] { finishedTransition };
-
-            Log.Info("添加环绕攻击状态转换");
         }
         /// <summary>
         /// 修改HandPtnChoiceState状态的SendRandomEventV4动作，添加环绕攻击事件
@@ -777,8 +752,6 @@ namespace AnySilkBoss.Source.Behaviours
         {
             if (_handPtnChoiceState == null) return;
             var AllSendRandomEventActions = _handPtnChoiceState.Actions.OfType<SendRandomEventV4>().ToList();
-
-            Log.Info("开始修改SendRandomEventV4动作");
             foreach (SendRandomEventV4 sendRandomEventAction in AllSendRandomEventActions)
             {
                 var existingEvents = sendRandomEventAction.events;
@@ -873,7 +846,6 @@ namespace AnySilkBoss.Source.Behaviours
         /// </summary>
         private void CreateSilkBallAttackStates()
         {
-            Log.Info("=== 开始创建丝球环绕攻击状态链 ===");
 
             // 创建所有状态（静态版本 + 移动版本）
             _silkBallPrepareState = CreateSilkBallPrepareState();
@@ -1076,10 +1048,9 @@ namespace AnySilkBoss.Source.Behaviours
                     toFsmState = _silkBallPrepareState
                 });
                 attackChoiceState.Transitions = transitions.ToArray();
-                Log.Info("添加Attack Choice到Silk Ball Prepare的转换");
+
             }
 
-            Log.Info("=== 丝球环绕攻击状态链创建完成 ===");
         }
         /// <summary>
         /// 创建Silk Ball Prepare状态（50%静态 / 50%移动）
@@ -1121,7 +1092,6 @@ namespace AnySilkBoss.Source.Behaviours
 
             state.Actions = actions.ToArray();
 
-            Log.Info("创建Silk Ball Prepare状态（50%静态/50%移动分支）");
             return state;
         }
 
@@ -1136,9 +1106,6 @@ namespace AnySilkBoss.Source.Behaviours
                 Log.Error("未找到Attack Choice状态");
                 return;
             }
-
-            Log.Info("开始修改Attack Choice状态的两个SendRandomEventV4动作");
-
             // 按顺序查找所有SendRandomEventV4动作（保持它们在Actions数组中的顺序）
             var sendRandomActions = new List<SendRandomEventV4>();
             for (int i = 0; i < attackChoiceState.Actions.Length; i++)
@@ -1148,8 +1115,6 @@ namespace AnySilkBoss.Source.Behaviours
                     sendRandomActions.Add(sendRandomAction);
                 }
             }
-
-            Log.Info($"找到 {sendRandomActions.Count} 个SendRandomEventV4动作");
 
             if (sendRandomActions.Count < 2)
             {
@@ -1164,7 +1129,6 @@ namespace AnySilkBoss.Source.Behaviours
             // missedMax: 3, 5, 5, 5
             {
                 var action = sendRandomActions[0];
-                Log.Info("修改第一个SendRandomEventV4（按顺序判断）");
 
                 var newEvents = new FsmEvent[action.events.Length + 1];
                 var newWeights = new FsmFloat[action.weights.Length + 1];
@@ -1261,10 +1225,7 @@ namespace AnySilkBoss.Source.Behaviours
                 action.eventMax = newEventMax;
                 action.missedMax = newMissedMax;
 
-                Log.Info("第二个SendRandomEventV4修改完成：HAND 0.6, DASH 0.2, SILK BALL 0.2");
             }
-
-            Log.Info("Attack Choice状态的SendRandomEventV4修改完成");
         }
 
         #region 移动丝球攻击
@@ -1311,7 +1272,6 @@ namespace AnySilkBoss.Source.Behaviours
                 var bools = _attackControlFsm.FsmVariables.BoolVariables.ToList();
                 bools.Add(specialAttack);
                 _attackControlFsm.FsmVariables.BoolVariables = bools.ToArray();
-                Log.Info("AttackControl FSM: 创建Special Attack变量");
             }
             var p6WebAttack = _attackControlFsm.FsmVariables.FindFsmBool("Do P6 Web Attack");
             if (p6WebAttack == null)
@@ -1320,9 +1280,15 @@ namespace AnySilkBoss.Source.Behaviours
                 var bools = _attackControlFsm.FsmVariables.BoolVariables.ToList();
                 bools.Add(p6WebAttack);
                 _attackControlFsm.FsmVariables.BoolVariables = bools.ToArray();
-                Log.Info("AttackControl FSM: 创建Do P6 Web Attack变量");
             }
-            Log.Info("移动丝球变量和Special Attack变量初始化完成");
+            _laceSlashObj = _attackControlFsm.FsmVariables.FindFsmGameObject("Lace Slash Obj");
+            if (_laceSlashObj == null || _laceSlashObj.Value == null)
+            {
+                _laceSlashObj = new FsmGameObject("Lace Slash Obj") { Value = laceCircleSlash };
+                var objects = _attackControlFsm.FsmVariables.GameObjectVariables.ToList();
+                objects.Add(_laceSlashObj);
+                _attackControlFsm.FsmVariables.GameObjectVariables = objects.ToArray();
+            }
             _attackControlFsm.FsmVariables.Init();
         }
         /// 创建Silk Ball Dash Prepare状态（计算路线并触发移动）
@@ -1376,8 +1342,6 @@ namespace AnySilkBoss.Source.Behaviours
             });
 
             state.Actions = actions.ToArray();
-
-            Log.Info("创建Silk Ball Dash Prepare状态（含10秒超时保护）");
             return state;
         }
 
@@ -1413,7 +1377,6 @@ namespace AnySilkBoss.Source.Behaviours
 
             state.Actions = actions.ToArray();
 
-            Log.Info("创建Silk Ball Dash End状态");
             return state;
         }
         /// <summary>
@@ -1460,8 +1423,6 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 // 延迟0.1s后释放（给丝球初始化时间）
                 StartCoroutine(DelayedReleaseSilkBallForDash(behavior.gameObject));
-
-                Log.Info($"移动丝球生成成功: {spawnPos}");
             }
         }
 
@@ -1786,7 +1747,7 @@ namespace AnySilkBoss.Source.Behaviours
                     0f
                 );
                 Vector3 spawnPosition = bossPosition + offset;
-
+                spawnPosition.z = 0f;
                 // 召唤丝球
                 var behavior = _silkBallManager?.SpawnSilkBall(spawnPosition, 30f, 25f, 8f, 1f, true);
                 if (behavior != null)
@@ -1811,7 +1772,7 @@ namespace AnySilkBoss.Source.Behaviours
             _activeSilkBalls.Clear();
             Vector3 bossPosition = transform.position;
             float innerRadius = 6f;   // 内圈半径
-            float outerRadius = 18f;  // 外圈半径
+            float outerRadius = 14f;  // 外圈半径
 
             // 每次同时生成内外圈各一个，共循环6次
             for (int i = 0; i < 6; i++)
@@ -1825,7 +1786,7 @@ namespace AnySilkBoss.Source.Behaviours
                     0f
                 );
                 Vector3 outerSpawnPosition = bossPosition + outerOffset;
-
+                outerSpawnPosition.z = 0f;
                 var outerBehavior = _silkBallManager?.SpawnSilkBall(outerSpawnPosition, 30f, 25f, 8f, 1f, true);
                 if (outerBehavior != null)
                 {
@@ -1844,7 +1805,7 @@ namespace AnySilkBoss.Source.Behaviours
                     0f
                 );
                 Vector3 innerSpawnPosition = bossPosition + innerOffset;
-
+                innerSpawnPosition.z = 0f;
                 var innerBehavior = _silkBallManager?.SpawnSilkBall(innerSpawnPosition, 30f, 25f, 8f, 1f, true);
                 if (innerBehavior != null)
                 {
@@ -2433,6 +2394,51 @@ namespace AnySilkBoss.Source.Behaviours
             });
             attackStopState.Actions = actions.ToArray();
         }
+        private void ModifyDashAttackState()
+        {
+            var dashAttackState = _attackControlFsm?.FsmStates.FirstOrDefault(x => x.Name == "Dash Attack");
+            if (dashAttackState == null) { return; }
+            var dashAttackAnticState = _attackControlFsm?.FsmStates.FirstOrDefault(x => x.Name == "Dash Attack Antic");
+            if (dashAttackAnticState == null) { return; }
+            // 获取状态的所有 Actions
+            var dashAttackactions = dashAttackAnticState.Actions.ToList();            // 遍历并修改目标 SendEventByName 行为
+            foreach (var action in dashAttackactions)
+            {
+                if (action is SendEventByName sendEventByName &&
+                    sendEventByName.sendEvent?.Value != null &&
+                    sendEventByName.sendEvent.Value.Contains("STOMP DASH"))
+                {
+                    sendEventByName.delay = new FsmFloat(0.28f);
+                }
+            }
+            // 将修改后的 Actions 重新赋值回状态
+            dashAttackAnticState.Actions = dashAttackactions.ToArray();
+            var dashAttackEndState = _attackControlFsm?.FsmStates.FirstOrDefault(x => x.Name == "Dash Attack End");
+            if (dashAttackEndState == null) { return; }
+            // 获取状态的所有 Actions
+            var dashAttackEndactions = dashAttackEndState.Actions.ToList();
+
+            // 创建 SpawnObjectFromGlobalPool Action 来生成 Lace Circle Slash
+            if (laceCircleSlash != null)
+            {
+                dashAttackEndactions.Insert(0, new SpawnObjectFromGlobalPool
+                {
+                    gameObject = new FsmGameObject { Value = laceCircleSlash },
+                    spawnPoint = new FsmGameObject { Value = this.gameObject },
+                    position = new FsmVector3 { Value = Vector3.zero },
+                    rotation = new FsmVector3 { Value = Vector3.zero },
+                    storeObject = _laceSlashObj
+                });
+            }
+            else
+            {
+                Log.Warn("laceCircleSlash 为 null，跳过 Dash Attack End 的斩击特效生成");
+            }
+            // 将修改后的 Actions 重新赋值回状态
+            dashAttackEndState.Actions = dashAttackEndactions.ToArray();
+        }
+
+
         private void ClearSilkBallMethod()
         {
             Log.Info("Boss眩晕，开始清理丝球");
