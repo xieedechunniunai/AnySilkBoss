@@ -63,10 +63,23 @@ namespace AnySilkBoss.Source.Behaviours
         // Boss Control FSM引用
         private PlayMakerFSM? _bossControl;
 
+        // Boss Scene 引用
+        private GameObject? _bossScene;
+
+        // Web Strand Catch Effect 替身引用
+        private GameObject? _webStrandCatchEffect;
+        private FsmGameObject? _fsmWebStrandCatchEffect;
+
         // 丝线缠绕动画相关
         private GameObject? _silkYankPrefab;  // Silk_yank原始物体引用
-        private GameObject[] _silkYankClones = new GameObject[4];  // 四个克隆体
+        private GameObject[] _silkYankClones = new GameObject[5];  // 五个克隆体（上、左上、右上、左下、右下）
         private bool _silkYankInitialized = false;  // 是否已初始化
+
+        // FSM变量引用（用于丝线动画的FSM Action）
+        private FsmGameObject[] _fsmSilkYankClones = new FsmGameObject[5];
+        private FsmGameObject? _fsmHero;
+        private FsmFloat? _fsmHeroX;
+        private FsmFloat? _fsmHeroY;
 
         private void Awake()
         {
@@ -210,6 +223,152 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 Log.Info("成功获取 AttackControl FSM");
             }
+
+            // 获取 Boss Scene 引用
+            _bossScene = GameObject.Find("Boss Scene");
+            if (_bossScene == null)
+            {
+                Log.Error("未找到 Boss Scene");
+            }
+            else
+            {
+                Log.Info("成功获取 Boss Scene");
+
+                // 获取 Web Strand Catch Effect（替身）
+                var catchEffectTf = _bossScene.transform.Find("Web Strand Catch Effect");
+                if (catchEffectTf != null)
+                {
+                    _webStrandCatchEffect = catchEffectTf.gameObject;
+                    _fsmWebStrandCatchEffect = new FsmGameObject("WebStrandCatchEffect") { Value = _webStrandCatchEffect };
+                    Log.Info("成功获取 Web Strand Catch Effect");
+                }
+                else
+                {
+                    Log.Warn("未找到 Web Strand Catch Effect");
+                }
+            }
+
+            // 初始化丝线缠绕克隆体
+            InitializeSilkYankInGetComponents();
+        }
+
+        /// <summary>
+        /// 在GetComponents中初始化丝线缠绕克隆体
+        /// 路径: Boss Scene/Spike Floors/Spike Floor 1/Silk_yank
+        /// </summary>
+        private void InitializeSilkYankInGetComponents()
+        {
+            if (_bossScene == null)
+            {
+                Log.Error("Boss Scene未获取，无法初始化丝线缠绕");
+                return;
+            }
+
+            try
+            {
+                // 查找路径: Boss Scene/Spike Floors/Spike Floor 1/Silk_yank
+                var spikeFloors = _bossScene.transform.Find("Spike Floors");
+                if (spikeFloors == null)
+                {
+                    Log.Error("未找到 Spike Floors");
+                    return;
+                }
+
+                var spikeFloor1 = spikeFloors.Find("Spike Floor 1");
+                if (spikeFloor1 == null)
+                {
+                    Log.Error("未找到 Spike Floor 1");
+                    return;
+                }
+
+                var silkYankTransform = spikeFloor1.Find("Silk_yank");
+                if (silkYankTransform == null)
+                {
+                    Log.Error("未找到 Silk_yank");
+                    return;
+                }
+
+                _silkYankPrefab = silkYankTransform.gameObject;
+                Log.Info($"成功找到 Silk_yank: {_silkYankPrefab.name}");
+
+                // 创建5个克隆体
+                for (int i = 0; i < 5; i++)
+                {
+                    var clone = GameObject.Instantiate(_silkYankPrefab);
+                    clone.name = $"Silk_yank_Clone_{i}";
+                    clone.transform.SetParent(null);  // 不设父物体
+
+                    // 删除除了 thread 开头的子物品
+                    var childrenToDestroy = new List<GameObject>();
+                    for (int j = 0; j < clone.transform.childCount; j++)
+                    {
+                        var child = clone.transform.GetChild(j);
+
+                        if (!child.name.Equals("thread"))
+                        {
+                            childrenToDestroy.Add(child.gameObject);
+                        }
+                        else
+                        {
+                            child.transform.localPosition = new Vector3(0, 0, child.transform.localPosition.z);
+                        }
+                    }
+                    foreach (var child in childrenToDestroy)
+                    {
+                        GameObject.Destroy(child);
+                    }
+
+                    clone.SetActive(false);  // 初始禁用
+                    _silkYankClones[i] = clone;
+                    Log.Info($"创建丝线克隆体 {i}: {clone.name}");
+                }
+
+                _silkYankInitialized = true;
+                Log.Info("丝线缠绕动画初始化完成（5个克隆体）");
+
+                // 注册FSM变量
+                RegisterSilkYankFsmVariables();
+            }
+            catch (System.Exception ex)
+            {
+                Log.Error($"初始化丝线缠绕失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 注册丝线缠绕相关的FSM变量
+        /// </summary>
+        private void RegisterSilkYankFsmVariables()
+        {
+            if (_phaseControl == null) return;
+
+            var gameObjectVars = _phaseControl.FsmVariables.GameObjectVariables.ToList();
+            var floatVars = _phaseControl.FsmVariables.FloatVariables.ToList();
+
+            // 创建5个丝线克隆体的FSM变量
+            string[] silkYankNames = { "SilkYank_Top", "SilkYank_TopLeft", "SilkYank_TopRight", "SilkYank_BottomLeft", "SilkYank_BottomRight" };
+            for (int i = 0; i < 5; i++)
+            {
+                _fsmSilkYankClones[i] = new FsmGameObject(silkYankNames[i]);
+                _fsmSilkYankClones[i].Value = _silkYankClones[i];
+                gameObjectVars.Add(_fsmSilkYankClones[i]);
+            }
+
+            // 创建Hero引用变量
+            _fsmHero = new FsmGameObject("SilkYank_Hero");
+            _fsmHero.Value = HeroController.instance?.gameObject;
+            gameObjectVars.Add(_fsmHero);
+
+            // 创建Hero位置变量
+            _fsmHeroX = new FsmFloat("SilkYank_HeroX");
+            _fsmHeroY = new FsmFloat("SilkYank_HeroY");
+            floatVars.Add(_fsmHeroX);
+            floatVars.Add(_fsmHeroY);
+
+            _phaseControl.FsmVariables.GameObjectVariables = gameObjectVars.ToArray();
+            _phaseControl.FsmVariables.FloatVariables = floatVars.ToArray();
+
+            Log.Info("丝线缠绕FSM变量注册完成");
         }
 
         /// <summary>
@@ -314,7 +473,7 @@ namespace AnySilkBoss.Source.Behaviours
             if (_phaseControl == null || _hpModified) return;
 
             Log.Info("开始修改各阶段血量...");
-
+            AddBossHealth(100);
             // P1 HP 到 P6 HP 全部翻2倍
             for (int i = 1; i <= 6; i++)
             {
@@ -1146,8 +1305,10 @@ namespace AnySilkBoss.Source.Behaviours
                 everyFrame = false
             });
 
-            // 注意：不使用 SetScale action，因为它会导致 NullReferenceException
-            // Boss 的缩放会在后续的 RestoreBossTransform 中通过协程渐变恢复
+            actions.Add(new SendEventToRegister
+            {
+                eventName = new FsmString("ATTACK CLEAR") { Value = "ATTACK CLEAR" },
+            });
 
             actions.Add(new Tk2dWatchAnimationEvents
             {
@@ -1845,39 +2006,49 @@ namespace AnySilkBoss.Source.Behaviours
             // 创建新变量
             CreateClimbPhaseVariables();
 
-            // 创建爬升阶段状态
-            var climbInitState = CreateClimbPhaseInitState();
-            var climbPlayerControlState = CreateClimbPhasePlayerControlState();
-            var climbBossActiveState = CreateClimbPhaseBossActiveState();
-            var climbCompleteState = CreateClimbPhaseCompleteState();
+            // 创建爬升阶段状态（新流程）
+            var climbInitCatchState = CreateClimbInitCatchState();           // 硬控玩家+移动+发送ROAR
+            var climbWaitRoarState = CreateClimbWaitRoarState();             // 等待Roar完成
+            var climbSilkActivateState = CreateClimbSilkActivateState();     // 激活丝线
+            var climbCatchEffectState = CreateClimbCatchEffectState();       // 音频+隐藏玩家+激活替身
+            var climbPlayerPrepareState = CreateClimbPlayerPrepareState();   // 恢复重力/显示
+            var climbPlayerControlState = CreateClimbPhasePlayerControlState();  // 穿墙下落
+            var climbBossActiveState = CreateClimbPhaseBossActiveState();    // Boss漫游+监控
+            var climbCompleteState = CreateClimbPhaseCompleteState();        // 完成
 
             // 添加状态到FSM
             var states = _phaseControl.Fsm.States.ToList();
-            states.Add(climbInitState);
+            states.Add(climbInitCatchState);
+            states.Add(climbWaitRoarState);
+            states.Add(climbSilkActivateState);
+            states.Add(climbCatchEffectState);
+            states.Add(climbPlayerPrepareState);
             states.Add(climbPlayerControlState);
             states.Add(climbBossActiveState);
             states.Add(climbCompleteState);
             _phaseControl.Fsm.States = states.ToArray();
 
-            // 修改 Stagger Pause 的跳转
-            ModifyStaggerPauseTransition(staggerPauseState, climbInitState);
+            // 修改 Stagger Pause 的跳转（跳到新的初始状态）
+            ModifyStaggerPauseTransition(staggerPauseState, climbInitCatchState);
 
             // 添加状态动作
-            AddClimbPhaseInitActions(climbInitState);
+            AddClimbInitCatchActions(climbInitCatchState);
+            AddClimbWaitRoarActions(climbWaitRoarState);
+            AddClimbSilkActivateActions(climbSilkActivateState);
+            AddClimbCatchEffectActions(climbCatchEffectState);
+            AddClimbPlayerPrepareActions(climbPlayerPrepareState);
             AddClimbPhasePlayerControlActions(climbPlayerControlState);
             AddClimbPhaseBossActiveActions(climbBossActiveState);
             AddClimbPhaseCompleteActions(climbCompleteState);
 
-            // 添加状态转换
-            AddClimbPhaseTransitions(climbInitState, climbPlayerControlState,
+            // 添加状态转换（新流程）
+            AddClimbPhaseTransitionsNew(climbInitCatchState, climbWaitRoarState,
+                climbSilkActivateState, climbCatchEffectState, climbPlayerPrepareState, climbPlayerControlState,
                 climbBossActiveState, climbCompleteState, setP4State);
 
             // 重新初始化FSM
             _phaseControl.Fsm.InitData();
             _phaseControl.Fsm.InitEvents();
-
-            // 初始化丝线缠绕动画
-            InitializeSilkYankClones();
 
             Log.Info("=== 爬升阶段状态序列添加完成 ===");
         }
@@ -1902,8 +2073,15 @@ namespace AnySilkBoss.Source.Behaviours
             if (!events.Any(e => e.Name == "CLIMB COMPLETE"))
                 events.Add(new FsmEvent("CLIMB COMPLETE"));
 
+            // 新增：Boss Roar 协同事件
+            if (!events.Any(e => e.Name == "CLIMB ROAR START"))
+                events.Add(new FsmEvent("CLIMB ROAR START"));
+
+            if (!events.Any(e => e.Name == "CLIMB ROAR DONE"))
+                events.Add(new FsmEvent("CLIMB ROAR DONE"));
+
             _phaseControl.Fsm.Events = events.ToArray();
-            Log.Info("爬升阶段事件注册完成");
+            Log.Info("爬升阶段事件注册完成（含Roar协同事件）");
         }
 
         /// <summary>
@@ -1933,14 +2111,62 @@ namespace AnySilkBoss.Source.Behaviours
         }
 
         /// <summary>
-        /// 创建 Climb Phase Init 状态
+        /// 创建 Climb Init Catch 状态（硬控玩家+移动+发送ROAR）
         /// </summary>
-        private FsmState CreateClimbPhaseInitState()
+        private FsmState CreateClimbInitCatchState()
         {
             return new FsmState(_phaseControl.Fsm)
             {
-                Name = "Climb Phase Init",
-                Description = "爬升阶段初始化"
+                Name = "Climb Init Catch",
+                Description = "硬控玩家并移动到地面"
+            };
+        }
+
+        /// <summary>
+        /// 创建 Climb Wait Roar 状态（等待Boss Roar完成）
+        /// </summary>
+        private FsmState CreateClimbWaitRoarState()
+        {
+            return new FsmState(_phaseControl.Fsm)
+            {
+                Name = "Climb Wait Roar",
+                Description = "等待Boss吼叫完成"
+            };
+        }
+
+        /// <summary>
+        /// 创建 Climb Silk Activate 状态（激活丝线）
+        /// </summary>
+        private FsmState CreateClimbSilkActivateState()
+        {
+            return new FsmState(_phaseControl.Fsm)
+            {
+                Name = "Climb Silk Activate",
+                Description = "激活丝线缠绕"
+            };
+        }
+
+        /// <summary>
+        /// 创建 Climb Catch Effect 状态（音频+隐藏玩家+激活替身）
+        /// </summary>
+        private FsmState CreateClimbCatchEffectState()
+        {
+            return new FsmState(_phaseControl.Fsm)
+            {
+                Name = "Climb Catch Effect",
+                Description = "播放音频、隐藏玩家、激活替身"
+            };
+        }
+
+        /// <summary>
+        /// 创建 Climb Player Prepare 状态（恢复重力/显示）
+        /// </summary>
+        private FsmState CreateClimbPlayerPrepareState()
+        {
+            return new FsmState(_phaseControl.Fsm)
+            {
+                Name = "Climb Player Prepare",
+                Description = "恢复玩家重力和显示"
             };
         }
 
@@ -1985,26 +2211,26 @@ namespace AnySilkBoss.Source.Behaviours
         /// </summary>
         private void ModifyStaggerPauseTransition(FsmState staggerPauseState, FsmState climbInitState)
         {
-            // 找到所有跳转到 BG Break Sequence 的转换，改为跳转到 Climb Phase Init
+            // 找到所有跳转到 BG Break Sequence 的转换，改为跳转到 Climb Init Catch
             foreach (var transition in staggerPauseState.Transitions)
             {
                 if (transition.toState == "BG Break Sequence")
                 {
-                    transition.toState = "Climb Phase Init";
+                    transition.toState = "Climb Init Catch";
                     transition.toFsmState = climbInitState;
-                    Log.Info("已修改 Stagger Pause -> Climb Phase Init");
+                    Log.Info("已修改 Stagger Pause -> Climb Init Catch");
                 }
             }
         }
 
         /// <summary>
-        /// 添加 Climb Phase Init 动作
+        /// 添加 Climb Init Catch 动作（硬控玩家+移动+发送ROAR）
         /// </summary>
-        private void AddClimbPhaseInitActions(FsmState initState)
+        private void AddClimbInitCatchActions(FsmState initState)
         {
             var actions = new List<FsmStateAction>();
 
-            // 停止所有攻击
+            // 1. 停止所有攻击
             actions.Add(new SendEventByName
             {
                 eventTarget = new FsmEventTarget
@@ -2019,7 +2245,7 @@ namespace AnySilkBoss.Source.Behaviours
                 everyFrame = false
             });
 
-            // 停止Boss移动
+            // 2. 发送 CLIMB ROAR START 给 Boss Control（全局转换，会中断Boss当前行为）
             actions.Add(new SendEventByName
             {
                 eventTarget = new FsmEventTarget
@@ -2029,19 +2255,19 @@ namespace AnySilkBoss.Source.Behaviours
                     gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
                     fsmName = new FsmString("Control") { Value = "Control" }
                 },
-                sendEvent = new FsmString("MOVE STOP") { Value = "MOVE STOP" },
+                sendEvent = new FsmString("CLIMB ROAR START") { Value = "CLIMB ROAR START" },
                 delay = new FsmFloat(0f),
                 everyFrame = false
             });
 
-            // 设置Boss无敌
+            // 3. 设置Boss无敌
             actions.Add(new SetLayer
             {
                 gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
                 layer = 2  // Invincible
             });
 
-            // 设置阶段标志
+            // 4. 设置阶段标志
             actions.Add(new SetFsmBool
             {
                 gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
@@ -2051,23 +2277,342 @@ namespace AnySilkBoss.Source.Behaviours
                 everyFrame = false
             });
 
-            // 禁用玩家输入
+            // 5. 硬控玩家（完整4步）+ 移动玩家到Y=133.57 + 发送ROAR事件
             actions.Add(new CallMethod
             {
                 behaviour = new FsmObject { Value = this },
-                methodName = new FsmString("DisablePlayerInput") { Value = "DisablePlayerInput" },
+                methodName = new FsmString("CatchPlayerForClimb") { Value = "CatchPlayerForClimb" },
                 parameters = new FsmVar[0],
                 everyFrame = false
             });
 
-            // 等待0.5秒
+            // 6. 等待0.3秒（玩家平滑移动到地面的时间）
             actions.Add(new Wait
             {
-                time = new FsmFloat(0.5f),
+                time = new FsmFloat(0.3f),
                 finishEvent = FsmEvent.Finished
             });
 
             initState.Actions = actions.ToArray();
+        }
+
+        /// <summary>
+        /// 添加 Climb Wait Roar 动作（等待Boss Roar完成）
+        /// </summary>
+        private void AddClimbWaitRoarActions(FsmState waitState)
+        {
+            // 此状态播放玩家 Roar Lock 动画，等待 CLIMB ROAR DONE 事件
+            var actions = new List<FsmStateAction>();
+            if (_fsmHero != null)
+            {
+                actions.Add(new Tk2dPlayAnimation
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        GameObject = _fsmHero
+                    },
+                    animLibName = new FsmString("") { Value = "" },
+                    clipName = new FsmString("Roar Lock") { Value = "Roar Lock" },
+                });
+            }
+            else
+            {
+                Log.Warn("AddClimbWaitRoarActions: _fsmHero 为空，跳过玩家动画");
+            }
+            waitState.Actions = actions.ToArray();
+        }
+
+        /// <summary>
+        /// 添加 Climb Silk Activate 动作（激活丝线）
+        /// 使用原生FSM Action: GetPosition + SetPosition + SetRotation + ActivateGameObject
+        /// </summary>
+        private void AddClimbSilkActivateActions(FsmState silkState)
+        {
+            var actions = new List<FsmStateAction>();
+
+            if (_fsmHero == null || _fsmHeroX == null || _fsmHeroY == null)
+            {
+                Log.Error("FSM变量未初始化，无法添加丝线激活动作");
+                silkState.Actions = new FsmStateAction[0];
+                return;
+            }
+
+            float offsetDistance = 12.5f;
+
+            // 五个位置的偏移量：上、左上、右上、左下、右下
+            float[] offsetsX = { 0f, -offsetDistance, offsetDistance, -offsetDistance, offsetDistance };
+            float[] offsetsY = { offsetDistance, offsetDistance, offsetDistance, -offsetDistance, -offsetDistance };
+            // 五个旋转角度（180°是垂直向下，统一朝向玩家中心）
+            float[] rotations = { 180f, 45f, -45f, 135f, -135f };
+            //float[] rotations = { -90f, -45f, -135f, 45f, 135f };
+            // [0] 获取Hero位置
+            actions.Add(new GetPosition
+            {
+                gameObject = new FsmOwnerDefault
+                {
+                    OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                    GameObject = _fsmHero
+                },
+                vector = new FsmVector3(),
+                x = _fsmHeroX,
+                y = _fsmHeroY,
+                z = new FsmFloat(),
+                space = Space.World,
+                everyFrame = false
+            });
+
+            // 为每个丝线克隆体添加: SetPosition + SetRotation + ActivateGameObject
+            for (int i = 0; i < 5; i++)
+            {
+                if (_fsmSilkYankClones[i] == null) continue;
+
+                // 创建临时变量存储计算后的位置
+                var posX = new FsmFloat($"SilkYank_PosX_{i}");
+                var posY = new FsmFloat($"SilkYank_PosY_{i}");
+
+                // 计算X位置: HeroX + offsetX
+                actions.Add(new FloatOperator
+                {
+                    float1 = _fsmHeroX,
+                    float2 = new FsmFloat(offsetsX[i]),
+                    operation = FloatOperator.Operation.Add,
+                    storeResult = posX,
+                    everyFrame = false
+                });
+
+                // 计算Y位置: HeroY + offsetY
+                actions.Add(new FloatOperator
+                {
+                    float1 = _fsmHeroY,
+                    float2 = new FsmFloat(offsetsY[i]),
+                    operation = FloatOperator.Operation.Add,
+                    storeResult = posY,
+                    everyFrame = false
+                });
+
+                // SetPosition
+                actions.Add(new SetPosition
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        GameObject = _fsmSilkYankClones[i]
+                    },
+                    vector = new FsmVector3(),
+                    x = posX,
+                    y = posY,
+                    z = new FsmFloat(0f),
+                    space = Space.World,
+                    everyFrame = false
+                });
+
+                // SetRotation
+                actions.Add(new SetRotation
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        GameObject = _fsmSilkYankClones[i]
+                    },
+                    quaternion = new FsmQuaternion(),
+                    vector = new FsmVector3(),
+                    xAngle = new FsmFloat(0f),
+                    yAngle = new FsmFloat(0f),
+                    zAngle = new FsmFloat(rotations[i]),
+                    space = Space.World,
+                    everyFrame = false
+                });
+
+                // ActivateGameObject
+                actions.Add(new ActivateGameObject
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        GameObject = _fsmSilkYankClones[i]
+                    },
+                    activate = new FsmBool(true),
+                    recursive = new FsmBool(false),
+                    resetOnExit = false,
+                    everyFrame = false
+                });
+            }
+
+            // 等待0.3秒（丝线生成时间）
+            actions.Add(new Wait
+            {
+                time = new FsmFloat(0.3f),
+                finishEvent = FsmEvent.Finished
+            });
+
+            silkState.Actions = actions.ToArray();
+            Log.Info("丝线激活动作已添加（使用FSM原生Action）");
+        }
+
+        /// <summary>
+        /// 添加 Climb Catch Effect 动作（音频+隐藏玩家+激活替身）
+        /// </summary>
+        private void AddClimbCatchEffectActions(FsmState catchEffectState)
+        {
+            var actions = new List<FsmStateAction>();
+
+            // 1. 获取玩家位置并设置替身位置
+            if (_fsmHero != null && _fsmWebStrandCatchEffect != null)
+            {
+                // 设置替身位置到玩家位置
+                actions.Add(new SetPosition
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        GameObject = _fsmWebStrandCatchEffect,
+                        gameObject = _webStrandCatchEffect
+                    },
+                    vector = new FsmVector3(),
+                    x = _fsmHeroX ?? new FsmFloat { UseVariable = false, Value = 0f },
+                    y = _fsmHeroY ?? new FsmFloat { UseVariable = false, Value = 0f },
+                    z = new FsmFloat { UseVariable = false, Value = 0.006f },
+                    space = Space.World,
+                    everyFrame = false
+                });
+                // 3. 隐藏玩家（使用 SetMeshRendererEnabled）
+                actions.Add(new SetMeshRenderer
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        GameObject = _fsmHero
+                    },
+                    active = false
+                });
+                actions.Add(new MatchScaleSign
+                {
+                    Target = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        GameObject = _fsmWebStrandCatchEffect
+                    },
+                    MatchTo = _fsmHero,
+                    active = false
+                });
+                // 2. 激活替身
+                actions.Add(new ActivateGameObject
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        gameObject = _fsmWebStrandCatchEffect,
+                        GameObject = _webStrandCatchEffect
+                    },
+                    activate = new FsmBool(true) { Value = true },
+                    recursive = new FsmBool(false) { Value = false },
+                    resetOnExit = false,
+                    everyFrame = false
+                });
+            }
+            else
+            {
+                Log.Warn("Climb Catch Effect: _fsmHero 或 _fsmWebStrandCatchEffect 为 null，跳过视觉效果设置");
+            }
+
+            // 4. 等待1.5秒（原始Catch到恢复的时间）
+            actions.Add(new Wait
+            {
+                time = new FsmFloat(1.5f),
+                finishEvent = FsmEvent.Finished
+            });
+
+            catchEffectState.Actions = actions.ToArray();
+
+            // 延迟添加音频动作（等待 AttackControlBehavior 初始化）
+            StartCoroutine(DelayedAddClimbCatchAudioActions(catchEffectState));
+        }
+
+        /// <summary>
+        /// 延迟添加爬升阶段 Catch 音频动作（等待 AttackControlBehavior 初始化）
+        /// </summary>
+        private IEnumerator DelayedAddClimbCatchAudioActions(FsmState catchEffectState)
+        {
+            // 获取 AttackControlBehavior
+            if (_attackControlBehavior == null)
+            {
+                _attackControlBehavior = gameObject.GetComponent<AttackControlBehavior>();
+            }
+
+            // 等待 AttackControlBehavior 初始化完成
+            if (_attackControlBehavior != null)
+            {
+                int waitCount = 0;
+                while (!_attackControlBehavior.IsAttackControlFsmReady && waitCount < 50)
+                {
+                    yield return null;
+                    waitCount++;
+                }
+            }
+
+            if (_attackControlBehavior == null || !_attackControlBehavior.IsAttackControlFsmReady)
+            {
+                Log.Warn("无法获取 AttackControlBehavior 或其未初始化，Climb Catch Effect 音频动作未添加");
+                yield break;
+            }
+
+            // 从 Catch 状态复制音频行为
+            var audioActions = new List<FsmStateAction>();
+            var audioAction1 = _attackControlBehavior.CloneActionFromAttackControlFSM<PlayRandomAudioClipTable>("Catch");
+            var audioAction2 = _attackControlBehavior.CloneActionFromAttackControlFSM<PlayAudioEvent>("Catch", 0);
+            var audioAction3 = _attackControlBehavior.CloneActionFromAttackControlFSM<PlayAudioEvent>("Catch", 1);
+            var audioAction4 = _attackControlBehavior.CloneActionFromAttackControlFSM<PlayAudioEvent>("Catch", 2);
+            var audioAction5 = _attackControlBehavior.CloneActionFromAttackControlFSM<PlayAudioEvent>("Catch", 3);
+
+            if (audioAction1 != null) audioActions.Add(audioAction1);
+            if (audioAction2 != null) audioActions.Add(audioAction2);
+            if (audioAction3 != null) audioActions.Add(audioAction3);
+            if (audioAction4 != null) audioActions.Add(audioAction4);
+            if (audioAction5 != null) audioActions.Add(audioAction5);
+
+            // 重新构建动作列表：视觉效果动作 + 音频 + Wait
+            var newActions = new List<FsmStateAction>();
+            // 添加除最后一个 Wait 外的所有原有动作
+            for (int i = 0; i < catchEffectState.Actions.Length - 1; i++)
+            {
+                newActions.Add(catchEffectState.Actions[i]);
+            }
+            // 插入音频动作
+            newActions.AddRange(audioActions);
+            // 添加最后的 Wait
+            newActions.Add(catchEffectState.Actions[catchEffectState.Actions.Length - 1]);
+
+            catchEffectState.Actions = newActions.ToArray();
+            catchEffectState.SaveActions();
+            catchEffectState.LoadActions();
+            Log.Info($"爬升阶段：Catch 音频动作已延迟添加（{audioActions.Count}个）");
+        }
+
+        /// <summary>
+        /// 添加 Climb Player Prepare 动作（恢复重力/显示）
+        /// </summary>
+        private void AddClimbPlayerPrepareActions(FsmState prepareState)
+        {
+            var actions = new List<FsmStateAction>();
+
+            // 恢复玩家重力和显示
+            actions.Add(new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("PreparePlayerForFall") { Value = "PreparePlayerForFall" },
+                parameters = new FsmVar[0],
+                everyFrame = false
+            });
+
+            // 等待0.2秒
+            actions.Add(new Wait
+            {
+                time = new FsmFloat(0.2f),
+                finishEvent = FsmEvent.Finished
+            });
+
+            prepareState.Actions = actions.ToArray();
         }
 
         /// <summary>
@@ -2289,6 +2834,286 @@ namespace AnySilkBoss.Source.Behaviours
         }
 
         /// <summary>
+        /// 添加爬升阶段转换（新流程）
+        /// </summary>
+        private void AddClimbPhaseTransitionsNew(
+            FsmState initCatchState, FsmState waitRoarState,
+            FsmState silkActivateState, FsmState catchEffectState, FsmState playerPrepareState,
+            FsmState playerControlState, FsmState bossActiveState,
+            FsmState completeState, FsmState setP4State)
+        {
+            // Init Catch -> Wait Roar (FINISHED)
+            initCatchState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.Finished,
+                    toState = "Climb Wait Roar",
+                    toFsmState = waitRoarState
+                }
+            };
+
+            // Wait Roar -> Silk Activate (CLIMB ROAR DONE)
+            waitRoarState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.GetFsmEvent("CLIMB ROAR DONE"),
+                    toState = "Climb Silk Activate",
+                    toFsmState = silkActivateState
+                }
+            };
+
+            // Silk Activate -> Catch Effect (FINISHED)
+            silkActivateState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.Finished,
+                    toState = "Climb Catch Effect",
+                    toFsmState = catchEffectState
+                }
+            };
+
+            // Catch Effect -> Player Prepare (FINISHED)
+            catchEffectState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.Finished,
+                    toState = "Climb Player Prepare",
+                    toFsmState = playerPrepareState
+                }
+            };
+
+            // Player Prepare -> Player Control (FINISHED)
+            playerPrepareState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.Finished,
+                    toState = "Climb Phase Player Control",
+                    toFsmState = playerControlState
+                }
+            };
+
+            // Player Control -> Boss Active (FINISHED)
+            playerControlState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.Finished,
+                    toState = "Climb Phase Boss Active",
+                    toFsmState = bossActiveState
+                }
+            };
+
+            // Boss Active -> Complete (CLIMB COMPLETE)
+            bossActiveState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.GetFsmEvent("CLIMB COMPLETE"),
+                    toState = "Climb Phase Complete",
+                    toFsmState = completeState
+                }
+            };
+
+            // Complete -> Set P4 (FINISHED)
+            completeState.Transitions = new FsmTransition[]
+            {
+                new FsmTransition
+                {
+                    FsmEvent = FsmEvent.Finished,
+                    toState = "Set P4",
+                    toFsmState = setP4State
+                }
+            };
+
+            Log.Info("爬升阶段转换设置完成（新流程）");
+        }
+
+        #region 爬升阶段C#辅助方法
+
+        /// <summary>
+        /// 硬控玩家并移动到地面（完整4步）
+        /// </summary>
+        public void CatchPlayerForClimb()
+        {
+            var hero = HeroController.instance;
+            if (hero == null)
+            {
+                Log.Error("硬控玩家失败：HeroController未找到");
+                return;
+            }
+
+            var rb = hero.GetComponent<Rigidbody2D>();
+
+            // 1. RelinquishControl
+            hero.RelinquishControl();
+
+            // 2. StopAnimationControl
+            hero.StopAnimationControl();
+
+            // 3. AffectedByGravity(false) - 关键！解决空中BUG
+            hero.AffectedByGravity(false);
+
+            // 4. SetVelocity2d(0, 0) - 停止所有速度
+            if (rb != null)
+            {
+                rb.linearVelocity = Vector2.zero;
+            }
+
+            // 5. 设置玩家无敌
+            PlayerData.instance.isInvincible = true;
+
+            Log.Info("硬控玩家完成（完整4步），开始平滑移动到地面");
+
+            // 6. 平滑移动玩家到Y=133.57（保持X不变）
+            StartCoroutine(AnimatePlayerToGround());
+
+            // 注意：隐藏玩家/激活替身 移到 Climb Catch Effect 状态执行
+            // 注意：CLIMB ROAR START 已经在FSM Action中发送，此处不再重复发送
+        }
+
+        /// <summary>
+        /// 设置捕捉效果（隐藏英雄 + 激活替身）
+        /// </summary>
+        public void SetupCatchEffect()
+        {
+            var hero = HeroController.instance;
+            if (hero == null) return;
+
+            // 隐藏英雄的MeshRenderer
+            var heroRenderer = hero.GetComponent<MeshRenderer>();
+            if (heroRenderer != null)
+            {
+                heroRenderer.enabled = false;
+                Log.Info("英雄MeshRenderer已隐藏");
+            }
+
+            // 找到并激活Web Strand Catch Effect
+            var bossScene = GameObject.Find("Boss Scene");
+            if (bossScene != null)
+            {
+                var catchEffect = bossScene.transform.Find("Web Strand Catch Effect");
+                if (catchEffect != null)
+                {
+                    // 设置替身位置到英雄位置
+                    catchEffect.position = hero.transform.position;
+
+                    // 匹配英雄的朝向
+                    var heroScale = hero.transform.localScale;
+                    var effectScale = catchEffect.localScale;
+                    effectScale.x = Mathf.Sign(heroScale.x) * Mathf.Abs(effectScale.x);
+                    catchEffect.localScale = effectScale;
+
+                    // 激活替身
+                    catchEffect.gameObject.SetActive(true);
+                    Log.Info($"Web Strand Catch Effect已激活，位置: {catchEffect.position}");
+                }
+                else
+                {
+                    Log.Warn("Web Strand Catch Effect未找到");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 平滑移动玩家到地面Y=133.57
+        /// </summary>
+        private IEnumerator AnimatePlayerToGround()
+        {
+            var hero = HeroController.instance;
+            if (hero == null) yield break;
+
+            float startY = hero.transform.position.y;
+            float targetY = 133.57f;
+            float duration = 0.3f;
+            float elapsed = 0f;
+
+            while (elapsed < duration)
+            {
+                elapsed += Time.deltaTime;
+                float t = Mathf.Clamp01(elapsed / duration);
+                // 使用easeOutCubic缓动
+                float easeT = 1f - Mathf.Pow(1f - t, 3f);
+                float newY = Mathf.Lerp(startY, targetY, easeT);
+                hero.transform.position = new Vector3(
+                    hero.transform.position.x,
+                    newY,
+                    hero.transform.position.z
+                );
+                yield return null;
+            }
+
+            // 确保最终位置精确
+            hero.transform.position = new Vector3(
+                hero.transform.position.x,
+                targetY,
+                hero.transform.position.z
+            );
+
+            Log.Info($"玩家平滑移动到地面完成，最终Y={hero.transform.position.y:F2}");
+        }
+
+        /// <summary>
+        /// 激活丝线缠绕（爬升阶段专用）
+        /// </summary>
+        public void ActivateSilkYankForClimb()
+        {
+            ActivateSilkYankAnimation();
+            Log.Info("激活丝线缠绕动画（爬升阶段）");
+        }
+
+        /// <summary>
+        /// 为下落做准备：恢复重力和显示
+        /// </summary>
+        public void PreparePlayerForFall()
+        {
+            var hero = HeroController.instance;
+            if (hero == null) return;
+
+            // 恢复重力
+            hero.AffectedByGravity(true);
+
+            // 恢复英雄显示
+            var meshRenderer = hero.GetComponent<MeshRenderer>();
+            if (meshRenderer != null)
+            {
+                meshRenderer.enabled = true;
+                Log.Info("英雄MeshRenderer已恢复显示");
+            }
+
+            // 禁用Web Strand Catch Effect替身
+            DeactivateCatchEffect();
+
+            // 禁用丝线动画
+            DeactivateSilkYankAnimation();
+
+            Log.Info("玩家准备下落：重力已恢复，替身已禁用，丝线已禁用");
+        }
+
+        /// <summary>
+        /// 禁用捕捉效果（禁用替身）
+        /// </summary>
+        private void DeactivateCatchEffect()
+        {
+            var bossScene = GameObject.Find("Boss Scene");
+            if (bossScene != null)
+            {
+                var catchEffect = bossScene.transform.Find("Web Strand Catch Effect");
+                if (catchEffect != null)
+                {
+                    catchEffect.gameObject.SetActive(false);
+                    Log.Info("Web Strand Catch Effect已禁用");
+                }
+            }
+        }
+
+        #endregion
+
+        /// <summary>
         /// 禁用玩家输入
         /// </summary>
         public void DisablePlayerInput()
@@ -2311,7 +3136,8 @@ namespace AnySilkBoss.Source.Behaviours
         }
 
         /// <summary>
-        /// 玩家动画控制协程
+        /// 玩家动画控制协程（穿墙下落阶段）
+        /// 注意：玩家已经在前面的状态中被硬控，此处只处理下落逻辑
         /// </summary>
         private IEnumerator ClimbPhasePlayerAnimationCoroutine()
         {
@@ -2325,31 +3151,18 @@ namespace AnySilkBoss.Source.Behaviours
             var tk2dAnimator = hero.GetComponent<tk2dSpriteAnimator>();
             var rb = hero.GetComponent<Rigidbody2D>();
 
-            // 1. 立即启用丝线缠绕动画并禁用玩家输入
-            ActivateSilkYankAnimation();
-            hero.RelinquishControl();
-            hero.StopAnimationControl();
-            Log.Info("启用丝线缠绕并禁用玩家输入");
+            Log.Info("开始穿墙下落序列");
 
-            // 2. 启动丝线跟随协程（持续0.8秒跟随玩家位置）
-            StartCoroutine(UpdateSilkYankPositions(0.8f));
-
-            // 3. 等待0.8秒（玩家可能在空中下落，丝线会跟随）
-            yield return new WaitForSeconds(0.8f);
-            Log.Info("丝线跟随阶段完成，开始下落序列");
-
-            // 4. 保存原始图层和当前位置
+            // 1. 保存原始图层
             int originalLayer = hero.gameObject.layer;
             Vector3 currentPos = hero.transform.position;
 
-            // 5. 设置穿墙图层
+            // 2. 设置穿墙图层
             hero.gameObject.layer = LayerMask.NameToLayer("Ignore Raycast");
-
-            // 6. 设置玩家无敌
-            bool originalInvincible = PlayerData.instance.isInvincible;
+            // 统一确保无敌状态
             PlayerData.instance.isInvincible = true;
 
-            // 7. 计算X轴速度让玩家落到目标位置（X=40）
+            // 4. 计算X轴速度让玩家落到目标位置（X=40）
             if (rb != null)
             {
                 float targetX = 40f;
@@ -2360,41 +3173,38 @@ namespace AnySilkBoss.Source.Behaviours
                 float deltaX = targetX - currentX;
                 float velocityX = deltaX / fallTime;
 
-                // 保持Y轴速度不变，只设置X轴速度
+                // 设置X轴速度，Y轴由重力控制
                 rb.linearVelocity = new Vector2(velocityX, rb.linearVelocity.y);
 
-                Log.Info($"玩家下落计算 - 当前位置:({currentX:F2}, {currentPos.y:F2}), 目标X:{targetX}, 下落时间:{fallTime}s, X轴速度:{velocityX:F2}");
+                Log.Info($"玩家下落计算 - 当前位置:({currentX:F2}, {currentPos.y:F2}), 目标X:{targetX}, X轴速度:{velocityX:F2}");
             }
 
-            // 8. 播放 Weak Fall 动画
+            // 5. 播放 Weak Fall 动画
             if (tk2dAnimator != null)
                 tk2dAnimator.Play("Weak Fall");
 
-            yield return new WaitForSeconds(0.1f);
-            DeactivateSilkYankAnimation();
-            Log.Info("禁用丝线缠绕动画");
-
-            // 8. 监控 Y 轴，当 Y < 57 时恢复原始图层和无敌状态（此时还未落地）
+            // 6. 监控 Y 轴，当 Y < 57 时恢复原始图层和无敌状态（此时还未落地）
             while (hero.transform.position.y >= 57f)
             {
                 yield return null;
             }
 
-            // 8. 恢复原始图层和无敌状态（玩家继续下落但不再穿墙）
+            // 7. 恢复原始图层和无敌状态（玩家继续下落但不再穿墙）
             hero.gameObject.layer = originalLayer;
-            PlayerData.instance.isInvincible = originalInvincible;
-            Log.Info($"玩家 Y < 57，恢复原始图层: {originalLayer}，恢复无敌状态: {originalInvincible}，当前位置: {hero.transform.position.y}");
+            PlayerData.instance.isInvincible = false;
+            Log.Info($"玩家 Y < 57，恢复原始图层: {originalLayer}，当前位置: {hero.transform.position.y}");
 
-            // 9. 等待落地（Y <= 53.8）
+            // 8. 等待落地（Y <= 53.8）
             while (hero.transform.position.y > 53.8f)
             {
                 yield return null;
             }
 
             Log.Info($"玩家落地，最终位置: {hero.transform.position.y}");
-            rb.linearVelocity = new Vector2(0f, rb.linearVelocity.y);
+            if (rb != null)
+                rb.linearVelocity = new Vector2(0f, rb.linearVelocity.y);
 
-            // 11. 播放恢复动画序列
+            // 9. 播放恢复动画序列
             if (tk2dAnimator != null)
             {
                 tk2dAnimator.Play("FallToProstrate");
@@ -2407,11 +3217,11 @@ namespace AnySilkBoss.Source.Behaviours
                 yield return new WaitForSeconds(0.3f);
             }
 
-            // 12. 恢复玩家控制和动画控制
+            // 10. 恢复玩家控制和动画控制
             hero.RegainControl();
             hero.StartAnimationControl();
 
-            // 13. 玩家恢复可控后再启动爬升阶段攻击，避免落地硬直期间被攻击
+            // 11. 玩家恢复可控后再启动爬升阶段攻击，避免落地硬直期间被攻击
             if (_attackControl != null && !_climbAttackEventSent)
             {
                 _attackControl.SendEvent("CLIMB PHASE ATTACK");
@@ -2622,81 +3432,10 @@ namespace AnySilkBoss.Source.Behaviours
 
         #region 丝线缠绕动画
         /// <summary>
-        /// 初始化丝线缠绕动画，获取并克隆Silk_yank
-        /// </summary>
-        private void InitializeSilkYankClones()
-        {
-            if (_silkYankInitialized)
-            {
-                Log.Info("丝线缠绕已初始化，跳过");
-                return;
-            }
-
-            try
-            {
-                // 查找Silk_yank原始物体
-                var bossScene = GameObject.Find("Boss Scene");
-                if (bossScene == null)
-                {
-                    Log.Error("未找到Boss Scene物体");
-                    return;
-                }
-
-                // 查找路径: Boss Scene/Rubble Fields/Rubble Field M/Silk_yank
-                var rubbleFields = bossScene.transform.Find("Rubble Fields");
-                if (rubbleFields == null)
-                {
-                    Log.Error("未找到Rubble Fields物体");
-                    return;
-                }
-
-                var rubbleFieldM = rubbleFields.Find("Rubble Field M");
-                if (rubbleFieldM == null)
-                {
-                    Log.Error("未找到Rubble Field M物体");
-                    return;
-                }
-
-                var silkYank = rubbleFieldM.Find("Silk_yank");
-                if (silkYank == null)
-                {
-                    Log.Error("未找到Silk_yank物体");
-                    return;
-                }
-
-                _silkYankPrefab = silkYank.gameObject;
-                Log.Info($"成功找到Silk_yank物体: {_silkYankPrefab.name}");
-
-                // 创建四个克隆体，不要父物体
-                for (int i = 0; i < 4; i++)
-                {
-                    var clone = GameObject.Instantiate(_silkYankPrefab);
-                    clone.name = $"Silk_yank_Clone_{i}";
-                    clone.transform.SetParent(null);  // 不要父物体
-                    clone.SetActive(false);  // 初始禁用
-                    _silkYankClones[i] = clone;
-                    Log.Info($"创建丝线克隆体 {i}: {clone.name}");
-                }
-
-                _silkYankInitialized = true;
-                Log.Info("丝线缠绕动画初始化完成");
-            }
-            catch (System.Exception ex)
-            {
-                Log.Error($"初始化丝线缠绕失败: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// 启用丝线缠绕动画，在四个位置显示
+        /// 启用丝线缠绕动画，在五个位置显示（上、左上、右上、左下、右下）
         /// </summary>
         private void ActivateSilkYankAnimation()
         {
-            if (!_silkYankInitialized)
-            {
-                InitializeSilkYankClones();
-            }
-
             if (!_silkYankInitialized || _silkYankClones[0] == null)
             {
                 Log.Error("丝线缠绕未初始化，无法启用动画");
@@ -2713,25 +3452,27 @@ namespace AnySilkBoss.Source.Behaviours
             Vector3 heroPos = hero.transform.position;
             float offsetDistance = 10f;  // 偏移距离
 
-            // 四个位置：左上、左下、右上、右下
+            // 五个位置：上、左上、右上、左下、右下
             Vector3[] positions = new Vector3[]
             {
-                heroPos + new Vector3(-offsetDistance, offsetDistance, 0f),   // 左上
-                heroPos + new Vector3(-offsetDistance, -offsetDistance, 0f),  // 左下
-                heroPos + new Vector3(offsetDistance, offsetDistance, 0f),    // 右上
-                heroPos + new Vector3(offsetDistance, -offsetDistance, 0f)    // 右下
+                heroPos + new Vector3(0f, offsetDistance, 0f),                 // 上
+                heroPos + new Vector3(-offsetDistance, offsetDistance, 0f),    // 左上
+                heroPos + new Vector3(offsetDistance, offsetDistance, 0f),     // 右上
+                heroPos + new Vector3(-offsetDistance, -offsetDistance, 0f),   // 左下
+                heroPos + new Vector3(offsetDistance, -offsetDistance, 0f)     // 右下
             };
 
-            // 四个旋转角度（指向玩家）
+            // 五个旋转角度（180°是垂直向下，统一朝向玩家中心）
             float[] rotations = new float[]
             {
-                225f,   // 左上指向中心
-                -45f,  // 左下指向中心
-                135f,    // 右上指向中心
-                45f    // 右下指向中心
+                180f,   // 上 -> 向下指向玩家
+                -45f,   // 左上 -> 向右下指向玩家
+                -135f,  // 右上 -> 向左下指向玩家
+                45f,    // 左下 -> 向右上指向玩家
+                135f    // 右下 -> 向左上指向玩家
             };
 
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < 5; i++)
             {
                 if (_silkYankClones[i] != null)
                 {
@@ -2746,7 +3487,7 @@ namespace AnySilkBoss.Source.Behaviours
                 }
             }
 
-            Log.Info("丝线缠绕动画启用完成");
+            Log.Info("丝线缠绕动画启用完成（5个位置）");
         }
 
         /// <summary>
@@ -2754,7 +3495,7 @@ namespace AnySilkBoss.Source.Behaviours
         /// </summary>
         private void DeactivateSilkYankAnimation()
         {
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < 5; i++)
             {
                 if (_silkYankClones[i] != null)
                 {
@@ -2780,13 +3521,14 @@ namespace AnySilkBoss.Source.Behaviours
             float elapsed = 0f;
             float offsetDistance = 10f;  // 偏移距离
 
-            // 四个旋转角度（指向玩家）
+            // 五个旋转角度（180°是垂直向下，统一朝向玩家中心）
             float[] rotations = new float[]
             {
-                225f,   // 左上指向中心
-                -45f,  // 左下指向中心
-                135f,    // 右上指向中心
-                45f    // 右下指向中心
+                180f,   // 上 -> 向下指向玩家
+                -45f,   // 左上 -> 向右下指向玩家
+                -135f,  // 右上 -> 向左下指向玩家
+                45f,    // 左下 -> 向右上指向玩家
+                135f    // 右下 -> 向左上指向玩家
             };
 
             while (elapsed < duration)
@@ -2795,17 +3537,18 @@ namespace AnySilkBoss.Source.Behaviours
                 {
                     Vector3 heroPos = hero.transform.position;
 
-                    // 四个位置：左上、左下、右上、右下
+                    // 五个位置：上、左上、右上、左下、右下
                     Vector3[] positions = new Vector3[]
                     {
-                        heroPos + new Vector3(-offsetDistance, offsetDistance, 0f),   // 左上
-                        heroPos + new Vector3(-offsetDistance, -offsetDistance, 0f),  // 左下
-                        heroPos + new Vector3(offsetDistance, offsetDistance, 0f),    // 右上
-                        heroPos + new Vector3(offsetDistance, -offsetDistance, 0f)    // 右下
+                        heroPos + new Vector3(0f, offsetDistance, 0f),                 // 上
+                        heroPos + new Vector3(-offsetDistance, offsetDistance, 0f),    // 左上
+                        heroPos + new Vector3(offsetDistance, offsetDistance, 0f),     // 右上
+                        heroPos + new Vector3(-offsetDistance, -offsetDistance, 0f),   // 左下
+                        heroPos + new Vector3(offsetDistance, -offsetDistance, 0f)     // 右下
                     };
 
                     // 更新所有丝线位置
-                    for (int i = 0; i < 4; i++)
+                    for (int i = 0; i < 5; i++)
                     {
                         if (_silkYankClones[i] != null && _silkYankClones[i].activeSelf)
                         {

@@ -13,11 +13,6 @@ namespace AnySilkBoss.Source.Behaviours
         // FSM引用
         private PlayMakerFSM _stunControl = null!;
         
-        // 晕眩状态变量
-        private bool _isStunned = false;
-        private float _stunDuration = 0f;
-        private float _stunTimer = 0f;
-
         private void Awake()
         {
             // 初始化在Start中进行
@@ -78,8 +73,8 @@ namespace AnySilkBoss.Source.Behaviours
             if (_stunControl == null) return;
 
             // ========== 在这里添加你的晕眩修改逻辑 ==========
-            
-            Log.Info("晕眩行为修改完成");
+            _stunControl.FsmVariables.GetFsmInt("Stun Combo").Value = 22;
+            _stunControl.FsmVariables.GetFsmInt("Stun Hit Max").Value = 22;
         }
 
     }

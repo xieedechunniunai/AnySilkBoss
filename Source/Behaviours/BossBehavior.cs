@@ -14,8 +14,6 @@ namespace AnySilkBoss.Source.Behaviours;
 
 /// <summary>
 /// 通用Boss行为控制器基类
-/// 这是一个框架，可以用于修改任何Boss的行为
-/// 使用示例请参考注释中的机枢舞者实现
 /// </summary>
 [RequireComponent(typeof(tk2dSpriteAnimator))]
 [RequireComponent(typeof(Rigidbody2D))]
@@ -55,13 +53,15 @@ internal class BossBehavior : MonoBehaviour
     public FsmFloat? RoutePoint1Y;
     public FsmFloat? RoutePoint2X;
     public FsmFloat? RoutePoint2Y;
-    
+
     // ⚠️ Phase2 Special点位（左下或右下）
     public FsmFloat? RoutePointSpecialX;
     public FsmFloat? RoutePointSpecialY;
 
     // 时间变量
     public FsmFloat? IdleWaitTime;  // Idle等待时间
+
+    private GameObject? _silkHair;
 
     // 隐形目标点GameObject（用于FaceObjectV2）
     private GameObject? _targetPoint0;
@@ -145,7 +145,7 @@ internal class BossBehavior : MonoBehaviour
         {
             Log.Warn("未找到AttackControlBehavior组件，部分眩晕清理逻辑将无效");
         }
-
+        _silkHair = transform.parent.Find("Silk_Hair").gameObject;
     }
 
 
@@ -167,24 +167,25 @@ internal class BossBehavior : MonoBehaviour
         // 创建移动丝球攻击状态链
         CreateSilkBallDashStates();
         // ModifyOriginFsm();
-        
+
         // 添加大丝球大招锁定状态
         CreateBigSilkBallLockState();
-        
+
         // 添加爬升阶段漫游状态
         CreateClimbRoamStates();
-        
+
         // 添加全局事件监听
         AddGlobalEventListeners();
 
         // 添加眩晕时的丝球清理逻辑
         AddStunInterruptHandling();
-        
+
         // 为移动丝球状态添加全局中断监听
         AddDashStatesGlobalInterruptHandling();
 
         // 添加爬升阶段修复
         InitializeClimbCastProtection();
+
         SetupControlIdlePendingTransitions();
         _bossControlFsm.Fsm.InitData();
         _bossControlFsm.Fsm.InitEvents();
@@ -214,7 +215,7 @@ internal class BossBehavior : MonoBehaviour
         RoutePoint1Y = new FsmFloat("Route Point 1 Y") { Value = 0f };
         RoutePoint2X = new FsmFloat("Route Point 2 X") { Value = 0f };
         RoutePoint2Y = new FsmFloat("Route Point 2 Y") { Value = 0f };
-        
+
         // ⚠️ Phase2 Special点位
         RoutePointSpecialX = new FsmFloat("Route Point Special X") { Value = 0f };
         RoutePointSpecialY = new FsmFloat("Route Point Special Y") { Value = 0f };
@@ -247,7 +248,7 @@ internal class BossBehavior : MonoBehaviour
         gameObjectVars.Add(_fsmTargetPoint2);
         gameObjectVars.Add(_fsmTargetPointSpecial);
         _bossControlFsm.FsmVariables.GameObjectVariables = gameObjectVars.ToArray();
-        
+
         // ⚠️ 创建Special Attack变量（Phase2特殊攻击标志）
         EnsureBoolVariable(_bossControlFsm, "Special Attack");
 
@@ -257,7 +258,7 @@ internal class BossBehavior : MonoBehaviour
         var dashAnticSpecialState = CreateDashAnticState(-1);  // -1表示Special
         var dashToSpecialState = CreateDashToPointState(-1);
         var idleAtSpecialState = CreateIdleAtPointState(-1);
-        
+
         var dashAntic0State = CreateDashAnticState(0);
         var dashToPoint0State = CreateDashToPointState(0);
         var idleAtPoint0State = CreateIdleAtPointState(0);
@@ -317,7 +318,7 @@ internal class BossBehavior : MonoBehaviour
         dashAnticSpecial.Transitions = new FsmTransition[] { new FsmTransition { FsmEvent = FsmEvent.Finished, toState = dashToSpecial.Name, toFsmState = dashToSpecial } };
         dashToSpecial.Transitions = new FsmTransition[] { new FsmTransition { FsmEvent = FsmEvent.Finished, toState = idleAtSpecial.Name, toFsmState = idleAtSpecial } };
         idleAtSpecial.Transitions = new FsmTransition[] { new FsmTransition { FsmEvent = FsmEvent.Finished, toState = dashAntic0.Name, toFsmState = dashAntic0 } };
-        
+
         // Point 0
         dashAntic0.Transitions = new FsmTransition[] { new FsmTransition { FsmEvent = FsmEvent.Finished, toState = dashToPoint0.Name, toFsmState = dashToPoint0 } };
         dashToPoint0.Transitions = new FsmTransition[] { new FsmTransition { FsmEvent = FsmEvent.Finished, toState = idleAtPoint0.Name, toFsmState = idleAtPoint0 } };
@@ -346,7 +347,7 @@ internal class BossBehavior : MonoBehaviour
                 }
             };
         }
-        
+
         Log.Info("移动丝球状态链转换设置完成（包括Special路径）");
     }
 
@@ -357,7 +358,7 @@ internal class BossBehavior : MonoBehaviour
     {
         string stateName = pointIndex == -1 ? "Dash Antic Special" : $"Dash Antic {pointIndex}";
         string description = pointIndex == -1 ? "准备冲刺到Special点位" : $"准备冲刺到点位 {pointIndex}";
-        
+
         var state = new FsmState(_bossControlFsm!.Fsm)
         {
             Name = stateName,
@@ -589,7 +590,7 @@ internal class BossBehavior : MonoBehaviour
 
         // 添加动作：播放漂浮动画
         var actions = new List<FsmStateAction>();
-        
+
 
         lockState.Actions = actions.ToArray();
 
@@ -641,7 +642,7 @@ internal class BossBehavior : MonoBehaviour
 
         // 使用反射添加到FSM的全局转换列表
         var globalTransitions = _bossControlFsm.FsmGlobalTransitions.ToList();
-        
+
         // 添加FORCE IDLE全局转换，用于强制Boss回到Idle状态
         globalTransitions.Add(new FsmTransition
         {
@@ -684,7 +685,7 @@ internal class BossBehavior : MonoBehaviour
     {
         string stateName = pointIndex == -1 ? "Dash To Special" : $"Dash To Point {pointIndex}";
         string description = pointIndex == -1 ? "冲刺到Special点位" : $"冲刺到点位 {pointIndex}";
-        
+
         var state = new FsmState(_bossControlFsm!.Fsm)
         {
             Name = stateName,
@@ -795,7 +796,7 @@ internal class BossBehavior : MonoBehaviour
     {
         string stateName = pointIndex == -1 ? "Idle At Special" : $"Idle At Point {pointIndex}";
         string description = pointIndex == -1 ? "在Special点位等待" : $"在点位 {pointIndex} 等待";
-        
+
         var state = new FsmState(_bossControlFsm!.Fsm)
         {
             Name = stateName,
@@ -928,7 +929,7 @@ internal class BossBehavior : MonoBehaviour
         _targetPointSpecial = new GameObject("DashTargetPointSpecial");
         _targetPointSpecial.transform.position = Vector3.zero;
         _targetPointSpecial.SetActive(true);
-        
+
         _targetPoint0 = new GameObject("DashTargetPoint0");
         _targetPoint0.transform.position = Vector3.zero;
         _targetPoint0.SetActive(true); // 虽然隐形但需要激活
@@ -953,7 +954,7 @@ internal class BossBehavior : MonoBehaviour
         {
             _targetPointSpecial.transform.position = pointSpecial.Value;
         }
-        
+
         if (_targetPoint0 != null)
         {
             _targetPoint0.transform.position = point0;
@@ -1215,7 +1216,7 @@ internal class BossBehavior : MonoBehaviour
         };
 
         var interruptEvent = FsmEvent.GetFsmEvent("SILK BALL INTERRUPT");
-        
+
         foreach (var stateName in dashStates)
         {
             var state = _bossControlFsm.FsmStates.FirstOrDefault(s => s.Name == stateName);
@@ -1227,7 +1228,7 @@ internal class BossBehavior : MonoBehaviour
 
             // 添加中断转换到现有转换列表
             var transitions = state.Transitions.ToList();
-            
+
             // 检查是否已存在该事件的转换
             if (!transitions.Any(t => t.FsmEvent == interruptEvent))
             {
@@ -1237,7 +1238,7 @@ internal class BossBehavior : MonoBehaviour
                     toState = "Idle",
                     toFsmState = idleState
                 });
-                
+
                 state.Transitions = transitions.ToArray();
                 Log.Info($"已为状态 {stateName} 添加中断转换");
             }
@@ -1253,20 +1254,29 @@ internal class BossBehavior : MonoBehaviour
     #endregion
 
     #region 爬升阶段漫游系统
-    
+
     // 漫游相关变量
     private Vector3 _currentRoamTarget;
     private float _roamMoveStartTime;
     private bool _roamMoveComplete = false;
 
     /// <summary>
-    /// 创建爬升阶段漫游状态链
+    /// 创建爬升阶段漫游状态链（含 Roar 状态）
     /// </summary>
     private void CreateClimbRoamStates()
     {
         if (_bossControlFsm == null) return;
 
-        Log.Info("=== 开始创建爬升阶段漫游状态链 ===");
+        Log.Info("=== 开始创建爬升阶段状态链 ===");
+
+        // 注册新事件
+        RegisterClimbRoarEvents();
+
+        // 创建 Roar 状态（新增）
+        var climbRoarPrepare = CreateClimbRoarPrepareState();
+        var climbRoar = CreateClimbRoarState();
+        var climbRoarEnd = CreateClimbRoarEndState();
+        var climbRoarDone = CreateClimbRoarDoneState();
 
         // 创建四个漫游状态
         var climbRoamInit = CreateClimbRoamInitState();
@@ -1276,33 +1286,109 @@ internal class BossBehavior : MonoBehaviour
 
         // 找到Idle状态用于转换
         var idleState = _bossControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Idle");
-        
+
         // 添加状态到FSM
         var states = _bossControlFsm.FsmStates.ToList();
+        states.Add(climbRoarPrepare);
+        states.Add(climbRoar);
+        states.Add(climbRoarEnd);
+        states.Add(climbRoarDone);
         states.Add(climbRoamInit);
         states.Add(climbRoamSelectTarget);
         states.Add(climbRoamMove);
         states.Add(climbRoamIdle);
         _bossControlFsm.Fsm.States = states.ToArray();
 
-        // 添加动作
+        // 添加 Roar 动作
+        AddClimbRoarPrepareActions(climbRoarPrepare);
+        AddClimbRoarActions(climbRoar);
+        AddClimbRoarEndActions(climbRoarEnd);
+        AddClimbRoarDoneActions(climbRoarDone);
+
+        // 添加漫游动作
         AddClimbRoamInitActions(climbRoamInit);
         AddClimbRoamSelectTargetActions(climbRoamSelectTarget);
         AddClimbRoamMoveActions(climbRoamMove);
         AddClimbRoamIdleActions(climbRoamIdle);
 
-        // 添加转换
-        AddClimbRoamTransitions(climbRoamInit, climbRoamSelectTarget, 
+        // 添加 Roar 转换
+        AddClimbRoarTransitions(climbRoarPrepare, climbRoar, climbRoarEnd, climbRoarDone);
+
+        // 添加漫游转换
+        AddClimbRoamTransitions(climbRoamInit, climbRoamSelectTarget,
             climbRoamMove, climbRoamIdle);
 
-        // 添加全局转换
-        AddClimbPhaseGlobalTransitions(climbRoamInit, idleState);
-
-        // 初始化FSM
+        // 添加全局转换（包含 Roar 和 漫游）
+        AddClimbPhaseGlobalTransitionsNew(climbRoarPrepare, climbRoamInit, idleState);
         _bossControlFsm.Fsm.InitData();
         _bossControlFsm.Fsm.InitEvents();
+        _bossControlFsm.FsmVariables.Init();
+        Log.Info("=== 爬升阶段状态链创建完成 ===");
+    }
 
-        Log.Info("=== 爬升阶段漫游状态链创建完成 ===");
+    /// <summary>
+    /// 注册 Climb Roar 事件
+    /// </summary>
+    private void RegisterClimbRoarEvents()
+    {
+        var events = _bossControlFsm!.Fsm.Events.ToList();
+
+        if (!events.Any(e => e.Name == "CLIMB ROAR START"))
+            events.Add(new FsmEvent("CLIMB ROAR START"));
+
+        if (!events.Any(e => e.Name == "CLIMB ROAR DONE"))
+            events.Add(new FsmEvent("CLIMB ROAR DONE"));
+
+        _bossControlFsm.Fsm.Events = events.ToArray();
+        Log.Info("Climb Roar 事件注册完成");
+    }
+
+    /// <summary>
+    /// 创建 Climb Roar Prepare 状态
+    /// </summary>
+    private FsmState CreateClimbRoarPrepareState()
+    {
+        return new FsmState(_bossControlFsm!.Fsm)
+        {
+            Name = "Climb Roar Prepare",
+            Description = "Boss吼叫准备"
+        };
+    }
+
+    /// <summary>
+    /// 创建 Climb Roar 状态
+    /// </summary>
+    private FsmState CreateClimbRoarState()
+    {
+        return new FsmState(_bossControlFsm!.Fsm)
+        {
+            Name = "Climb Roar",
+            Description = "Boss吼叫"
+        };
+    }
+
+    /// <summary>
+    /// 创建 Climb Roar End 状态（监听动画完成）
+    /// </summary>
+    private FsmState CreateClimbRoarEndState()
+    {
+        return new FsmState(_bossControlFsm!.Fsm)
+        {
+            Name = "Climb Roar End",
+            Description = "Boss吼叫结束"
+        };
+    }
+
+    /// <summary>
+    /// 创建 Climb Roar Done 状态（发送事件给PhaseControl）
+    /// </summary>
+    private FsmState CreateClimbRoarDoneState()
+    {
+        return new FsmState(_bossControlFsm!.Fsm)
+        {
+            Name = "Climb Roar Done",
+            Description = "Boss吼叫完成"
+        };
     }
 
     private FsmState CreateClimbRoamInitState()
@@ -1526,10 +1612,289 @@ internal class BossBehavior : MonoBehaviour
         Log.Info("漫游状态转换设置完成");
     }
 
-    private void AddClimbPhaseGlobalTransitions(FsmState climbRoamInit, FsmState? idleState)
+    /// <summary>
+    /// 添加 Climb Roar Prepare 动作（清理 + 播放Roar动画，等待动画帧事件触发）
+    /// 类似原版 Rerise Roar Antic
+    /// </summary>
+    private void AddClimbRoarPrepareActions(FsmState roarPrepareState)
+    {
+        var actions = new List<FsmStateAction>();
+
+        // 1. 发送 ATTACK CLEAR 事件
+        var attackClear = new SendEventToRegister
+        {
+            Fsm = _bossControlFsm!.Fsm,
+            eventName = new FsmString("ATTACK CLEAR") { Value = "ATTACK CLEAR" }
+        };
+        actions.Add(attackClear);
+
+        actions.Add(new SendEventByName
+        {
+            eventTarget = new FsmEventTarget
+            {
+                target = FsmEventTarget.EventTarget.GameObject,
+                gameObject = new FsmOwnerDefault
+                {
+                    OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                    gameObject = new FsmGameObject { Value = _silkHair }
+                }
+            },
+            sendEvent = "ROAR",
+            delay = new FsmFloat(0f),
+            everyFrame = false
+        });
+
+        // 4. 使用 Tk2dPlayAnimationWithEvents 播放 Roar 动画
+        // 当动画中的帧事件触发时，会发送 animationTriggerEvent
+        var roarAnim = new Tk2dPlayAnimationWithEvents
+        {
+            Fsm = _bossControlFsm.Fsm,
+            gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+            clipName = new FsmString("Roar") { Value = "Roar" },
+            animationTriggerEvent = FsmEvent.Finished  // 动画帧事件触发FINISHED
+        };
+        actions.Add(roarAnim);
+
+        roarPrepareState.Actions = actions.ToArray();
+    }
+
+
+    /// <summary>
+    /// 添加 Climb Roar 动作（StartRoarEmitter + 监听动画完成 + 音效）
+    /// 类似原版 Rerise Roar
+    /// </summary>
+    private void AddClimbRoarActions(FsmState climbRoarState)
+    {
+        var actions = new List<FsmStateAction>();
+        var reriseRoarState = _bossControlFsm!.FsmStates.FirstOrDefault(x => x.Name == "Rerise Roar");
+
+        if (reriseRoarState == null)
+        {
+            Log.Error("Could not find 'Rerise Roar' state in Boss Control FSM");
+            return;
+        }
+
+        var originalEmitter = reriseRoarState.Actions.FirstOrDefault(x => x is StartRoarEmitter) as StartRoarEmitter;
+        // 获取所有 PlayAudioEvent（有两个）
+        var audioEvents = reriseRoarState.Actions.Where(x => x is PlayAudioEvent).Cast<PlayAudioEvent>().ToList();
+
+        if (originalEmitter == null)
+        {
+            Log.Error("Missing StartRoarEmitter in 'Rerise Roar' state");
+            return;
+        }
+
+        // 1. StartRoarEmitter（复制原版，但 stunHero = false）
+        var climbRoarEmitter = new StartRoarEmitter
+        {
+            Fsm = _bossControlFsm.Fsm,
+            spawnPoint = originalEmitter.spawnPoint,
+            delay = originalEmitter.delay,
+            stunHero = new FsmBool(false) { Value = false },  // 玩家已被硬控，不需要stun
+            roarBurst = originalEmitter.roarBurst,
+            isSmall = originalEmitter.isSmall,
+            noVisualEffect = originalEmitter.noVisualEffect,
+            forceThroughBind = originalEmitter.forceThroughBind,
+            stopOnExit = originalEmitter.stopOnExit
+        };
+        actions.Add(climbRoarEmitter);
+
+        // 2. Tk2dWatchAnimationEvents（监听动画完成事件）
+        var climbWatchAnim = new Tk2dWatchAnimationEvents
+        {
+            Fsm = _bossControlFsm.Fsm,
+            gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+            animationTriggerEvent = FsmEvent.Finished
+        };
+        actions.Add(climbWatchAnim);
+
+        // 3. 复制所有 PlayAudioEvent
+        foreach (var originalAudio in audioEvents)
+        {
+            var climbAudio = new PlayAudioEvent
+            {
+                Fsm = _bossControlFsm.Fsm,
+                audioClip = originalAudio.audioClip,
+                volume = originalAudio.volume,
+                pitchMin = originalAudio.pitchMin,
+                pitchMax = originalAudio.pitchMax,
+                audioPlayerPrefab = originalAudio.audioPlayerPrefab,
+                spawnPoint = originalAudio.spawnPoint,
+                spawnPosition = originalAudio.spawnPosition,
+                SpawnedPlayerRef = originalAudio.SpawnedPlayerRef
+            };
+            actions.Add(climbAudio);
+        }
+
+        climbRoarState.Actions = actions.ToArray();
+        Log.Info($"Climb Roar 状态添加了 {actions.Count} 个 Actions（含 {audioEvents.Count} 个音效）");
+    }
+
+    /// <summary>
+    /// 添加 Climb Roar End 动作（发送IDLE给Silk_Hair，等待）
+    /// 类似原版 Rerise Roar End
+    /// </summary>
+    private void AddClimbRoarEndActions(FsmState roarEndState)
+    {
+        var actions = new List<FsmStateAction>();
+
+        // 1. 发送 IDLE 给 Silk_Hair
+        actions.Add(new SendEventByName
+        {
+            eventTarget = new FsmEventTarget
+            {
+                target = FsmEventTarget.EventTarget.GameObject,
+                gameObject = new FsmOwnerDefault
+                {
+                    OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                    gameObject = new FsmGameObject { Value = _silkHair }
+                }
+            },
+            sendEvent = "IDLE",
+            delay = new FsmFloat(0f),
+            everyFrame = false
+        });
+
+        actions.Add(new Tk2dWatchAnimationEvents
+        {
+            gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+            animationCompleteEvent = FsmEvent.Finished
+        });
+
+        roarEndState.Actions = actions.ToArray();
+    }
+
+
+    /// <summary>
+    /// 添加 Climb Roar Done 动作（发送事件给PhaseControl并播放Idle）
+    /// </summary>
+    private void AddClimbRoarDoneActions(FsmState roarDoneState)
+    {
+        var actions = new List<FsmStateAction>();
+
+        // 1. 发送 CLIMB ROAR DONE 给 Phase Control
+        actions.Add(new SendEventByName
+        {
+            eventTarget = new FsmEventTarget
+            {
+                target = FsmEventTarget.EventTarget.GameObjectFSM,
+                excludeSelf = new FsmBool(false),
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                fsmName = new FsmString("Phase Control") { Value = "Phase Control" }
+            },
+            sendEvent = new FsmString("CLIMB ROAR DONE") { Value = "CLIMB ROAR DONE" },
+            delay = new FsmFloat(0f),
+            everyFrame = false
+        });
+
+        // 2. 播放 Idle 动画
+        actions.Add(new Tk2dPlayAnimation
+        {
+            gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+            clipName = new FsmString("Idle") { Value = "Idle" }
+        });
+
+        // 3. 延迟发送 BLADES RETURN
+        // Finger Blade 的 Stagger 流程需要约 3.5 秒才能到达 Stagger Finish 状态
+        // 在那里才能响应 BLADES RETURN 事件
+        actions.Add(new CallMethod
+        {
+            behaviour = new FsmObject { Value = this },
+            methodName = new FsmString("SendBladesReturnDelayed") { Value = "SendBladesReturnDelayed" },
+            parameters = new FsmVar[0],
+            everyFrame = false
+        });
+
+        roarDoneState.Actions = actions.ToArray();
+    }
+
+    /// <summary>
+    /// 延迟发送 BLADES RETURN 事件给所有 Finger Blade
+    /// </summary>
+    public void SendBladesReturnDelayed()
+    {
+        StartCoroutine(SendBladesReturnDelayedCoroutine());
+    }
+
+    private IEnumerator SendBladesReturnDelayedCoroutine()
+    {
+        // 等待 Finger Blade 完成 Stagger 流程到达 Stagger Finish
+        // Stagger 流程：Stagger Pause(0-0.3s) → Stagger Anim(0.4-1s) → Stagger Drop(2.5s) → Stagger Finish
+        // 总计最多约 3.8 秒，这里等待 3.5 秒应该足够
+        yield return new WaitForSeconds(3.5f);
+
+        // 第一次发送 BLADES RETURN
+        var bladesReturnEvent = new SendEventToRegister
+        {
+            Fsm = _bossControlFsm!.Fsm,
+            eventName = new FsmString("BLADES RETURN") { Value = "BLADES RETURN" }
+        };
+        bladesReturnEvent.OnEnter();
+        Log.Info("延迟发送 BLADES RETURN（针对 Stagger Finish 状态）");
+
+        // 再等待 1 秒，发送第二次（针对可能在 Rise 状态的 Finger）
+        yield return new WaitForSeconds(1f);
+        bladesReturnEvent.OnEnter();
+        Log.Info("第二次发送 BLADES RETURN（针对 Rise 状态）");
+    }
+
+    /// <summary>
+    /// 添加 Climb Roar 转换
+    /// </summary>
+    private void AddClimbRoarTransitions(FsmState roarPrepareState, FsmState roarState, FsmState roarEndState, FsmState roarDoneState)
+    {
+        // Prepare -> Roar (动画帧事件触发)
+        roarPrepareState.Transitions = new FsmTransition[]
+        {
+            new FsmTransition
+            {
+                FsmEvent = FsmEvent.Finished,
+                toState = "Climb Roar",
+                toFsmState = roarState
+            }
+        };
+
+        // Roar -> End (动画完成)
+        roarState.Transitions = new FsmTransition[]
+        {
+            new FsmTransition
+            {
+                FsmEvent = FsmEvent.Finished,
+                toState = "Climb Roar End",
+                toFsmState = roarEndState
+            }
+        };
+
+        // End -> Done (等待完成)
+        roarEndState.Transitions = new FsmTransition[]
+        {
+            new FsmTransition
+            {
+                FsmEvent = FsmEvent.Finished,
+                toState = "Climb Roar Done",
+                toFsmState = roarDoneState
+            }
+        };
+
+        // Roar Done 不需要转换，等待 CLIMB PHASE START 全局事件
+        roarDoneState.Transitions = new FsmTransition[0];
+    }
+
+    /// <summary>
+    /// 添加爬升阶段全局转换（新版，含Roar）
+    /// </summary>
+    private void AddClimbPhaseGlobalTransitionsNew(FsmState climbRoarPrepare, FsmState climbRoamInit, FsmState? idleState)
     {
         var globalTransitions = _bossControlFsm!.Fsm.GlobalTransitions.ToList();
-        
+
+        // 收到 CLIMB ROAR START → Climb Roar Prepare
+        globalTransitions.Add(new FsmTransition
+        {
+            FsmEvent = FsmEvent.GetFsmEvent("CLIMB ROAR START"),
+            toState = "Climb Roar Prepare",
+            toFsmState = climbRoarPrepare
+        });
+
         // 收到 CLIMB PHASE START → Climb Roam Init
         globalTransitions.Add(new FsmTransition
         {
@@ -1537,7 +1902,7 @@ internal class BossBehavior : MonoBehaviour
             toState = "Climb Roam Init",
             toFsmState = climbRoamInit
         });
-        
+
         // 收到 CLIMB PHASE END → Idle
         if (idleState != null)
         {
@@ -1548,7 +1913,34 @@ internal class BossBehavior : MonoBehaviour
                 toFsmState = idleState
             });
         }
-        
+
+        _bossControlFsm.Fsm.GlobalTransitions = globalTransitions.ToArray();
+        Log.Info("爬升阶段全局转换添加完成（含Roar）");
+    }
+
+    private void AddClimbPhaseGlobalTransitions(FsmState climbRoamInit, FsmState? idleState)
+    {
+        var globalTransitions = _bossControlFsm!.Fsm.GlobalTransitions.ToList();
+
+        // 收到 CLIMB PHASE START → Climb Roam Init
+        globalTransitions.Add(new FsmTransition
+        {
+            FsmEvent = FsmEvent.GetFsmEvent("CLIMB PHASE START"),
+            toState = "Climb Roam Init",
+            toFsmState = climbRoamInit
+        });
+
+        // 收到 CLIMB PHASE END → Idle
+        if (idleState != null)
+        {
+            globalTransitions.Add(new FsmTransition
+            {
+                FsmEvent = FsmEvent.GetFsmEvent("CLIMB PHASE END"),
+                toState = "Idle",
+                toFsmState = idleState
+            });
+        }
+
         _bossControlFsm.Fsm.GlobalTransitions = globalTransitions.ToArray();
         Log.Info("爬升阶段全局转换添加完成");
     }
@@ -1574,28 +1966,28 @@ internal class BossBehavior : MonoBehaviour
             _currentRoamTarget = new Vector3(39.5f, 140f, 0f);
             return;
         }
-        
+
         Vector3 playerPos = hero.transform.position;
-        
+
         // 漫游边界 - 调整为玩家上方12-22单位
         float minX = 25f;
         float maxX = 55f;
         float minY = playerPos.y + 12f;  // 玩家上方12单位
         float maxY = 145f;                // 房间顶部
-        
+
         // 随机选择目标（玩家上方附近）
         float targetX = Mathf.Clamp(
-            playerPos.x + UnityEngine.Random.Range(-8f, 8f), 
-            minX, 
+            playerPos.x + UnityEngine.Random.Range(-8f, 8f),
+            minX,
             maxX
         );
-        
+
         float targetY = Mathf.Clamp(
-            playerPos.y + 17f + UnityEngine.Random.Range(-5f, 5f), 
-            minY, 
+            playerPos.y + 17f + UnityEngine.Random.Range(-5f, 5f),
+            minY,
             maxY
         );
-        
+
         _currentRoamTarget = new Vector3(targetX, targetY, 0f);
         Log.Info($"选择漫游目标: {_currentRoamTarget}（玩家上方12-22单位）");
     }
@@ -1607,16 +1999,16 @@ internal class BossBehavior : MonoBehaviour
     {
         var bossPos = transform.position;
         bool movingForward = _currentRoamTarget.x > bossPos.x;
-        
+
         var tk2dAnimator = GetComponent<tk2dSpriteAnimator>();
         if (tk2dAnimator != null)
         {
             tk2dAnimator.Play(movingForward ? "Drift F" : "Drift B");
         }
-        
+
         _roamMoveStartTime = Time.time;
         _roamMoveComplete = false;
-        
+
         Log.Info($"选择动画: {(movingForward ? "Drift F" : "Drift B")}");
     }
 
@@ -1626,10 +2018,10 @@ internal class BossBehavior : MonoBehaviour
     public void MoveToRoamTarget()
     {
         if (_roamMoveComplete) return;
-        
+
         Vector3 currentPos = transform.position;
         float distance = Vector3.Distance(currentPos, _currentRoamTarget);
-        
+
         // 到达检测（容差0.5单位）
         if (distance < 0.5f)
         {
@@ -1652,7 +2044,7 @@ internal class BossBehavior : MonoBehaviour
     public void CheckRoamMoveTimeout()
     {
         if (_roamMoveComplete) return;
-    
+
         if (Time.time - _roamMoveStartTime > 3f)
         {
             Log.Warn($"漫游移动超时（3秒），强制完成。当前位置: {transform.position}，目标: {_currentRoamTarget}");
@@ -1663,23 +2055,23 @@ internal class BossBehavior : MonoBehaviour
             }
         }
     }
-    
+
     /// <summary>
     /// 在Idle状态检测Dash Pending，并根据Special Attack决定走哪条路径
     /// </summary>
     public void CheckAndTriggerDashPath()
     {
         if (_bossControlFsm == null) return;
-        
+
         var dashPendingVar = _bossControlFsm.FsmVariables.FindFsmBool("Silk Ball Dash Pending");
         if (dashPendingVar == null || !dashPendingVar.Value) return;
-        
+
         var specialAttackVar = _bossControlFsm.FsmVariables.FindFsmBool("Special Attack");
         bool isPhase2 = specialAttackVar != null && specialAttackVar.Value;
-        
+
         // 重置Pending标志
         dashPendingVar.Value = false;
-        
+
         // 根据Phase2决定触发哪个事件
         if (isPhase2)
         {
@@ -1704,14 +2096,14 @@ internal class BossBehavior : MonoBehaviour
     {
         var controlFsm = FSMUtility.LocateMyFSM(gameObject, "Control");
         if (controlFsm == null) return;
-        
+
         // 创建Climb Cast Prepare状态
         CreateClimbCastPrepareState();
-        
+
         // 重新初始化FSM
         controlFsm.Fsm.InitData();
         controlFsm.Fsm.InitEvents();
-        
+
         Log.Info("爬升Cast保护初始化完成");
     }
 
@@ -1723,21 +2115,21 @@ internal class BossBehavior : MonoBehaviour
     {
         var controlFsm = FSMUtility.LocateMyFSM(gameObject, "Control");
         if (controlFsm == null) return;
-        
+
         // 检查是否已存在
         if (controlFsm.FsmStates.Any(s => s.Name == "Climb Cast Prepare"))
         {
             Log.Info("Climb Cast Prepare状态已存在，跳过创建");
             return;
         }
-        
+
         // 创建新状态
         var climbCastPrepareState = new FsmState(controlFsm.Fsm)
         {
             Name = "Climb Cast Prepare",
             Description = "爬升Cast动画保护状态（长Wait时间）"
         };
-        
+
         var actions = new List<FsmStateAction>();
 
         var climbCastPendingVar = EnsureBoolVariable(controlFsm, "Climb Cast Pending");
@@ -1746,7 +2138,7 @@ internal class BossBehavior : MonoBehaviour
             boolVariable = climbCastPendingVar,
             boolValue = new FsmBool(false)
         });
-        
+
         // 添加Wait动作（时间更长，用于保护Cast动画）
         actions.Add(new Wait
         {
@@ -1754,9 +2146,9 @@ internal class BossBehavior : MonoBehaviour
             finishEvent = FsmEvent.Finished,
             realTime = false
         });
-        
+
         climbCastPrepareState.Actions = actions.ToArray();
-        
+
         // 添加转换：FINISHED → Idle
         var idleState = controlFsm.FsmStates.FirstOrDefault(s => s.Name == "Idle");
         if (idleState != null)
@@ -1771,12 +2163,12 @@ internal class BossBehavior : MonoBehaviour
                 }
             };
         }
-        
+
         // 添加到FSM
         var states = controlFsm.FsmStates.ToList();
         states.Add(climbCastPrepareState);
         controlFsm.Fsm.States = states.ToArray();
-        
+
         Log.Info("创建Climb Cast Prepare状态完成");
     }
 

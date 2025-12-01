@@ -29,8 +29,6 @@ internal static class BossPatches
         //     return;
         if (__instance.name == "Silk Boss" && __instance.FsmName == "Control")
         {
-            Log.Info("检测到Silk Boss，应用mod行为");
-
             if (__instance.gameObject.GetComponent<BossBehavior>() == null)
             {
                 __instance.gameObject.AddComponent<BossBehavior>();
@@ -47,8 +45,6 @@ internal static class BossPatches
         //晕眩控制器
         else if (__instance.name == "Silk Boss" && __instance.FsmName == "Stun Control")
         {
-            Log.Info("检测到Silk Boss Stun Control，应用mod行为");
-
             if (__instance.gameObject.GetComponent<StunControlBehavior>() == null)
             {
                 __instance.gameObject.AddComponent<StunControlBehavior>();
@@ -58,8 +54,6 @@ internal static class BossPatches
         //阶段控制器
         else if (__instance.name == "Silk Boss" && __instance.FsmName == "Phase Control")
         {
-            Log.Info("检测到Silk Boss Phase Control，应用mod行为");
-
             if (__instance.gameObject.GetComponent<PhaseControlBehavior>() == null)
             {
                 __instance.gameObject.AddComponent<PhaseControlBehavior>();
@@ -69,12 +63,26 @@ internal static class BossPatches
         //攻击控制器
         else if (__instance.name == "Silk Boss" && __instance.FsmName == "Attack Control")
         {
-            Log.Info("检测到Silk Boss Attack Control，添加攻击控制器");
-
             if (__instance.gameObject.GetComponent<AttackControlBehavior>() == null)
             {
                 __instance.gameObject.AddComponent<AttackControlBehavior>();
                 Log.Info("检测到没有AttackControlBehavior组件，添加AttackControlBehavior组件");
+            }
+        }
+        else if ((__instance.name == "Rubble Field M" || __instance.name == "Rubble Field L" || __instance.name == "Rubble Field R") && __instance.FsmName == "FSM")
+        {
+
+            if (__instance.gameObject.GetComponent<RubbleFieldBehavior>() == null)
+            {
+                __instance.gameObject.AddComponent<RubbleFieldBehavior>();
+                Log.Info("检测到没有RubbleFieldBehavior组件，添加RubbleFieldBehavior组件");
+            }
+        }
+        else if (__instance.name.Contains("Silk Boulder") && __instance.FsmName == "Control")
+        {
+            if (__instance.gameObject.GetComponent<RubbleRockBehavior>() == null)
+            {
+                __instance.gameObject.AddComponent<RubbleRockBehavior>();
             }
         }
     }
@@ -210,7 +218,7 @@ internal static class BossPatches
         // 记录减伤后的实际伤害，用于更新减伤档位
         damageReductionManager.RecordReducedDamage(reducedDamage);
     }
-    
+
     #endregion
 }
 
