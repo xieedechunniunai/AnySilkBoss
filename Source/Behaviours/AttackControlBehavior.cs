@@ -2285,6 +2285,72 @@ namespace AnySilkBoss.Source.Behaviours
             Log.Info("已自动复制Pattern 1为Pattern 3");
             PatchSingleAndDoubleStatesLastActions();
             PatchSingleAndDoubleStatesLastActionsV2();
+            PatchAllPatternsWebBurstStartDelay();
+        }
+
+        /// <summary>
+        /// 遍历所有Pattern，在其silk_boss_pattern_control的Web Burst Start状态开头插入Wait 1.5s
+        /// </summary>
+        private void PatchAllPatternsWebBurstStartDelay()
+        {
+            if (_strandPatterns == null)
+            {
+                Log.Warn("_strandPatterns为null，无法Patch Web Burst Start延迟");
+                return;
+            }
+
+            int patchedCount = 0;
+            foreach (Transform patternTransform in _strandPatterns.transform)
+            {
+                // 获取该Pattern的silk_boss_pattern_control FSM
+                var patternControlFsm = FSMUtility.LocateMyFSM(patternTransform.gameObject, "silk_boss_pattern_control");
+                if (patternControlFsm == null)
+                {
+                    Log.Warn($"Pattern {patternTransform.name} 未找到 silk_boss_pattern_control FSM");
+                    continue;
+                }
+
+                // 查找 Web Burst Start 状态
+                var webBurstStartState = patternControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Web Burst Start");
+                if (webBurstStartState == null)
+                {
+                    Log.Warn($"Pattern {patternTransform.name} 未找到 Web Burst Start 状态");
+                    continue;
+                }
+
+                // 创建或获取 REPARENT 事件
+                var reparentEvent = FsmEvent.GetFsmEvent("REPARENT");
+
+                // 创建 Wait 1.5s Action，结束事件为 REPARENT
+                var waitAction = new Wait
+                {
+                    time = new FsmFloat(3.3f),
+                    finishEvent = reparentEvent
+                };
+
+                // 在Actions末尾添加Wait
+                var actionsList = webBurstStartState.Actions.ToList();
+                actionsList.Add(waitAction);
+                webBurstStartState.Actions = actionsList.ToArray();
+
+                // 修改跳转：将 FINISHED -> Reparent 改为 REPARENT -> Reparent
+                foreach (var trans in webBurstStartState.Transitions)
+                {
+                    if (trans.ToState == "Reparent" && trans.FsmEvent.Name == "FINISHED")
+                    {
+                        trans.FsmEvent = reparentEvent;
+                    }
+                }
+
+                // 重新初始化FSM
+                patternControlFsm.Fsm.InitData();
+                patternControlFsm.Fsm.InitEvents();
+
+                patchedCount++;
+                Log.Info($"已为 {patternTransform.name} 的 Web Burst Start 状态添加 Wait 1.5s");
+            }
+
+            Log.Info($"共为 {patchedCount} 个Pattern的Web Burst Start状态添加了延迟");
         }
         /// <summary>
         /// 调整Single和Double状态的Action队列，把Double的最后两个Action（GetRandomChild/SendEventByName）补到二者末尾

@@ -450,7 +450,7 @@ namespace AnySilkBoss.Source.Behaviours
                     Log.Info($"在交汇点 {point} 生成并释放小丝球");
                 }
             }
-            yield return new WaitForSeconds(0.5f);
+            yield return new WaitForSeconds(0.66f);
             foreach (var silkBall in silkBalls)
             {
                 var fsm = silkBall.GetComponent<PlayMakerFSM>();
