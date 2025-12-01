@@ -316,9 +316,68 @@ namespace AnySilkBoss.Source.Behaviours
                 CreateControlFSM();
             }
 
+            // 添加 EventRegister 组件（用于全局事件广播）
+            SetupEventRegisters();
+
             // 确保初始状态正确
             isActive = false;
             _isAvailable = true;
+        }
+
+        /// <summary>
+        /// 设置 EventRegister 组件，用于响应全局事件广播
+        /// 只添加 SILK BALL RELEASE 事件注册器
+        /// ATTACK CLEAR 通过 SilkBallManager.RecycleAllActiveSilkBalls() 处理
+        /// </summary>
+        private void SetupEventRegisters()
+        {
+            // 添加 SILK BALL RELEASE 事件注册器
+            // 该事件会被转发给 controlFSM，FSM 状态决定是否响应
+            // Idle 状态不响应（没有对应转换），Prepare 状态才响应
+            // 这样可以确保池内的丝球不会被意外释放
+            var existingRegisters = gameObject.GetComponents<EventRegister>();
+            EventRegister? releaseRegister = null;
+            
+            // 查找是否已有 SILK BALL RELEASE 的注册器
+            foreach (var reg in existingRegisters)
+            {
+                if (reg.SubscribedEvent == "SILK BALL RELEASE")
+                {
+                    releaseRegister = reg;
+                    break;
+                }
+            }
+            
+            // 如果没有，创建新的
+            if (releaseRegister == null)
+            {
+                releaseRegister = gameObject.AddComponent<EventRegister>();
+            }
+            
+            // 通过反射设置私有字段
+            SetEventRegisterFields(releaseRegister, "SILK BALL RELEASE", controlFSM);
+        }
+
+        /// <summary>
+        /// 通过反射设置 EventRegister 的私有字段
+        /// </summary>
+        private void SetEventRegisterFields(EventRegister register, string eventName, PlayMakerFSM? targetFsm)
+        {
+            var type = register.GetType();
+            var subscribedEventField = type.GetField("subscribedEvent", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var targetFsmField = type.GetField("targetFsm", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            if (subscribedEventField != null)
+            {
+                subscribedEventField.SetValue(register, eventName);
+            }
+            if (targetFsmField != null)
+            {
+                targetFsmField.SetValue(register, targetFsm);
+            }
+
+            // 调用 SwitchEvent 来更新 hash 和注册
+            register.SubscribedEvent = eventName;
         }
 
         /// <summary>

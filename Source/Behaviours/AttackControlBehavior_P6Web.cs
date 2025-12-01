@@ -5,6 +5,7 @@ using UnityEngine;
 using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
 using AnySilkBoss.Source.Tools;
+using static AnySilkBoss.Source.Tools.FsmStateBuilder;
 using AnySilkBoss.Source.Managers;
 
 namespace AnySilkBoss.Source.Behaviours
@@ -23,7 +24,7 @@ namespace AnySilkBoss.Source.Behaviours
         {
             if (_attackControlFsm == null) return;
 
-            var rubbleAttackState = _attackControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Rubble Attack?");
+            var rubbleAttackState = FindState(_attackControlFsm, "Rubble Attack?");
             if (rubbleAttackState == null)
             {
                 Log.Warn("未找到Rubble Attack?状态，无法添加P6 Web Attack监听");
@@ -33,8 +34,6 @@ namespace AnySilkBoss.Source.Behaviours
             var actions = rubbleAttackState.Actions.ToList();
 
             // 在第2个Action（检查Do Phase Roar）之后插入P6 Web Attack检查
-            // 原版结构：[0] CheckHeroPerformanceRegionV2, [1] BoolTest (Do Phase Roar), [2] BoolTest (Can Rubble Attack)
-            // 插入位置：索引2（在Do Phase Roar之后，Can Rubble Attack之前）
             actions.Insert(2, new BoolTest
             {
                 boolVariable = _attackControlFsm.FsmVariables.BoolVariables.ToList().FirstOrDefault(v => v.Name == "Do P6 Web Attack"),
@@ -45,15 +44,8 @@ namespace AnySilkBoss.Source.Behaviours
 
             rubbleAttackState.Actions = actions.ToArray();
 
-            // 添加跳转
-            var transitions = rubbleAttackState.Transitions.ToList();
-            transitions.Add(new FsmTransition
-            {
-                FsmEvent = _p6WebAttackEvent,
-                toState = "P6 Web Prepare",
-                toFsmState = _p6WebPrepareState
-            });
-            rubbleAttackState.Transitions = transitions.ToArray();
+            // 使用 AddTransition 添加跳转
+            AddTransition(rubbleAttackState, CreateTransition(_p6WebAttackEvent!, _p6WebPrepareState!));
 
             Log.Info("Rubble Attack?状态已添加P6 Web Attack监听");
         }
@@ -65,26 +57,34 @@ namespace AnySilkBoss.Source.Behaviours
         {
             Log.Info("=== 开始创建P6 Web攻击状态链 ===");
 
-            // 创建所有状态
-            _p6WebPrepareState = CreateP6WebPrepareState();
-            _p6WebCastState = CreateP6WebCastState();
-            _p6WebAttack1State = CreateP6WebAttack1State();
-            _p6WebAttack2State = CreateP6WebAttack2State();
-            _p6WebAttack3State = CreateP6WebAttack3State();
-            _p6WebRecoverState = CreateP6WebRecoverState();
+            // 使用 FsmStateBuilder 批量创建P6 Web攻击状态
+            var p6WebStates = CreateStates(_attackControlFsm!.Fsm,
+                ("P6 Web Prepare", "P6阶段Web攻击准备"),
+                ("P6 Web Cast", "P6阶段Web施法动画"),
+                ("P6 Web Attack 1", "第一根丝网攻击 + 交汇点生成小丝球"),
+                ("P6 Web Attack 2", "第二根丝网攻击 + 交汇点生成小丝球"),
+                ("P6 Web Attack 3", "第三根丝网攻击 + 交汇点生成小丝球"),
+                ("P6 Web Recover", "P6阶段Web攻击结束恢复")
+            );
+            AddStatesToFsm(_attackControlFsm, p6WebStates);
 
-            // 添加到FSM
-            var states = _attackControlFsm!.FsmStates.ToList();
-            states.Add(_p6WebPrepareState);
-            states.Add(_p6WebCastState);
-            states.Add(_p6WebAttack1State);
-            states.Add(_p6WebAttack2State);
-            states.Add(_p6WebAttack3State);
-            states.Add(_p6WebRecoverState);
-            _attackControlFsm.Fsm.States = states.ToArray();
+            _p6WebPrepareState = p6WebStates[0];
+            _p6WebCastState = p6WebStates[1];
+            _p6WebAttack1State = p6WebStates[2];
+            _p6WebAttack2State = p6WebStates[3];
+            _p6WebAttack3State = p6WebStates[4];
+            _p6WebRecoverState = p6WebStates[5];
+
+            // 添加各状态的动作（使用原有方法）
+            SetP6WebPrepareActions(_p6WebPrepareState);
+            SetP6WebCastActions(_p6WebCastState);
+            SetP6WebAttack1Actions(_p6WebAttack1State);
+            SetP6WebAttack2Actions(_p6WebAttack2State);
+            SetP6WebAttack3Actions(_p6WebAttack3State);
+            SetP6WebRecoverActions(_p6WebRecoverState);
 
             // 查找Move Restart状态用于链接
-            var moveRestartState = _attackControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Move Restart");
+            var moveRestartState = FindState(_attackControlFsm, "Move Restart");
 
             // 设置状态转换
             SetP6WebAttackTransitions(moveRestartState);
@@ -93,16 +93,10 @@ namespace AnySilkBoss.Source.Behaviours
         }
 
         /// <summary>
-        /// 创建P6 Web Prepare状态
+        /// 设置P6 Web Prepare状态的动作
         /// </summary>
-        private FsmState CreateP6WebPrepareState()
+        private void SetP6WebPrepareActions(FsmState state)
         {
-            var state = new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "P6 Web Prepare",
-                Description = "P6阶段Web攻击准备"
-            };
-
             var actions = new List<FsmStateAction>();
 
             // 1. 设置Do P6 Web Attack为false（消耗标记）
@@ -123,82 +117,24 @@ namespace AnySilkBoss.Source.Behaviours
             if (setFsmBoolAction != null) actions.Add(setFsmBoolAction);
 
             state.Actions = actions.ToArray();
-            Log.Info("创建P6 Web Prepare状态");
-            return state;
+            Log.Info("设置P6 Web Prepare动作");
         }
 
         /// <summary>
-        /// 创建P6 Web Cast状态
+        /// 设置P6 Web Cast状态的动作
         /// </summary>
-        private FsmState CreateP6WebCastState()
+        private void SetP6WebCastActions(FsmState state)
         {
-            var state = new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "P6 Web Cast",
-                Description = "P6阶段Web施法动画"
-            };
-
             // 直接克隆Web Cast的所有动作
             state.Actions = CloneStateActions("Web Cast");
-
-            Log.Info("创建P6 Web Cast状态");
-            return state;
+            Log.Info("设置P6 Web Cast动作");
         }
 
         /// <summary>
-        /// 创建P6 Web Attack 1状态（第一根丝网 + 交汇点生成小丝球）
+        /// 设置P6 Web Attack状态的通用动作（丝网攻击 + 生成小丝球）
         /// </summary>
-        private FsmState CreateP6WebAttack1State()
+        private void SetP6WebAttackCommonActions(FsmState state, string logName)
         {
-            var state = new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "P6 Web Attack 1",
-                Description = "第一根丝网攻击 + 交汇点生成小丝球"
-            };
-
-            var actions = new List<FsmStateAction>();
-
-            // 1. 选择随机Pattern并激活
-            var getRandomChildAction = CloneAction<GetRandomChild>("Activate Strands");
-            if (getRandomChildAction != null) actions.Add(getRandomChildAction);
-
-            var sendAttackAction = CloneAction<SendEventByName>("Activate Strands", predicate: a =>
-                a.sendEvent?.Value == "ATTACK");
-            if (sendAttackAction != null) actions.Add(sendAttackAction);
-
-            // 2. 调用生成小丝球的方法
-            actions.Add(new CallMethod
-            {
-                behaviour = new FsmObject { Value = this },
-                methodName = new FsmString("SpawnSilkBallsAtWebIntersections") { Value = "SpawnSilkBallsAtWebIntersections" },
-                parameters = new FsmVar[0],
-                everyFrame = false
-            });
-
-            // 3. 等待2s（延长间隔）
-            actions.Add(new Wait
-            {
-                time = new FsmFloat(2f),
-                finishEvent = FsmEvent.Finished,
-                realTime = false
-            });
-
-            state.Actions = actions.ToArray();
-            Log.Info("创建P6 Web Attack 1状态");
-            return state;
-        }
-
-        /// <summary>
-        /// 创建P6 Web Attack 2状态（第二根丝网）
-        /// </summary>
-        private FsmState CreateP6WebAttack2State()
-        {
-            var state = new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "P6 Web Attack 2",
-                Description = "第二根丝网攻击 + 交汇点生成小丝球"
-            };
-
             var actions = new List<FsmStateAction>();
 
             // 选择随机Pattern并激活
@@ -209,7 +145,7 @@ namespace AnySilkBoss.Source.Behaviours
                 a.sendEvent?.Value == "ATTACK");
             if (sendAttackAction != null) actions.Add(sendAttackAction);
 
-            // 调用生成小丝球
+            // 调用生成小丝球的方法
             actions.Add(new CallMethod
             {
                 behaviour = new FsmObject { Value = this },
@@ -227,69 +163,21 @@ namespace AnySilkBoss.Source.Behaviours
             });
 
             state.Actions = actions.ToArray();
-            Log.Info("创建P6 Web Attack 2状态");
-            return state;
+            Log.Info($"设置{logName}动作");
         }
 
-        /// <summary>
-        /// 创建P6 Web Attack 3状态（第三根丝网）
-        /// </summary>
-        private FsmState CreateP6WebAttack3State()
-        {
-            var state = new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "P6 Web Attack 3",
-                Description = "第三根丝网攻击 + 交汇点生成小丝球"
-            };
-
-            var actions = new List<FsmStateAction>();
-
-            // 选择随机Pattern并激活
-            var getRandomChildAction = CloneAction<GetRandomChild>("Activate Strands");
-            if (getRandomChildAction != null) actions.Add(getRandomChildAction);
-
-            var sendAttackAction = CloneAction<SendEventByName>("Activate Strands", predicate: a =>
-                a.sendEvent?.Value == "ATTACK");
-            if (sendAttackAction != null) actions.Add(sendAttackAction);
-
-            // 调用生成小丝球
-            actions.Add(new CallMethod
-            {
-                behaviour = new FsmObject { Value = this },
-                methodName = new FsmString("SpawnSilkBallsAtWebIntersections") { Value = "SpawnSilkBallsAtWebIntersections" },
-                parameters = new FsmVar[0],
-                everyFrame = false
-            });
-
-            // 等待2s
-            actions.Add(new Wait
-            {
-                time = new FsmFloat(2f),
-                finishEvent = FsmEvent.Finished,
-                realTime = false
-            });
-
-            state.Actions = actions.ToArray();
-            Log.Info("创建P6 Web Attack 3状态");
-            return state;
-        }
+        private void SetP6WebAttack1Actions(FsmState state) => SetP6WebAttackCommonActions(state, "P6 Web Attack 1");
+        private void SetP6WebAttack2Actions(FsmState state) => SetP6WebAttackCommonActions(state, "P6 Web Attack 2");
+        private void SetP6WebAttack3Actions(FsmState state) => SetP6WebAttackCommonActions(state, "P6 Web Attack 3");
 
         /// <summary>
-        /// 创建P6 Web Recover状态
+        /// 设置P6 Web Recover状态的动作
         /// </summary>
-        private FsmState CreateP6WebRecoverState()
+        private void SetP6WebRecoverActions(FsmState state)
         {
-            var state = new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "P6 Web Recover",
-                Description = "P6阶段Web攻击结束恢复"
-            };
-
             // 直接克隆Web Recover的所有动作
             state.Actions = CloneStateActions("Web Recover");
-
-            Log.Info("创建P6 Web Recover状态");
-            return state;
+            Log.Info("设置P6 Web Recover动作");
         }
 
         /// <summary>
@@ -308,70 +196,19 @@ namespace AnySilkBoss.Source.Behaviours
             // P6 Web Prepare -> P6 Web Cast (ATTACK PREPARED)
             _p6WebPrepareState.Transitions = new FsmTransition[]
             {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.GetFsmEvent("ATTACK PREPARED"),
-                    toState = "P6 Web Cast",
-                    toFsmState = _p6WebCastState
-                }
+                CreateTransition(FsmEvent.GetFsmEvent("ATTACK PREPARED"), _p6WebCastState)
             };
 
-            // P6 Web Cast -> P6 Web Attack 1 (FINISHED)
-            _p6WebCastState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "P6 Web Attack 1",
-                    toFsmState = _p6WebAttack1State
-                }
-            };
-
-            // P6 Web Attack 1 -> P6 Web Attack 2 (FINISHED)
-            _p6WebAttack1State.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "P6 Web Attack 2",
-                    toFsmState = _p6WebAttack2State
-                }
-            };
-
-            // P6 Web Attack 2 -> P6 Web Attack 3 (FINISHED)
-            _p6WebAttack2State.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "P6 Web Attack 3",
-                    toFsmState = _p6WebAttack3State
-                }
-            };
-
-            // P6 Web Attack 3 -> P6 Web Recover (FINISHED)
-            _p6WebAttack3State.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "P6 Web Recover",
-                    toFsmState = _p6WebRecoverState
-                }
-            };
+            // P6 Web Cast -> Attack 1 -> Attack 2 -> Attack 3 -> Recover (链式FINISHED转换)
+            SetFinishedTransition(_p6WebCastState, _p6WebAttack1State);
+            SetFinishedTransition(_p6WebAttack1State, _p6WebAttack2State);
+            SetFinishedTransition(_p6WebAttack2State, _p6WebAttack3State);
+            SetFinishedTransition(_p6WebAttack3State, _p6WebRecoverState);
 
             // P6 Web Recover -> Move Restart (FINISHED)
             if (moveRestartState != null)
             {
-                _p6WebRecoverState.Transitions = new FsmTransition[]
-                {
-                    new FsmTransition
-                    {
-                        FsmEvent = FsmEvent.Finished,
-                        toState = "Move Restart",
-                        toFsmState = moveRestartState
-                    }
-                };
+                SetFinishedTransition(_p6WebRecoverState, moveRestartState);
             }
 
             Log.Info("P6 Web攻击状态转换设置完成");
@@ -451,11 +288,11 @@ namespace AnySilkBoss.Source.Behaviours
                 }
             }
             yield return new WaitForSeconds(0.66f);
-            foreach (var silkBall in silkBalls)
-            {
-                var fsm = silkBall.GetComponent<PlayMakerFSM>();
-                fsm.SendEvent("SILK BALL RELEASE");
-            }
+            
+            // 使用 EventRegister 全局广播释放事件
+            Log.Info($"=== 广播 SILK BALL RELEASE 事件，释放 P6 交点丝球 ===");
+            EventRegister.SendEvent("SILK BALL RELEASE");
+            
             Log.Info($"已生成并释放 {silkBalls.Count} 个小丝球");
         }
 
