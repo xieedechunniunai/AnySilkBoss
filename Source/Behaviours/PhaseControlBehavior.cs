@@ -5,6 +5,7 @@ using UnityEngine;
 using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
 using AnySilkBoss.Source.Tools;
+using static AnySilkBoss.Source.Tools.FsmStateBuilder;
 namespace AnySilkBoss.Source.Behaviours
 {
     /// <summary>
@@ -613,8 +614,8 @@ namespace AnySilkBoss.Source.Behaviours
             Log.Info("=== 开始添加大丝球大招状态序列 ===");
 
             // 找到关键状态
-            var setP3WebStrandState = _phaseControl.FsmStates.FirstOrDefault(s => s.Name == "Set P3 Web Strand");
-            var p3State = _phaseControl.FsmStates.FirstOrDefault(s => s.Name == "P3");
+            var setP3WebStrandState = FindState(_phaseControl, "Set P3 Web Strand");
+            var p3State = FindState(_phaseControl, "P3");
 
             if (setP3WebStrandState == null)
             {
@@ -626,40 +627,42 @@ namespace AnySilkBoss.Source.Behaviours
                 Log.Error("未找到 P3 状态");
                 return;
             }
+
             // 注册新事件
             RegisterBigSilkBallEvents();
-            // 创建P2.5状态（类似P3，监听TOOK DAMAGE事件）
-            var p25State = CreateP25State();
 
-            // 创建HP Check 2.5状态（检查血量是否触发大招）
-            var hpCheck25State = CreateHPCheck25State();
+            // 批量创建大丝球大招状态序列
+            var bigSilkBallStates = CreateStates(_phaseControl.Fsm,
+                ("P2.5", "P2.5阶段：监听TOOK DAMAGE触发血量检查"),
+                ("HP Check 2.5", "检查血量：<=200触发大招，>200回到P2.5"),
+                ("Big Silk Ball Roar", "大招前怒吼"),
+                ("Big Silk Ball Roar End", "大招怒吼结束"),
+                ("Big Silk Ball Prepare", "大招准备：停止攻击、设置无敌"),
+                ("Big Silk Ball Move To Center", "Boss移动到中间高处"),
+                ("Big Silk Ball Spawn", "生成大丝球并开始蓄力"),
+                ("Big Silk Ball Wait", "等待大丝球爆炸和小丝球生成"),
+                ("Big Silk Ball End", "大招结束：清理和恢复Layer"),
+                ("Big Silk Ball Return", "BOSS从背景返回前景")
+            );
 
-            // 创建大招状态序列
-            var bigSilkBallRoarState = CreateBigSilkBallRoarState();
-            var bigSilkBallRoarEndState = CreateBigSilkBallRoarEndState();
-            var bigSilkBallPrepareState = CreateBigSilkBallPrepareState();
-            var bigSilkBallMoveToCenterState = CreateBigSilkBallMoveToCenterState();
-            var bigSilkBallSpawnState = CreateBigSilkBallSpawnState();
-            var bigSilkBallWaitState = CreateBigSilkBallWaitState();
-            var bigSilkBallEndState = CreateBigSilkBallEndState();
-            var bigSilkBallReturnState = CreateBigSilkBallReturnState();  // 新增：BOSS返回前景状态
+            // 解构状态引用
+            var p25State = bigSilkBallStates[0];
+            var hpCheck25State = bigSilkBallStates[1];
+            var bigSilkBallRoarState = bigSilkBallStates[2];
+            var bigSilkBallRoarEndState = bigSilkBallStates[3];
+            var bigSilkBallPrepareState = bigSilkBallStates[4];
+            var bigSilkBallMoveToCenterState = bigSilkBallStates[5];
+            var bigSilkBallSpawnState = bigSilkBallStates[6];
+            var bigSilkBallWaitState = bigSilkBallStates[7];
+            var bigSilkBallEndState = bigSilkBallStates[8];
+            var bigSilkBallReturnState = bigSilkBallStates[9];
 
             // 添加状态到FSM
-            var states = _phaseControl.Fsm.States.ToList();
-            states.Add(p25State);
-            states.Add(hpCheck25State);
-            states.Add(bigSilkBallPrepareState);
-            states.Add(bigSilkBallMoveToCenterState);
-            states.Add(bigSilkBallSpawnState);
-            states.Add(bigSilkBallWaitState);
-            states.Add(bigSilkBallEndState);
-            states.Add(bigSilkBallReturnState);  // 新增：BOSS返回前景状态
-            states.Add(bigSilkBallRoarState);
-            states.Add(bigSilkBallRoarEndState);
-            _phaseControl.Fsm.States = states.ToArray();
+            AddStatesToFsm(_phaseControl, bigSilkBallStates);
 
             // 修改 Set P3 Web Strand 的跳转：改为跳到P2.5
-            ModifySetP3WebStrandTransition(setP3WebStrandState, p25State);
+            SetFinishedTransition(setP3WebStrandState, p25State);
+            Log.Info("已修改 Set P3 Web Strand -> P2.5");
 
             // 添加状态动作
             AddP25Actions(p25State);
@@ -671,158 +674,19 @@ namespace AnySilkBoss.Source.Behaviours
             AddBigSilkBallSpawnActions(bigSilkBallSpawnState);
             AddBigSilkBallWaitActions(bigSilkBallWaitState);
             AddBigSilkBallEndActions(bigSilkBallEndState);
-            AddBigSilkBallReturnActions(bigSilkBallReturnState);  // 新增：返回状态的Actions
+            AddBigSilkBallReturnActions(bigSilkBallReturnState);
 
             // 添加状态转换
             AddP25Transitions(p25State, hpCheck25State);
-            AddHPCheck25Transitions(hpCheck25State, p25State, bigSilkBallRoarState); // 修改为跳转到怒吼状态
+            AddHPCheck25Transitions(hpCheck25State, p25State, bigSilkBallRoarState);
             AddBigSilkBallTransitions(bigSilkBallPrepareState, bigSilkBallMoveToCenterState,
                 bigSilkBallSpawnState, bigSilkBallWaitState, bigSilkBallEndState, bigSilkBallReturnState, p3State,
                 bigSilkBallRoarState, bigSilkBallRoarEndState);
-
 
             // 延迟添加 Big Silk Ball Roar 状态的动作（等待 AttackControlBehavior 初始化）
             StartCoroutine(DelayedAddBigSilkBallRoarActions(bigSilkBallRoarState));
 
             Log.Info("=== 大丝球大招状态序列添加完成 ===");
-        }
-
-        /// <summary>
-        /// 创建P2.5状态（类似P3，监听TOOK DAMAGE事件）
-        /// </summary>
-        private FsmState CreateP25State()
-        {
-            return new FsmState(_phaseControl.Fsm)
-            {
-                Name = "P2.5",
-                Description = "P2.5阶段：监听TOOK DAMAGE触发血量检查"
-            };
-        }
-
-        /// <summary>
-        /// 创建HP Check 2.5状态（检查血量是否触发大招）
-        /// </summary>
-        private FsmState CreateHPCheck25State()
-        {
-            return new FsmState(_phaseControl.Fsm)
-            {
-                Name = "HP Check 2.5",
-                Description = "检查血量：<=200触发大招，>200回到P2.5"
-            };
-        }
-
-        /// <summary>
-        /// 创建大招准备状态
-        /// </summary>
-        private FsmState CreateBigSilkBallPrepareState()
-        {
-            return new FsmState(_phaseControl.Fsm)
-            {
-                Name = "Big Silk Ball Prepare",
-                Description = "大招准备：停止攻击、设置无敌"
-            };
-        }
-
-        /// <summary>
-        /// 创建移动到中心状态
-        /// </summary>
-        private FsmState CreateBigSilkBallMoveToCenterState()
-        {
-            return new FsmState(_phaseControl.Fsm)
-            {
-                Name = "Big Silk Ball Move To Center",
-                Description = "Boss移动到中间高处"
-            };
-        }
-
-        /// <summary>
-        /// 创建生成大丝球状态
-        /// </summary>
-        private FsmState CreateBigSilkBallSpawnState()
-        {
-            return new FsmState(_phaseControl.Fsm)
-            {
-                Name = "Big Silk Ball Spawn",
-                Description = "生成大丝球并开始蓄力"
-            };
-        }
-
-        /// <summary>
-        /// 创建等待大招完成状态
-        /// </summary>
-        private FsmState CreateBigSilkBallWaitState()
-        {
-            return new FsmState(_phaseControl.Fsm)
-            {
-                Name = "Big Silk Ball Wait",
-                Description = "等待大丝球爆炸和小丝球生成"
-            };
-        }
-
-        /// <summary>
-        /// 创建大招结束状态
-        /// </summary>
-        private FsmState CreateBigSilkBallEndState()
-        {
-            return new FsmState(_phaseControl.Fsm)
-            {
-                Name = "Big Silk Ball End",
-                Description = "大招结束：清理和恢复Layer"
-            };
-        }
-
-        /// <summary>
-        /// 创建BOSS返回前景状态
-        /// </summary>
-        private FsmState CreateBigSilkBallReturnState()
-        {
-            return new FsmState(_phaseControl.Fsm)
-            {
-                Name = "Big Silk Ball Return",
-                Description = "BOSS从背景返回前景"
-            };
-        }
-
-        /// <summary>
-        /// 创建大招怒吼状态
-        /// </summary>
-        private FsmState CreateBigSilkBallRoarState()
-        {
-            return new FsmState(_phaseControl.Fsm)
-            {
-                Name = "Big Silk Ball Roar",
-                Description = "大招前怒吼"
-            };
-        }
-
-        /// <summary>
-        /// 创建大招怒吼后移动到中心状态
-        /// </summary>
-        private FsmState CreateBigSilkBallRoarEndState()
-        {
-            return new FsmState(_phaseControl.Fsm)
-            {
-                Name = "Big Silk Ball Roar To Center",
-                Description = "大招怒吼后移动到中心"
-            };
-        }
-
-        /// <summary>
-        /// 修改Set P3 Web Strand的跳转，指向P2.5状态
-        /// </summary>
-        private void ModifySetP3WebStrandTransition(FsmState setP3WebStrandState, FsmState p25State)
-        {
-            // 修改跳转到P2.5
-            setP3WebStrandState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "P2.5",
-                    toFsmState = p25State
-                }
-            };
-            Log.Info("已修改 Set P3 Web Strand -> P2.5");
         }
 
         /// <summary>
@@ -867,12 +731,7 @@ namespace AnySilkBoss.Source.Behaviours
             // P2.5监听TOOK DAMAGE事件，跳转到HP Check 2.5
             p25State.Transitions = new FsmTransition[]
             {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.GetFsmEvent("TOOK DAMAGE"),
-                    toState = "HP Check 2.5",
-                    toFsmState = hpCheck25State
-                }
+                CreateTransition(FsmEvent.GetFsmEvent("TOOK DAMAGE"), hpCheck25State)
             };
         }
 
@@ -881,22 +740,12 @@ namespace AnySilkBoss.Source.Behaviours
         /// </summary>
         private void AddHPCheck25Transitions(FsmState hpCheck25State, FsmState p25State, FsmState bigSilkBallRoarState)
         {
-            // FINISHED -> P3 (血量>200)
-            // NEXT -> Big Silk Ball Prepare (血量<=200，触发大招)
+            // FINISHED -> P2.5 (血量>200)
+            // START BIG SILK BALL -> Big Silk Ball Roar (血量<=200，触发大招)
             hpCheck25State.Transitions = new FsmTransition[]
             {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "P2.5",
-                    toFsmState = p25State
-                },
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.GetFsmEvent("START BIG SILK BALL"),
-                    toState = "Big Silk Ball Roar",
-                    toFsmState = bigSilkBallRoarState
-                }
+                CreateFinishedTransition(p25State),
+                CreateTransition(FsmEvent.GetFsmEvent("START BIG SILK BALL"), bigSilkBallRoarState)
             };
         }
 
@@ -1327,96 +1176,40 @@ namespace AnySilkBoss.Source.Behaviours
 
         /// <summary>
         /// 添加大招状态之间的转换
+        /// 流程: HP Check 2.5 -> Roar -> Roar End -> Prepare -> Move To Center -> Spawn -> Wait -> End -> Return -> P3
         /// </summary>
         private void AddBigSilkBallTransitions(FsmState prepareState, FsmState moveToCenterState,
             FsmState spawnState, FsmState waitState, FsmState endState, FsmState returnState, FsmState p3State,
-            FsmState bigSilkBallRoarState, FsmState bigSilkBallRoarEndState)
+            FsmState roarState, FsmState roarEndState)
         {
-            bigSilkBallRoarState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Big Silk Ball Roar End",
-                    toFsmState = bigSilkBallRoarEndState
-                }
-            };
-            bigSilkBallRoarEndState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Big Silk Ball Prepare",
-                    toFsmState = prepareState
-                }
-            };
-            // Prepare -> Move To Center
-            prepareState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Big Silk Ball Move To Center",
-                    toFsmState = moveToCenterState
-                }
-            };
+            // 1. Roar -> Roar End
+            SetFinishedTransition(roarState, roarEndState);
 
-            // Move To Center -> Spawn
-            moveToCenterState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Big Silk Ball Spawn",
-                    toFsmState = spawnState
-                }
-            };
+            // 2. Roar End -> Prepare
+            SetFinishedTransition(roarEndState, prepareState);
 
-            // Spawn -> Wait
-            spawnState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Big Silk Ball Wait",
-                    toFsmState = waitState
-                }
-            };
+            // 3. Prepare -> Move To Center
+            SetFinishedTransition(prepareState, moveToCenterState);
 
-            // Wait -> End (监听自定义事件BIG SILK BALL COMPLETE)
+            // 4. Move To Center -> Spawn
+            SetFinishedTransition(moveToCenterState, spawnState);
+
+            // 5. Spawn -> Wait
+            SetFinishedTransition(spawnState, waitState);
+
+            // 6. Wait -> End (监听自定义事件BIG SILK BALL COMPLETE)
             waitState.Transitions = new FsmTransition[]
             {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.GetFsmEvent("BIG SILK BALL COMPLETE"),
-                    toState = "Big Silk Ball End",
-                    toFsmState = endState
-                }
+                CreateTransition(FsmEvent.GetFsmEvent("BIG SILK BALL COMPLETE"), endState)
             };
 
-            // End -> Return（大招结束后进入返回状态）
-            endState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Big Silk Ball Return",
-                    toFsmState = returnState
-                }
-            };
+            // 7. End -> Return
+            SetFinishedTransition(endState, returnState);
 
-            // Return -> P3（返回前景完成后继续战斗）
-            returnState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "P3",
-                    toFsmState = p3State
-                }
-            };
+            // 8. Return -> P3
+            SetFinishedTransition(returnState, p3State);
 
-            Log.Info("已设置 Big Silk Ball End -> Return -> P3");
+            Log.Info("已设置大招状态转换: Roar -> Roar End -> Prepare -> Move To Center -> Spawn -> Wait -> End -> Return -> P3");
         }
 
         /// <summary>
@@ -1424,39 +1217,13 @@ namespace AnySilkBoss.Source.Behaviours
         /// </summary>
         private void RegisterBigSilkBallEvents()
         {
-            // 确保TOOK DAMAGE事件存在（原版事件）
-            var tookDamageEvent = FsmEvent.GetFsmEvent("TOOK DAMAGE");
-
-            // 注册新的自定义事件
-            var startBigSilkBallEvent = new FsmEvent("START BIG SILK BALL");
-            var bigSilkBallCompleteEvent = new FsmEvent("BIG SILK BALL COMPLETE");
-            var bigSilkBallLockEvent = new FsmEvent("BIG SILK BALL LOCK");
-            var bigSilkBallUnlockEvent = new FsmEvent("BIG SILK BALL UNLOCK");
-
-            // 将新事件添加到FSM的全局事件列表
-            var events = _phaseControl.Fsm.Events.ToList();
-
-            if (!events.Any(e => e.Name == "START BIG SILK BALL"))
-            {
-                events.Add(startBigSilkBallEvent);
-            }
-
-            if (!events.Any(e => e.Name == "BIG SILK BALL COMPLETE"))
-            {
-                events.Add(bigSilkBallCompleteEvent);
-            }
-
-            if (!events.Any(e => e.Name == "BIG SILK BALL LOCK"))
-            {
-                events.Add(bigSilkBallLockEvent);
-            }
-
-            if (!events.Any(e => e.Name == "BIG SILK BALL UNLOCK"))
-            {
-                events.Add(bigSilkBallUnlockEvent);
-            }
-
-            _phaseControl.Fsm.Events = events.ToArray();
+            // 使用 FsmStateBuilder 批量注册事件
+            RegisterEvents(_phaseControl,
+                "START BIG SILK BALL",
+                "BIG SILK BALL COMPLETE",
+                "BIG SILK BALL LOCK",
+                "BIG SILK BALL UNLOCK"
+            );
 
             Log.Info("大招事件注册完成（START, COMPLETE, LOCK, UNLOCK）");
         }
@@ -1986,8 +1753,8 @@ namespace AnySilkBoss.Source.Behaviours
             Log.Info("=== 开始添加爬升阶段状态序列 ===");
 
             // 找到关键状态
-            var staggerPauseState = _phaseControl.FsmStates.FirstOrDefault(s => s.Name == "Stagger Pause");
-            var setP4State = _phaseControl.FsmStates.FirstOrDefault(s => s.Name == "Set P4");
+            var staggerPauseState = FindState(_phaseControl, "Stagger Pause");
+            var setP4State = FindState(_phaseControl, "Set P4");
 
             if (staggerPauseState == null)
             {
@@ -2006,27 +1773,30 @@ namespace AnySilkBoss.Source.Behaviours
             // 创建新变量
             CreateClimbPhaseVariables();
 
-            // 创建爬升阶段状态（新流程）
-            var climbInitCatchState = CreateClimbInitCatchState();           // 硬控玩家+移动+发送ROAR
-            var climbWaitRoarState = CreateClimbWaitRoarState();             // 等待Roar完成
-            var climbSilkActivateState = CreateClimbSilkActivateState();     // 激活丝线
-            var climbCatchEffectState = CreateClimbCatchEffectState();       // 音频+隐藏玩家+激活替身
-            var climbPlayerPrepareState = CreateClimbPlayerPrepareState();   // 恢复重力/显示
-            var climbPlayerControlState = CreateClimbPhasePlayerControlState();  // 穿墙下落
-            var climbBossActiveState = CreateClimbPhaseBossActiveState();    // Boss漫游+监控
-            var climbCompleteState = CreateClimbPhaseCompleteState();        // 完成
+            // 批量创建爬升阶段状态
+            var climbStates = CreateStates(_phaseControl.Fsm,
+                ("Climb Init Catch", "硬控玩家并移动到地面"),
+                ("Climb Wait Roar", "等待Boss吼叫完成"),
+                ("Climb Silk Activate", "激活丝线缠绕"),
+                ("Climb Catch Effect", "播放音频、隐藏玩家、激活替身"),
+                ("Climb Player Prepare", "恢复玩家重力和显示"),
+                ("Climb Phase Player Control", "玩家动画控制"),
+                ("Climb Phase Boss Active", "Boss漫游+玩家进度监控"),
+                ("Climb Phase Complete", "爬升阶段完成")
+            );
+
+            // 解构状态引用
+            var climbInitCatchState = climbStates[0];
+            var climbWaitRoarState = climbStates[1];
+            var climbSilkActivateState = climbStates[2];
+            var climbCatchEffectState = climbStates[3];
+            var climbPlayerPrepareState = climbStates[4];
+            var climbPlayerControlState = climbStates[5];
+            var climbBossActiveState = climbStates[6];
+            var climbCompleteState = climbStates[7];
 
             // 添加状态到FSM
-            var states = _phaseControl.Fsm.States.ToList();
-            states.Add(climbInitCatchState);
-            states.Add(climbWaitRoarState);
-            states.Add(climbSilkActivateState);
-            states.Add(climbCatchEffectState);
-            states.Add(climbPlayerPrepareState);
-            states.Add(climbPlayerControlState);
-            states.Add(climbBossActiveState);
-            states.Add(climbCompleteState);
-            _phaseControl.Fsm.States = states.ToArray();
+            AddStatesToFsm(_phaseControl, climbStates);
 
             // 修改 Stagger Pause 的跳转（跳到新的初始状态）
             ModifyStaggerPauseTransition(staggerPauseState, climbInitCatchState);
@@ -2047,8 +1817,7 @@ namespace AnySilkBoss.Source.Behaviours
                 climbBossActiveState, climbCompleteState, setP4State);
 
             // 重新初始化FSM
-            _phaseControl.Fsm.InitData();
-            _phaseControl.Fsm.InitEvents();
+            ReinitializeFsm(_phaseControl);
 
             Log.Info("=== 爬升阶段状态序列添加完成 ===");
         }
@@ -2058,29 +1827,15 @@ namespace AnySilkBoss.Source.Behaviours
         /// </summary>
         private void RegisterClimbPhaseEvents()
         {
-            var events = _phaseControl.Fsm.Events.ToList();
-
-            // 爬升阶段事件
-            if (!events.Any(e => e.Name == "CLIMB PHASE START"))
-                events.Add(new FsmEvent("CLIMB PHASE START"));
-
-            if (!events.Any(e => e.Name == "CLIMB PHASE END"))
-                events.Add(new FsmEvent("CLIMB PHASE END"));
-
-            if (!events.Any(e => e.Name == "CLIMB PHASE ATTACK"))
-                events.Add(new FsmEvent("CLIMB PHASE ATTACK"));
-
-            if (!events.Any(e => e.Name == "CLIMB COMPLETE"))
-                events.Add(new FsmEvent("CLIMB COMPLETE"));
-
-            // 新增：Boss Roar 协同事件
-            if (!events.Any(e => e.Name == "CLIMB ROAR START"))
-                events.Add(new FsmEvent("CLIMB ROAR START"));
-
-            if (!events.Any(e => e.Name == "CLIMB ROAR DONE"))
-                events.Add(new FsmEvent("CLIMB ROAR DONE"));
-
-            _phaseControl.Fsm.Events = events.ToArray();
+            // 使用 FsmStateBuilder 批量注册事件
+            RegisterEvents(_phaseControl,
+                "CLIMB PHASE START",
+                "CLIMB PHASE END",
+                "CLIMB PHASE ATTACK",
+                "CLIMB COMPLETE",
+                "CLIMB ROAR START",
+                "CLIMB ROAR DONE"
+            );
             Log.Info("爬升阶段事件注册完成（含Roar协同事件）");
         }
 
@@ -2108,102 +1863,6 @@ namespace AnySilkBoss.Source.Behaviours
                 _phaseControl.FsmVariables.BoolVariables = boolVars.ToArray();
                 Log.Info("创建 Special Attack 变量（用于Phase2特殊攻击）");
             }
-        }
-
-        /// <summary>
-        /// 创建 Climb Init Catch 状态（硬控玩家+移动+发送ROAR）
-        /// </summary>
-        private FsmState CreateClimbInitCatchState()
-        {
-            return new FsmState(_phaseControl.Fsm)
-            {
-                Name = "Climb Init Catch",
-                Description = "硬控玩家并移动到地面"
-            };
-        }
-
-        /// <summary>
-        /// 创建 Climb Wait Roar 状态（等待Boss Roar完成）
-        /// </summary>
-        private FsmState CreateClimbWaitRoarState()
-        {
-            return new FsmState(_phaseControl.Fsm)
-            {
-                Name = "Climb Wait Roar",
-                Description = "等待Boss吼叫完成"
-            };
-        }
-
-        /// <summary>
-        /// 创建 Climb Silk Activate 状态（激活丝线）
-        /// </summary>
-        private FsmState CreateClimbSilkActivateState()
-        {
-            return new FsmState(_phaseControl.Fsm)
-            {
-                Name = "Climb Silk Activate",
-                Description = "激活丝线缠绕"
-            };
-        }
-
-        /// <summary>
-        /// 创建 Climb Catch Effect 状态（音频+隐藏玩家+激活替身）
-        /// </summary>
-        private FsmState CreateClimbCatchEffectState()
-        {
-            return new FsmState(_phaseControl.Fsm)
-            {
-                Name = "Climb Catch Effect",
-                Description = "播放音频、隐藏玩家、激活替身"
-            };
-        }
-
-        /// <summary>
-        /// 创建 Climb Player Prepare 状态（恢复重力/显示）
-        /// </summary>
-        private FsmState CreateClimbPlayerPrepareState()
-        {
-            return new FsmState(_phaseControl.Fsm)
-            {
-                Name = "Climb Player Prepare",
-                Description = "恢复玩家重力和显示"
-            };
-        }
-
-        /// <summary>
-        /// 创建 Climb Phase Player Control 状态
-        /// </summary>
-        private FsmState CreateClimbPhasePlayerControlState()
-        {
-            return new FsmState(_phaseControl.Fsm)
-            {
-                Name = "Climb Phase Player Control",
-                Description = "玩家动画控制"
-            };
-        }
-
-        /// <summary>
-        /// 创建 Climb Phase Boss Active 状态
-        /// </summary>
-        private FsmState CreateClimbPhaseBossActiveState()
-        {
-            return new FsmState(_phaseControl.Fsm)
-            {
-                Name = "Climb Phase Boss Active",
-                Description = "Boss漫游+玩家进度监控"
-            };
-        }
-
-        /// <summary>
-        /// 创建 Climb Phase Complete 状态
-        /// </summary>
-        private FsmState CreateClimbPhaseCompleteState()
-        {
-            return new FsmState(_phaseControl.Fsm)
-            {
-                Name = "Climb Phase Complete",
-                Description = "爬升阶段完成"
-            };
         }
 
         /// <summary>
@@ -2731,20 +2390,8 @@ namespace AnySilkBoss.Source.Behaviours
                 everyFrame = false
             });
 
-            // 通知Attack Control结束爬升攻击
-            actions.Add(new SendEventByName
-            {
-                eventTarget = new FsmEventTarget
-                {
-                    target = FsmEventTarget.EventTarget.GameObjectFSM,
-                    excludeSelf = new FsmBool(false),
-                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
-                    fsmName = new FsmString("Attack Control") { Value = "Attack Control" }
-                },
-                sendEvent = new FsmString("CLIMB PHASE END") { Value = "CLIMB PHASE END" },
-                delay = new FsmFloat(0f),
-                everyFrame = false
-            });
+            // ⚠️ 注意：Attack Control 的 CLIMB PHASE END 事件将在 Boss 完全返回场地后由协程发送
+            // 这样可以确保 Boss 完全恢复后再开始攻击
 
             // 重置Finger Blade状态（弥补跳过Move Stop导致的BLADES RETURN事件）
             actions.Add(new CallMethod
@@ -2770,67 +2417,14 @@ namespace AnySilkBoss.Source.Behaviours
                 parameters = new FsmVar[0]
             });
 
-            // 等待0.5秒
+            // ⚠️ 等待2.5秒：1.5秒Boss移动 + 1秒额外缓冲，确保Boss完全返回后再进入下一阶段
             actions.Add(new Wait
             {
-                time = new FsmFloat(0.5f),
+                time = new FsmFloat(2.5f),
                 finishEvent = FsmEvent.Finished
             });
 
             completeState.Actions = actions.ToArray();
-        }
-
-        /// <summary>
-        /// 添加爬升阶段转换
-        /// </summary>
-        private void AddClimbPhaseTransitions(FsmState initState, FsmState playerControlState,
-            FsmState bossActiveState, FsmState completeState, FsmState setP4State)
-        {
-            // Init -> Player Control
-            initState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Climb Phase Player Control",
-                    toFsmState = playerControlState
-                }
-            };
-
-            // Player Control -> Boss Active (延迟跳转，等待玩家稳定)
-            playerControlState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Climb Phase Boss Active",
-                    toFsmState = bossActiveState
-                }
-            };
-
-            // Boss Active -> Complete (通过 CLIMB COMPLETE 事件)
-            bossActiveState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.GetFsmEvent("CLIMB COMPLETE"),
-                    toState = "Climb Phase Complete",
-                    toFsmState = completeState
-                }
-            };
-
-            // Complete -> Set P4
-            completeState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Set P4",
-                    toFsmState = setP4State
-                }
-            };
-
-            Log.Info("爬升阶段转换设置完成");
         }
 
         /// <summary>
@@ -2843,92 +2437,34 @@ namespace AnySilkBoss.Source.Behaviours
             FsmState completeState, FsmState setP4State)
         {
             // Init Catch -> Wait Roar (FINISHED)
-            initCatchState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Climb Wait Roar",
-                    toFsmState = waitRoarState
-                }
-            };
+            SetFinishedTransition(initCatchState, waitRoarState);
 
             // Wait Roar -> Silk Activate (CLIMB ROAR DONE)
             waitRoarState.Transitions = new FsmTransition[]
             {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.GetFsmEvent("CLIMB ROAR DONE"),
-                    toState = "Climb Silk Activate",
-                    toFsmState = silkActivateState
-                }
+                CreateTransition(FsmEvent.GetFsmEvent("CLIMB ROAR DONE"), silkActivateState)
             };
 
             // Silk Activate -> Catch Effect (FINISHED)
-            silkActivateState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Climb Catch Effect",
-                    toFsmState = catchEffectState
-                }
-            };
+            SetFinishedTransition(silkActivateState, catchEffectState);
 
             // Catch Effect -> Player Prepare (FINISHED)
-            catchEffectState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Climb Player Prepare",
-                    toFsmState = playerPrepareState
-                }
-            };
+            SetFinishedTransition(catchEffectState, playerPrepareState);
 
             // Player Prepare -> Player Control (FINISHED)
-            playerPrepareState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Climb Phase Player Control",
-                    toFsmState = playerControlState
-                }
-            };
+            SetFinishedTransition(playerPrepareState, playerControlState);
 
             // Player Control -> Boss Active (FINISHED)
-            playerControlState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Climb Phase Boss Active",
-                    toFsmState = bossActiveState
-                }
-            };
+            SetFinishedTransition(playerControlState, bossActiveState);
 
             // Boss Active -> Complete (CLIMB COMPLETE)
             bossActiveState.Transitions = new FsmTransition[]
             {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.GetFsmEvent("CLIMB COMPLETE"),
-                    toState = "Climb Phase Complete",
-                    toFsmState = completeState
-                }
+                CreateTransition(FsmEvent.GetFsmEvent("CLIMB COMPLETE"), completeState)
             };
 
             // Complete -> Set P4 (FINISHED)
-            completeState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Set P4",
-                    toFsmState = setP4State
-                }
-            };
+            SetFinishedTransition(completeState, setP4State);
 
             Log.Info("爬升阶段转换设置完成（新流程）");
         }
@@ -3391,6 +2927,20 @@ namespace AnySilkBoss.Source.Behaviours
 
             transform.position = targetPos;
             Log.Info($"Boss已回到战斗场地: {transform.position}");
+
+            // ⚠️ Boss返回完成后恢复碰撞器
+            var bossBehavior = GetComponent<BossBehavior>();
+            if (bossBehavior != null)
+            {
+                bossBehavior.EnableBossCollider();
+            }
+
+           // ⚠️ Boss完全恢复后，发送 CLIMB PHASE END 到 Attack Control 恢复攻击
+            if (_attackControl != null)
+            {
+                _attackControl.SendEvent("CLIMB PHASE END");
+                Log.Info("Boss完全恢复，已发送 CLIMB PHASE END 到 Attack Control 恢复攻击");
+            }
         }
 
         /// <summary>

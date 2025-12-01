@@ -5,6 +5,7 @@ using UnityEngine;
 using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
 using AnySilkBoss.Source.Tools;
+using static AnySilkBoss.Source.Tools.FsmStateBuilder;
 using System;
 using System.Reflection;
 using AnySilkBoss.Source.Managers;
@@ -338,90 +339,37 @@ namespace AnySilkBoss.Source.Behaviours
         {
             if (_attackControlFsm == null) return;
 
-            // 创建或获取事件
+            // 使用 FsmStateBuilder 批量注册事件
+            var registeredEvents = RegisterEvents(_attackControlFsm,
+                "ORBIT ATTACK",
+                "ORBIT START Hand L",
+                "ORBIT START Hand R",
+                "SILK BALL ATTACK",
+                "SILK BALL STATIC",
+                "SILK BALL DASH",
+                "SILK BALL DASH START",
+                "SILK BALL DASH END",
+                "SILK BALL INTERRUPT",
+                "SILK BALL RECOVER",
+                "NULL",
+                "CLIMB PHASE ATTACK",
+                "CLIMB PHASE END",
+                "P6 WEB ATTACK"
+            );
+
+            // 缓存常用事件引用
             _orbitAttackEvent = FsmEvent.GetFsmEvent("ORBIT ATTACK");
             _orbitStartHandLEvent = FsmEvent.GetFsmEvent("ORBIT START Hand L");
             _orbitStartHandREvent = FsmEvent.GetFsmEvent("ORBIT START Hand R");
             _silkBallAttackEvent = FsmEvent.GetFsmEvent("SILK BALL ATTACK");
-
-            // 移动丝球相关事件
             _silkBallStaticEvent = FsmEvent.GetFsmEvent("SILK BALL STATIC");
             _silkBallDashEvent = FsmEvent.GetFsmEvent("SILK BALL DASH");
             _silkBallDashStartEvent = FsmEvent.GetFsmEvent("SILK BALL DASH START");
             _silkBallDashEndEvent = FsmEvent.GetFsmEvent("SILK BALL DASH END");
-
-            // 眩晕中断相关事件
             _silkBallInterruptEvent = FsmEvent.GetFsmEvent("SILK BALL INTERRUPT");
             _silkBallRecoverEvent = FsmEvent.GetFsmEvent("SILK BALL RECOVER");
             _nullEvent = FsmEvent.GetFsmEvent("NULL");
-            // 将事件添加到FSM的事件列表中
-            var existingEvents = _attackControlFsm.Fsm.Events.ToList();
-
-            if (!existingEvents.Contains(_orbitAttackEvent))
-            {
-                existingEvents.Add(_orbitAttackEvent);
-            }
-            if (!existingEvents.Contains(_orbitStartHandLEvent))
-            {
-                existingEvents.Add(_orbitStartHandLEvent);
-            }
-            if (!existingEvents.Contains(_orbitStartHandREvent))
-            {
-                existingEvents.Add(_orbitStartHandREvent);
-            }
-            if (!existingEvents.Contains(_silkBallAttackEvent))
-            {
-                existingEvents.Add(_silkBallAttackEvent);
-            }
-
-            // 移动丝球事件
-            if (_silkBallStaticEvent != null && !existingEvents.Contains(_silkBallStaticEvent))
-            {
-                existingEvents.Add(_silkBallStaticEvent);
-            }
-            if (_silkBallDashEvent != null && !existingEvents.Contains(_silkBallDashEvent))
-            {
-                existingEvents.Add(_silkBallDashEvent);
-            }
-            if (_silkBallDashStartEvent != null && !existingEvents.Contains(_silkBallDashStartEvent))
-            {
-                existingEvents.Add(_silkBallDashStartEvent);
-            }
-            if (_silkBallDashEndEvent != null && !existingEvents.Contains(_silkBallDashEndEvent))
-            {
-                existingEvents.Add(_silkBallDashEndEvent);
-            }
-
-            // 眩晕中断事件
-            if (_silkBallInterruptEvent != null && !existingEvents.Contains(_silkBallInterruptEvent))
-            {
-                existingEvents.Add(_silkBallInterruptEvent);
-            }
-            if (_silkBallRecoverEvent != null && !existingEvents.Contains(_silkBallRecoverEvent))
-            {
-                existingEvents.Add(_silkBallRecoverEvent);
-            }
-
-            // 爬升阶段事件
-            var climbPhaseAttackEvent = FsmEvent.GetFsmEvent("CLIMB PHASE ATTACK");
-            if (climbPhaseAttackEvent != null && !existingEvents.Contains(climbPhaseAttackEvent))
-            {
-                existingEvents.Add(climbPhaseAttackEvent);
-            }
-            var climbPhaseEndEvent = FsmEvent.GetFsmEvent("CLIMB PHASE END");
-            if (climbPhaseEndEvent != null && !existingEvents.Contains(climbPhaseEndEvent))
-            {
-                existingEvents.Add(climbPhaseEndEvent);
-            }
-
-            // P6 Web Attack事件
             _p6WebAttackEvent = FsmEvent.GetFsmEvent("P6 WEB ATTACK");
-            if (_p6WebAttackEvent != null && !existingEvents.Contains(_p6WebAttackEvent))
-            {
-                existingEvents.Add(_p6WebAttackEvent);
-            }
-
-            _attackControlFsm.Fsm.Events = existingEvents.ToArray();
         }
 
         /// <summary>
@@ -431,10 +379,9 @@ namespace AnySilkBoss.Source.Behaviours
         {
             if (_attackControlFsm == null) return;
 
-            // 重新初始化FSM数据，确保所有事件引用正确
-            _attackControlFsm.Fsm.InitData();
-            _attackControlFsm.Fsm.InitEvents();
-            _attackControlFsm.FsmVariables.Init();
+            // 使用 FsmStateBuilder 重新初始化FSM
+            ReinitializeFsm(_attackControlFsm);
+            ReinitializeFsmVariables(_attackControlFsm);
         }
         private T? CloneAction<T>(string sourceStateName, int matchIndex = 0, Func<T, bool>? predicate = null) where T : FsmStateAction
         {
@@ -522,17 +469,8 @@ namespace AnySilkBoss.Source.Behaviours
         /// </summary>
         private void CreateOrbitAttackState()
         {
-            // 创建新状态
-            _orbitAttackState = new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = newOrbitAttackState,
-                Description = "环绕攻击状态"
-            };
-
-            // 添加状态到FSM
-            var existingStates = _attackControlFsm!.FsmStates.ToList();
-            existingStates.Add(_orbitAttackState);
-            _attackControlFsm.Fsm.States = existingStates.ToArray();
+            // 使用 FsmStateBuilder 创建并添加状态
+            _orbitAttackState = CreateAndAddState(_attackControlFsm!, newOrbitAttackState, "环绕攻击状态");
 
             // 添加动作到新状态
             AddOrbitAttackActions();
@@ -609,24 +547,15 @@ namespace AnySilkBoss.Source.Behaviours
         {
             if (_attackControlFsm == null) return;
 
-            var orbitFirstShootState = new FsmState(_attackControlFsm.Fsm)
-            {
-                Name = "Orbit First Shoot",
-                Description = "发送第一个SHOOT事件"
-            };
+            // 使用 FsmStateBuilder 批量创建子状态
+            var orbitSubStates = CreateStates(_attackControlFsm.Fsm,
+                ("Orbit First Shoot", "发送第一个SHOOT事件"),
+                ("Orbit Second Shoot", "发送第二个SHOOT事件")
+            );
+            AddStatesToFsm(_attackControlFsm, orbitSubStates);
 
-
-            var orbitSecondShootState = new FsmState(_attackControlFsm.Fsm)
-            {
-                Name = "Orbit Second Shoot",
-                Description = "发送第二个SHOOT事件"
-            };
-
-            // 添加状态到FSM
-            var existingStates = _attackControlFsm.FsmStates.ToList();
-            existingStates.Add(orbitFirstShootState);
-            existingStates.Add(orbitSecondShootState);
-            _attackControlFsm.Fsm.States = existingStates.ToArray();
+            var orbitFirstShootState = orbitSubStates[0];
+            var orbitSecondShootState = orbitSubStates[1];
 
             // 设置各状态的动作
             SetOrbitFirstShootActions(orbitFirstShootState);
@@ -686,24 +615,11 @@ namespace AnySilkBoss.Source.Behaviours
         /// </summary>
         private void SetOrbitAttackSubStateTransitions(FsmState orbitFirstShootState, FsmState orbitSecondShootState, FsmState waitForHandsReadyState)
         {
-            // Orbit First Shoot -> Orbit Wait Second
-            var firstShootToWaitSecondTransition = new FsmTransition
-            {
-                FsmEvent = FsmEvent.Finished,
-                toState = "Orbit Second Shoot",
-                toFsmState = orbitSecondShootState
-            };
+            // 使用 FsmStateBuilder 简化转换设置
+            // Orbit First Shoot -> Orbit Second Shoot
+            SetFinishedTransition(orbitFirstShootState, orbitSecondShootState);
             // Orbit Second Shoot -> Wait For Hands Ready
-            var secondShootToFinishTransition = new FsmTransition
-            {
-                FsmEvent = FsmEvent.Finished,
-                toState = "Wait For Hands Ready",
-                toFsmState = waitForHandsReadyState
-            };
-
-            // 设置各状态的转换
-            orbitFirstShootState.Transitions = new FsmTransition[] { firstShootToWaitSecondTransition };
-            orbitSecondShootState.Transitions = new FsmTransition[] { secondShootToFinishTransition };
+            SetFinishedTransition(orbitSecondShootState, waitForHandsReadyState);
         }
 
         /// <summary>
@@ -711,24 +627,11 @@ namespace AnySilkBoss.Source.Behaviours
         /// </summary>
         private void AddOrbitAttackTransitions(FsmState orbitFirstShootState)
         {
-            var transitions = _handPtnChoiceState!.Transitions.ToList();
-            transitions.Add(new FsmTransition
-            {
-                FsmEvent = _orbitAttackEvent,
-                toState = newOrbitAttackState,
-                toFsmState = _orbitAttackState
-            });
-            _handPtnChoiceState.Transitions = transitions.ToArray();
+            // 使用 AddTransition 添加到 Hand Ptn Choice
+            AddTransition(_handPtnChoiceState!, CreateTransition(_orbitAttackEvent!, _orbitAttackState!));
 
-            // 添加FINISHED转换，回到Wait For Hands Ready状态
-            var finishedTransition = new FsmTransition
-            {
-                FsmEvent = FsmEvent.Finished,
-                toState = "Orbit First Shoot",
-                toFsmState = orbitFirstShootState
-            };
-
-            _orbitAttackState!.Transitions = new FsmTransition[] { finishedTransition };
+            // 设置 Orbit Attack -> Orbit First Shoot
+            SetFinishedTransition(_orbitAttackState!, orbitFirstShootState);
         }
         /// <summary>
         /// 修改HandPtnChoiceState状态的SendRandomEventV4动作，添加环绕攻击事件
@@ -831,7 +734,6 @@ namespace AnySilkBoss.Source.Behaviours
         /// </summary>
         private void CreateSilkBallAttackStates()
         {
-
             // 创建所有状态（静态版本 + 移动版本）
             _silkBallPrepareState = CreateSilkBallPrepareState();
             _silkBallPrepareCastState = CreateSilkBallPrepareCastState();
@@ -846,196 +748,79 @@ namespace AnySilkBoss.Source.Behaviours
             _silkBallDashPrepareState = CreateSilkBallDashPrepareState();
             _silkBallDashEndState = CreateSilkBallDashEndState();
 
-            // 添加到FSM
-            var states = _attackControlFsm!.FsmStates.ToList();
-            states.Add(_silkBallPrepareState);
-            states.Add(_silkBallPrepareCastState);
-            states.Add(_silkBallCastState);
-            states.Add(_silkBallLiftState);
-            states.Add(_silkBallAnticState);
-            states.Add(_silkBallReleaseState);
-            states.Add(_silkBallEndState);
-            states.Add(_silkBallRecoverState);
-            states.Add(_silkBallDashPrepareState);
-            states.Add(_silkBallDashEndState);
-            _attackControlFsm.Fsm.States = states.ToArray();
+            // 使用 FsmStateBuilder 批量添加状态
+            AddStatesToFsm(_attackControlFsm!,
+                _silkBallPrepareState, _silkBallPrepareCastState, _silkBallCastState,
+                _silkBallLiftState, _silkBallAnticState, _silkBallReleaseState,
+                _silkBallEndState, _silkBallRecoverState,
+                _silkBallDashPrepareState, _silkBallDashEndState);
 
-            // 查找Idle状态和Move Restart状态用于链接
-            var idleState = _attackControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Idle");
-            var moveRestartState = _attackControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Move Restart");
+            // 查找状态用于链接
+            var moveRestartState = FindState(_attackControlFsm, "Move Restart");
 
-            // 设置状态转换
+            // 设置状态转换（使用 CreateTransition 辅助方法）
             // Prepare -> 50% STATIC / 50% DASH + 中断转换
             _silkBallPrepareState.Transitions = new FsmTransition[]
             {
-                new FsmTransition
-                {
-                    FsmEvent = _silkBallStaticEvent,
-                    toState = "Silk Ball Prepare Cast",
-                    toFsmState = _silkBallPrepareCastState
-                },
-                new FsmTransition
-                {
-                    FsmEvent = _silkBallDashEvent,
-                    toState = "Silk Ball Dash Prepare",
-                    toFsmState = _silkBallDashPrepareState
-                },
-                new FsmTransition
-                {
-                    FsmEvent = _silkBallInterruptEvent,
-                    toState = "Move Restart",
-                    toFsmState = moveRestartState
-                }
+                CreateTransition(_silkBallStaticEvent!, _silkBallPrepareCastState!),
+                CreateTransition(_silkBallDashEvent!, _silkBallDashPrepareState!),
+                CreateTransition(_silkBallInterruptEvent!, moveRestartState!)
             };
 
-            // Dash Prepare -> Dash End (等待BossControl完成) + 中断转换 + 超时保护
+            // Dash Prepare -> Dash End + 中断 + 超时保护
             _silkBallDashPrepareState!.Transitions = new FsmTransition[]
             {
-                new FsmTransition
-                {
-                    FsmEvent = _silkBallDashEndEvent,
-                    toState = "Silk Ball Dash End",
-                    toFsmState = _silkBallDashEndState
-                },
-                new FsmTransition
-                {
-                    FsmEvent = _silkBallInterruptEvent,
-                    toState = "Move Restart",
-                    toFsmState = moveRestartState
-                },
-                // 超时保护：如果30秒内没有收到DASH END事件，强制转移（防止卡死）
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Move Restart",
-                    toFsmState = moveRestartState
-                }
+                CreateTransition(_silkBallDashEndEvent!, _silkBallDashEndState!),
+                CreateTransition(_silkBallInterruptEvent!, moveRestartState!),
+                CreateFinishedTransition(moveRestartState!)  // 超时保护
             };
 
             // Dash End -> Recover
-            _silkBallDashEndState!.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Silk Ball Recover",
-                    toFsmState = _silkBallRecoverState
-                }
-            };
-            _silkBallPrepareCastState!.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Silk Ball Cast",
-                    toFsmState = _silkBallCastState
-                }
-            };
-            // Cast -> Lift (通过FINISHED事件) + 中断转换
+            SetFinishedTransition(_silkBallDashEndState!, _silkBallRecoverState!);
+
+            // Prepare Cast -> Cast
+            SetFinishedTransition(_silkBallPrepareCastState!, _silkBallCastState!);
+
+            // Cast -> Lift + 中断转换
             _silkBallCastState!.Transitions = new FsmTransition[]
             {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Silk Ball Lift",
-                    toFsmState = _silkBallLiftState
-                },
-                new FsmTransition
-                {
-                    FsmEvent = _silkBallInterruptEvent,
-                    toState = "Move Restart",
-                    toFsmState = moveRestartState
-                }
+                CreateFinishedTransition(_silkBallLiftState!),
+                CreateTransition(_silkBallInterruptEvent!, moveRestartState!)
             };
 
-            // Lift -> Antic (上升到高点) + 中断转换 (这个最容易卡死)
+            // Lift -> Antic + 中断转换
             _silkBallLiftState!.Transitions = new FsmTransition[]
             {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Silk Ball Antic",
-                    toFsmState = _silkBallAnticState
-                },
-                new FsmTransition
-                {
-                    FsmEvent = _silkBallInterruptEvent,
-                    toState = "Move Restart",
-                    toFsmState = moveRestartState
-                }
+                CreateFinishedTransition(_silkBallAnticState!),
+                CreateTransition(_silkBallInterruptEvent!, moveRestartState!)
             };
 
-            // Antic -> Release (召唤完成后直接Release) + 中断转换
+            // Antic -> Release + 中断转换
             _silkBallAnticState!.Transitions = new FsmTransition[]
             {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Silk Ball Release",
-                    toFsmState = _silkBallReleaseState
-                },
-                new FsmTransition
-                {
-                    FsmEvent = _silkBallInterruptEvent,
-                    toState = "Move Restart",
-                    toFsmState = moveRestartState
-                }
+                CreateFinishedTransition(_silkBallReleaseState!),
+                CreateTransition(_silkBallInterruptEvent!, moveRestartState!)
             };
 
-            // Release -> End (通过FINISHED事件) + 中断转换
+            // Release -> End + 中断转换
             _silkBallReleaseState!.Transitions = new FsmTransition[]
             {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Silk Ball End",
-                    toFsmState = _silkBallEndState
-                },
-                new FsmTransition
-                {
-                    FsmEvent = _silkBallInterruptEvent,
-                    toState = "Move Restart",
-                    toFsmState = moveRestartState
-                }
+                CreateFinishedTransition(_silkBallEndState!),
+                CreateTransition(_silkBallInterruptEvent!, moveRestartState!)
             };
 
-            // End -> Recover (通过FINISHED事件)
-            _silkBallEndState!.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Silk Ball Recover",
-                    toFsmState = _silkBallRecoverState
-                }
-            };
+            // End -> Recover
+            SetFinishedTransition(_silkBallEndState!, _silkBallRecoverState!);
 
-            // Recover -> Move Restart (通过FINISHED事件，恢复移动和眩晕控制)
-            _silkBallRecoverState!.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Move Restart",
-                    toFsmState = moveRestartState
-                }
-            };
+            // Recover -> Move Restart
+            SetFinishedTransition(_silkBallRecoverState!, moveRestartState!);
 
             // 在Attack Choice状态添加转换到Silk Ball Prepare
-            var attackChoiceState = _attackControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Attack Choice");
+            var attackChoiceState = FindState(_attackControlFsm, "Attack Choice");
             if (attackChoiceState != null)
             {
-                var transitions = attackChoiceState.Transitions.ToList();
-                transitions.Add(new FsmTransition
-                {
-                    FsmEvent = _silkBallAttackEvent,
-                    toState = "Silk Ball Prepare",
-                    toFsmState = _silkBallPrepareState
-                });
-                attackChoiceState.Transitions = transitions.ToArray();
-
+                AddTransition(attackChoiceState, CreateTransition(_silkBallAttackEvent!, _silkBallPrepareState));
             }
-
         }
         /// <summary>
         /// 创建Silk Ball Prepare状态（50%静态 / 50%移动）
@@ -1853,53 +1638,13 @@ namespace AnySilkBoss.Source.Behaviours
                 _cachedPlayRoarAudio.OnEnter();
             }
 
-            // 检查丝球列表
-            if (_activeSilkBalls == null || _activeSilkBalls.Count == 0)
-            {
-                Log.Warn($"警告：丝球列表为空或null（数量: {_activeSilkBalls?.Count ?? 0}），无法释放！");
-                yield break;
-            }
-
-            Log.Info($"当前丝球列表数量: {_activeSilkBalls.Count}");
-
-            // 释放所有丝球
-            int successCount = 0;
-            int preparedCount = 0;
-            foreach (var ball in _activeSilkBalls)
-            {
-                if (ball != null)
-                {
-                    var behavior = ball.GetComponent<SilkBallBehavior>();
-                    if (behavior != null)
-                    {
-                        if (behavior.isPrepared)
-                        {
-                            preparedCount++;
-                        }
-
-                        var fsm = ball.GetComponent<PlayMakerFSM>();
-                        if (fsm != null)
-                        {
-                            ball.LocateMyFSM("Control").SendEvent("SILK BALL RELEASE");
-                            successCount++;
-                        }
-                        else
-                        {
-                            Log.Error($"✗ 丝球 {ball.name} 没有PlayMakerFSM组件！");
-                        }
-                    }
-                    else
-                    {
-                        Log.Error($"✗ 丝球 {ball.name} 没有SilkBallBehavior组件！");
-                    }
-                }
-                else
-                {
-                    Log.Error("✗ 列表中有null丝球对象！");
-                }
-            }
-
-            Log.Info($"=== 释放完成：成功 {successCount}/{_activeSilkBalls.Count} 个，其中已准备 {preparedCount} 个 ===");
+            // 使用 EventRegister 全局广播释放事件
+            // 只有处于 Prepare 状态的丝球会响应（FSM 转换决定）
+            // 池内的 Idle 状态丝球会忽略该事件
+            Log.Info($"=== 广播 SILK BALL RELEASE 事件，释放所有已准备的丝球 ===");
+            EventRegister.SendEvent("SILK BALL RELEASE");
+            
+            // 清空本地跟踪列表（不再需要逐个管理）
             _activeSilkBalls.Clear();
 
             // 等待0.2秒后退出协程
@@ -2596,24 +2341,24 @@ namespace AnySilkBoss.Source.Behaviours
 
             Log.Info("=== 开始创建爬升阶段攻击状态链 ===");
 
-            // 创建攻击状态
-            var climbAttackChoice = CreateClimbAttackChoiceState();
-            var climbNeedleAttack = CreateClimbNeedleAttackState();
-            var climbWebAttack = CreateClimbWebAttackState();
-            var climbSilkBallAttack = CreateClimbSilkBallAttackState();
-            var climbAttackCooldown = CreateClimbAttackCooldownState();
+            // 使用 FsmStateBuilder 批量创建爬升阶段攻击状态
+            var climbStates = CreateStates(_attackControlFsm.Fsm,
+                ("Climb Attack Choice", "爬升阶段攻击选择"),
+                ("Climb Needle Attack", "爬升阶段针攻击"),
+                ("Climb Web Attack", "爬升阶段网攻击"),
+                ("Climb Silk Ball Attack", "爬升阶段丝球攻击"),
+                ("Climb Attack Cooldown", "爬升阶段攻击冷却")
+            );
+            AddStatesToFsm(_attackControlFsm, climbStates);
+
+            var climbAttackChoice = climbStates[0];
+            var climbNeedleAttack = climbStates[1];
+            var climbWebAttack = climbStates[2];
+            var climbSilkBallAttack = climbStates[3];
+            var climbAttackCooldown = climbStates[4];
 
             // 找到Idle状态用于转换
-            var idleState = _attackControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Idle");
-
-            // 添加状态到FSM
-            var states = _attackControlFsm.FsmStates.ToList();
-            states.Add(climbAttackChoice);
-            states.Add(climbNeedleAttack);
-            states.Add(climbWebAttack);
-            states.Add(climbSilkBallAttack);
-            states.Add(climbAttackCooldown);
-            _attackControlFsm.Fsm.States = states.ToArray();
+            var idleState = FindState(_attackControlFsm, "Idle");
 
             // 添加动作
             AddClimbAttackChoiceActions(climbAttackChoice);
@@ -2629,56 +2374,10 @@ namespace AnySilkBoss.Source.Behaviours
             // 添加全局转换
             AddClimbPhaseAttackGlobalTransitions(climbAttackChoice, idleState);
 
-            // 初始化FSM
-            _attackControlFsm.Fsm.InitData();
-            _attackControlFsm.Fsm.InitEvents();
+            // 重新初始化FSM
+            ReinitializeFsm(_attackControlFsm);
 
             Log.Info("=== 爬升阶段攻击状态链创建完成 ===");
-        }
-
-        private FsmState CreateClimbAttackChoiceState()
-        {
-            return new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "Climb Attack Choice",
-                Description = "爬升阶段攻击选择"
-            };
-        }
-
-        private FsmState CreateClimbNeedleAttackState()
-        {
-            return new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "Climb Needle Attack",
-                Description = "爬升阶段针攻击"
-            };
-        }
-
-        private FsmState CreateClimbWebAttackState()
-        {
-            return new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "Climb Web Attack",
-                Description = "爬升阶段网攻击"
-            };
-        }
-
-        private FsmState CreateClimbSilkBallAttackState()
-        {
-            return new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "Climb Silk Ball Attack",
-                Description = "爬升阶段丝球攻击"
-            };
-        }
-
-        private FsmState CreateClimbAttackCooldownState()
-        {
-            return new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "Climb Attack Cooldown",
-                Description = "爬升阶段攻击冷却"
-            };
         }
 
         private void AddClimbAttackChoiceActions(FsmState choiceState)
@@ -2800,67 +2499,18 @@ namespace AnySilkBoss.Source.Behaviours
             // Choice -> 各种攻击
             choiceState.Transitions = new FsmTransition[]
             {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.GetFsmEvent("CLIMB NEEDLE ATTACK"),
-                    toState = "Climb Needle Attack",
-                    toFsmState = needleState
-                },
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.GetFsmEvent("CLIMB WEB ATTACK"),
-                    toState = "Climb Web Attack",
-                    toFsmState = webState
-                },
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.GetFsmEvent("CLIMB SILK BALL ATTACK"),
-                    toState = "Climb Silk Ball Attack",
-                    toFsmState = silkBallState
-                }
+                CreateTransition(FsmEvent.GetFsmEvent("CLIMB NEEDLE ATTACK"), needleState),
+                CreateTransition(FsmEvent.GetFsmEvent("CLIMB WEB ATTACK"), webState),
+                CreateTransition(FsmEvent.GetFsmEvent("CLIMB SILK BALL ATTACK"), silkBallState)
             };
 
             // 各攻击 -> Cooldown
-            needleState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Climb Attack Cooldown",
-                    toFsmState = cooldownState
-                }
-            };
-
-            webState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Climb Attack Cooldown",
-                    toFsmState = cooldownState
-                }
-            };
-
-            silkBallState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Climb Attack Cooldown",
-                    toFsmState = cooldownState
-                }
-            };
+            SetFinishedTransition(needleState, cooldownState);
+            SetFinishedTransition(webState, cooldownState);
+            SetFinishedTransition(silkBallState, cooldownState);
 
             // Cooldown -> Choice (循环)
-            cooldownState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Climb Attack Choice",
-                    toFsmState = choiceState
-                }
-            };
+            SetFinishedTransition(cooldownState, choiceState);
 
             Log.Info("爬升阶段攻击转换设置完成");
         }
@@ -3047,11 +2697,9 @@ namespace AnySilkBoss.Source.Behaviours
 
             yield return new WaitForSeconds(0.6f);
 
-            // 释放所有丝球
-            foreach (var ball in ballObjects)
-            {
-                ball.LocateMyFSM("Control").SendEvent("SILK BALL RELEASE");
-            }
+            // 使用 EventRegister 全局广播释放事件
+            Log.Info("=== 广播 SILK BALL RELEASE 事件，释放爬升阶段丝球 ===");
+            EventRegister.SendEvent("SILK BALL RELEASE");
 
             yield return new WaitForSeconds(1f);
         }
