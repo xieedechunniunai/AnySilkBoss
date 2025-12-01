@@ -231,7 +231,7 @@ namespace AnySilkBoss.Source.Behaviours
             controlFSM.FsmVariables.Init();
             controlFSM.Fsm.InitStates();
             controlFSM.Fsm.InitData();
-            controlFSM.Fsm.InitEvents(); 
+            controlFSM.Fsm.InitEvents();
         }
         /// <summary>
         /// 添加环绕攻击全局转换 - 新版本：两个独立状态
@@ -751,9 +751,9 @@ namespace AnySilkBoss.Source.Behaviours
             var attackStartPauseState = controlFSM.FsmStates.FirstOrDefault(s => s.Name == "Attack Start Pause");
             if (attackStartPauseState != null)
             {
-                setParamsState.Transitions = new FsmTransition[] 
-                { 
-                    new FsmTransition { FsmEvent = FsmEvent.Finished, toState = "Attack Start Pause", toFsmState = attackStartPauseState } 
+                setParamsState.Transitions = new FsmTransition[]
+                {
+                    new FsmTransition { FsmEvent = FsmEvent.Finished, toState = "Attack Start Pause", toFsmState = attackStartPauseState }
                 };
             }
 
@@ -834,9 +834,9 @@ namespace AnySilkBoss.Source.Behaviours
             var attackStartPauseState = controlFSM.FsmStates.FirstOrDefault(s => s.Name == "Attack Start Pause");
             if (attackStartPauseState != null)
             {
-                setParamsState.Transitions = new FsmTransition[] 
-                { 
-                    new FsmTransition { FsmEvent = FsmEvent.Finished, toState = "Attack Start Pause", toFsmState = attackStartPauseState } 
+                setParamsState.Transitions = new FsmTransition[]
+                {
+                    new FsmTransition { FsmEvent = FsmEvent.Finished, toState = "Attack Start Pause", toFsmState = attackStartPauseState }
                 };
             }
 
@@ -1063,7 +1063,7 @@ namespace AnySilkBoss.Source.Behaviours
             // 获取/创建 Bool 变量
             var rotationVar = controlFSM.FsmVariables.GetFsmFloat("Attack Rotation");
             var specialAttackVar = _specialAttackVar;
-            
+
             // 创建 "Is Swipe" Bool 变量用于存储 Float 比较结果
             var boolVars = controlFSM.FsmVariables.BoolVariables.ToList();
             var isSwipeVar = boolVars.FirstOrDefault(v => v.Name == "Is Swipe");
@@ -1269,6 +1269,10 @@ namespace AnySilkBoss.Source.Behaviours
         private GameObject? _hero;
         private Vector3 _offset;
 
+        // 新增：记录进入时的位置，用于锁定非追踪轴
+        private float _fixedX;
+        private float _fixedY;
+
         public override void Reset()
         {
             targetX = null;
@@ -1284,11 +1288,14 @@ namespace AnySilkBoss.Source.Behaviours
             _hero = HeroController.instance?.gameObject;
             if (_hero == null) { Finish(); return; }
 
-            float tx = targetX != null ? targetX.Value : Owner.transform.position.x;
-            float ty = targetY != null ? targetY.Value : Owner.transform.position.y;
+            // 1. 记录当前位置作为固定位置
+            _fixedX = Owner.transform.position.x;
+            _fixedY = Owner.transform.position.y;
+
+            float tx = targetX != null ? targetX.Value : _fixedX;
+            float ty = targetY != null ? targetY.Value : _fixedY;
 
             // 计算相对于玩家的初始偏移量
-            // 如果启用追踪，将保持此相对偏移
             _offset = new Vector3(tx - _hero.transform.position.x, ty - _hero.transform.position.y, 0f);
 
             // 初始旋转设置
@@ -1296,22 +1303,46 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 Owner.transform.rotation = Quaternion.Euler(0f, 0f, attackRotation.Value);
             }
+
+            // 2. 立即清零速度，防止惯性
+            ZeroVelocity();
         }
 
         public override void OnUpdate()
         {
             if (_hero == null) return;
 
-            float destX = (targetX != null) ? targetX.Value : Owner.transform.position.x;
-            float destY = (targetY != null) ? targetY.Value : Owner.transform.position.y;
+            // 3. 确定目标 X
+            float destX;
+            if (trackHeroX)
+            {
+                destX = _hero.transform.position.x + _offset.x;
+            }
+            else if (targetX != null)
+            {
+                destX = targetX.Value;
+            }
+            else
+            {
+                // 既不追踪也没有特定目标，锁定在进入时的位置，防止漂移
+                destX = _fixedX;
+            }
 
-            // 如果启用追踪，基于当前玩家位置 + 初始偏移 更新目标位置
-            if (trackHeroX) destX = _hero.transform.position.x + _offset.x;
+            // 确定目标 Y
+            float destY;
             if (trackHeroY)
             {
                 // 特殊处理：如果启用Y轴追踪（主要用于Swipe），将targetY视为相对Hero的Offset
                 float offsetVal = (targetY != null) ? targetY.Value : _offset.y;
                 destY = _hero.transform.position.y + offsetVal;
+            }
+            else if (targetY != null)
+            {
+                destY = targetY.Value;
+            }
+            else
+            {
+                destY = _fixedY;
             }
 
             // 限制 Y 轴最低高度
@@ -1325,8 +1356,20 @@ namespace AnySilkBoss.Source.Behaviours
                 Owner.transform.rotation = Quaternion.Lerp(Owner.transform.rotation, Quaternion.Euler(0f, 0f, attackRotation.Value), Time.deltaTime * 20f);
             }
         }
-    }
 
+        private void ZeroVelocity()
+        {
+            if (Owner != null)
+            {
+                var rb2d = Owner.GetComponent<Rigidbody2D>();
+                if (rb2d != null)
+                {
+                    rb2d.linearVelocity = Vector2.zero;
+                    rb2d.angularVelocity = 0f;
+                }
+            }
+        }
+    }
     public abstract class CustomEaseFsmAction : FsmStateAction
     {
         public override void Reset()

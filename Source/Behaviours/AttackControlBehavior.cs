@@ -36,6 +36,11 @@ namespace AnySilkBoss.Source.Behaviours
         // FSM引用
         private PlayMakerFSM? _attackControlFsm;
 
+        /// <summary>
+        /// 公共属性：Attack Control FSM 是否已初始化
+        /// </summary>
+        public bool IsAttackControlFsmReady => _attackControlFsm != null;
+
         // 状态引用
         private FsmState? _handPtnChoiceState;
         private FsmState? _orbitAttackState;
@@ -82,6 +87,7 @@ namespace AnySilkBoss.Source.Behaviours
         private FsmVector2? _lastBallPosition;    // 上次生成丝球的位置
 
         private FsmGameObject? _laceSlashObj;
+        private FsmGameObject? _spikeFloorsX;
         // 移动丝球相关事件
         private FsmEvent? _silkBallStaticEvent;
         private FsmEvent? _silkBallDashEvent;
@@ -295,16 +301,16 @@ namespace AnySilkBoss.Source.Behaviours
                 return;
             }
 
-            // 创建新的环绕攻击状态
+            // 创建新的环绕攻击状态,控制Hand发送Finger攻击事件
             CreateOrbitAttackState();
 
-            // 创建丝球环绕攻击状态链
+            // 创建丝球环绕攻击状态链,控制Hand发送Finger攻击事件
             CreateSilkBallAttackStates();
 
-            // 创建爬升阶段攻击状态链
+            // 创建爬升阶段攻击状态链,爬升阶段攻击使用环绕攻击/丝球攻击/单根网攻击
             CreateClimbPhaseAttackStates();
 
-            // 创建P6 Web攻击状态链
+            // 创建P6 Web攻击状态链，P6 Web让P6使用一次网攻击，节点带小丝球的攻击
             CreateP6WebAttackStates();
 
             // 修改Rubble Attack?状态，添加P6 Web攻击监听
@@ -315,14 +321,14 @@ namespace AnySilkBoss.Source.Behaviours
 
             // 修改Attack Choice，添加丝球攻击
             ModifyAttackChoiceForSilkBall();
-            // 新增：初始化后处理原版攻击Pattern补丁
+            // 新增：初始化后处理原版攻击Pattern补丁，让网攻击变为三次
             PatchOriginalAttackPatterns();
+            // 添加攻击停止动作，清除场上丝球
+            AddAttactStopAction();
+            // 新增：修改Spike Lift Aim状态，让地刺数量增多
+            ModifySpikeLiftAimState();
             // 重新链接所有事件引用
             RelinkAllEventReferences();
-
-            // // 针对Boss眩晕添加中断处理
-            // AddStunHandlingHooks();
-
             Log.Info("Attack Control FSM修改完成");
         }
         /// <summary>
@@ -348,27 +354,6 @@ namespace AnySilkBoss.Source.Behaviours
             _silkBallInterruptEvent = FsmEvent.GetFsmEvent("SILK BALL INTERRUPT");
             _silkBallRecoverEvent = FsmEvent.GetFsmEvent("SILK BALL RECOVER");
             _nullEvent = FsmEvent.GetFsmEvent("NULL");
-            if (_orbitAttackEvent == null)
-            {
-                Log.Error("未找到ORBIT ATTACK事件");
-                return;
-            }
-            if (_orbitStartHandLEvent == null)
-            {
-                Log.Error("未找到ORBIT START Hand L事件");
-                return;
-            }
-            if (_orbitStartHandREvent == null)
-            {
-                Log.Error("未找到ORBIT START Hand R事件");
-                return;
-            }
-            if (_silkBallAttackEvent == null)
-            {
-                Log.Error("未找到SILK BALL ATTACK事件");
-                return;
-            }
-
             // 将事件添加到FSM的事件列表中
             var existingEvents = _attackControlFsm.Fsm.Events.ToList();
 
@@ -1287,6 +1272,14 @@ namespace AnySilkBoss.Source.Behaviours
                 _laceSlashObj = new FsmGameObject("Lace Slash Obj") { Value = laceCircleSlash };
                 var objects = _attackControlFsm.FsmVariables.GameObjectVariables.ToList();
                 objects.Add(_laceSlashObj);
+                _attackControlFsm.FsmVariables.GameObjectVariables = objects.ToArray();
+            }
+            _spikeFloorsX = _attackControlFsm.FsmVariables.FindFsmGameObject("Spike Floors X");
+            if (_spikeFloorsX == null || _spikeFloorsX.Value == null)
+            {
+                _spikeFloorsX = new FsmGameObject("Spike Floors X") { Value = null };
+                var objects = _attackControlFsm.FsmVariables.GameObjectVariables.ToList();
+                objects.Add(_spikeFloorsX);
                 _attackControlFsm.FsmVariables.GameObjectVariables = objects.ToArray();
             }
             _attackControlFsm.FsmVariables.Init();
@@ -2437,13 +2430,70 @@ namespace AnySilkBoss.Source.Behaviours
             // 将修改后的 Actions 重新赋值回状态
             dashAttackEndState.Actions = dashAttackEndactions.ToArray();
         }
+        private void ModifySpikeLiftAimState()
+        {
+            var spikeLiftAimState = _attackControlFsm?.FsmStates.FirstOrDefault(x => x.Name == "Spike Lift Aim");
+            var spikeLiftAimState2 = _attackControlFsm?.FsmStates.FirstOrDefault(x => x.Name == "Spike Lift Aim 2");
+            if (spikeLiftAimState == null || spikeLiftAimState2 == null || _bossScene == null) { return; }
+            var spikeFloors = _bossScene.transform.Find("Spike Floors").gameObject;
+            // 获取状态的所有 Actions
+            var spikeLiftAimactions = spikeLiftAimState.Actions.ToList();
+            var spikeLiftAimactions2 = spikeLiftAimState2.Actions.ToList();
+            spikeLiftAimactions.Add(new GetRandomChild
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.SpecifyGameObject, gameObject = new FsmGameObject { Value = spikeFloors } },
+                storeResult = _spikeFloorsX
+            });
+            spikeLiftAimactions.Add(new SendEventByName
+            {
+                eventTarget = new FsmEventTarget
+                {
+                    target = FsmEventTarget.EventTarget.GameObject,
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        gameObject = _spikeFloorsX
+                    }
+                },
+                sendEvent = new FsmString { Value = "ATTACK" },
+                delay = new FsmFloat { Value = 0.2f }
+            });
+            foreach (var action in spikeLiftAimactions)
+            {
+                if (action is Wait wait &&
+                    wait.time?.Value != null)
+                {
+                    wait.time = new FsmFloat(0.3f);
+                }
+            }
 
+            spikeLiftAimactions2.Add(new GetRandomChild
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.SpecifyGameObject, gameObject = new FsmGameObject { Value = spikeFloors } },
+                storeResult = _spikeFloorsX
+            });
+            spikeLiftAimactions2.Add(new SendEventByName
+            {
+                eventTarget = new FsmEventTarget
+                {
+                    target = FsmEventTarget.EventTarget.GameObject,
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        gameObject = _spikeFloorsX
+                    }
+                },
+                sendEvent = new FsmString { Value = "ATTACK" },
+                delay = new FsmFloat { Value = 0.2f }
+            });
+            spikeLiftAimState.Actions = spikeLiftAimactions.ToArray();
+            spikeLiftAimState2.Actions = spikeLiftAimactions2.ToArray();
+        }
 
-        private void ClearSilkBallMethod()
+        public void ClearSilkBallMethod()
         {
             Log.Info("Boss眩晕，开始清理丝球");
-            StopGeneratingSilkBall();
-            ClearActiveSilkBalls();
+
             // 通过SilkBallManager清理所有丝球实例
             var managerObj = GameObject.Find("AnySilkBossManager");
             if (managerObj != null)
@@ -2463,6 +2513,8 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 Log.Warn("未找到AnySilkBossManager GameObject");
             }
+            StopGeneratingSilkBall();
+            ClearActiveSilkBalls();
         }
 
         #endregion
@@ -2866,7 +2918,7 @@ namespace AnySilkBoss.Source.Behaviours
             Vector3 rotation = new Vector3(0f, 0f, angle);
 
             // 生成网并触发攻击
-            webManager.SpawnAndAttack(playerPos, rotation, null, 0f, 0.75f);
+            webManager.SpawnAndAttack(playerPos, rotation, new Vector3(2f, 1f, 1f), 0f, 0.75f);
             Log.Info($"在玩家位置生成网，角度: {angle}°");
         }
 

@@ -4,6 +4,7 @@ using UnityEngine;
 using HutongGames.PlayMaker;
 using AnySilkBoss.Source.Tools;
 using AnySilkBoss.Source.Managers;
+using HutongGames.PlayMaker.Actions;
 
 namespace AnySilkBoss.Source.Behaviours
 {
@@ -16,21 +17,21 @@ namespace AnySilkBoss.Source.Behaviours
         #region Fields
         // FSM 引用
         private PlayMakerFSM? _controlFsm;
-        
+
         // DamageHero 引用
         private DamageHero? _damageHero;
         private Transform? _heroCatcher;
-        
+
         // 父对象引用（对象池容器）
         private Transform? _poolContainer;
-        
+
         // 冷却系统
         private bool _isAvailable = true;  // 是否可用（不在冷却中）
         private const float CooldownDuration = 6f;  // 冷却时间6秒
-        
+
         // 攻击参数
         private bool _isAttacking = false;
-        
+
         // 初始化标志
         private bool _initialized = false;
         #endregion
@@ -40,7 +41,7 @@ namespace AnySilkBoss.Source.Behaviours
         /// 是否可用（不在冷却中且未在攻击中）
         /// </summary>
         public bool IsAvailable => _isAvailable && !_isAttacking;
-        
+
         /// <summary>
         /// 是否正在攻击
         /// </summary>
@@ -117,7 +118,6 @@ namespace AnySilkBoss.Source.Behaviours
                 // 默认禁用，等待攻击时启用
                 _damageHero.enabled = false;
             }
-            gameObject.transform.SetScaleX(2f);
             // 4. 修改 Control FSM
             ModifyControlFsm();
 
@@ -283,7 +283,7 @@ namespace AnySilkBoss.Source.Behaviours
             _isAttacking = false;
             DisableDamageHero();
             ResetToPoolContainer();
-            
+
             // 注意：强制停止不会重置冷却，需要手动调用 ResetCooldown
         }
 

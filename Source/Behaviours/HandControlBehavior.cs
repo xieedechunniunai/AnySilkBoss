@@ -914,7 +914,7 @@ namespace AnySilkBoss.Source.Behaviours
             }
 
             // 为每根 Finger Blade 设置追踪时间（随机分配）
-            List<float> trackTimes = new List<float> { 1.4f + UnityEngine.Random.Range(-0.1f, 0.1f), 1.8f + UnityEngine.Random.Range(-0.1f, 0.1f), 2.2f + UnityEngine.Random.Range(-0.1f, 0.1f) };
+            List<float> trackTimes = new List<float> { 1.2f + UnityEngine.Random.Range(-0.1f, 0.1f), 1.55f + UnityEngine.Random.Range(-0.1f, 0.1f), 1.9f + UnityEngine.Random.Range(-0.1f, 0.1f) };
 
             // 随机打乱追踪时间列表
             for (int i = trackTimes.Count - 1; i > 0; i--)

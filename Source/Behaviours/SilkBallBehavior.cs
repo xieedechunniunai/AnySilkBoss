@@ -260,6 +260,8 @@ namespace AnySilkBoss.Source.Behaviours
                         damageHero.OnDamagedHero = new UnityEngine.Events.UnityEvent();
                     }
                 }
+                // ⚠️ 关键修复：创建后默认禁用伤害组件，等待 PrepareForUse 中的延迟激活
+                damageHero.enabled = false;
             }
 
             // 查找玩家（只在第一次调用时）
@@ -347,10 +349,6 @@ namespace AnySilkBoss.Source.Behaviours
 
             // 重置状态
             ResetState();
-
-            // ⚠️ 强制重新获取并启用Glow（修复背景光缺失问题）
-            EnsureGlowEnabled();
-
             // 标记为不可用（正在使用中）
             _isAvailable = false;
             isActive = true;
@@ -386,11 +384,14 @@ namespace AnySilkBoss.Source.Behaviours
                 rb2d.gravityScale = 0f;
             }
 
-            // 重新启用伤害和碰撞
+            // 先禁用伤害组件，然后延后0.15s激活
             if (damageHero != null)
             {
-                damageHero.enabled = true;
+                damageHero.enabled = false;
+                StartCoroutine(EnableDamageAfterDelay(0.15f));
             }
+
+            // 启用碰撞
             if (mainCollider != null)
             {
                 mainCollider.enabled = true;
@@ -422,6 +423,20 @@ namespace AnySilkBoss.Source.Behaviours
         }
 
         /// <summary>
+        /// 延迟激活伤害组件
+        /// </summary>
+        private IEnumerator EnableDamageAfterDelay(float delay)
+        {
+            yield return new WaitForSeconds(delay);
+
+            // 只在丝球仍处于活跃状态时才激活伤害组件
+            if (isActive && damageHero != null)
+            {
+                damageHero.enabled = true;
+            }
+        }
+
+        /// <summary>
         /// 应用整体缩放
         /// </summary>
         private void ApplyScale()
@@ -436,24 +451,6 @@ namespace AnySilkBoss.Source.Behaviours
                 mainCollider.radius *= scale;
             }
 
-        }
-
-        /// <summary>
-        /// 强制重新获取并启用Glow（修复对象池复用时背景光缺失问题）
-        /// </summary>
-        private void EnsureGlowEnabled()
-        {
-            // 强制重新查找Glow（即使引用已存在，也重新查找以确保正确）
-            var glowTransform = transform.Find("Glow");
-            if (glowTransform != null)
-            {
-                Glow = glowTransform;
-                Glow.gameObject.SetActive(true);
-            }
-            else
-            {
-                Log.Warn($"未找到Glow子对象: {gameObject.name}");
-            }
         }
 
         /// <summary>
@@ -1277,6 +1274,12 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 rb2d.linearVelocity = Vector2.zero;
                 rb2d.gravityScale = 0f;
+            }
+
+            // ⚠️ 关键修复：回收时禁用伤害组件，确保下次从池中取出时不会立即造成伤害
+            if (damageHero != null)
+            {
+                damageHero.enabled = false;
             }
 
             // 清空自定义目标

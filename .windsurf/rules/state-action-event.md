@@ -27,6 +27,7 @@ FsmString 必须显式赋 Value，构造函数仅设置“键/名字”，不含
 对于一个状态来说，进入后会依次按序号执行《所有的瞬发性行为》，然后再执行那些持续性的行为，然后这时会锁住当前状态，所以单纯的把某个行为放到wait后并不能让他延后触发
 对于全是瞬发性Action的State，完成后会自动触发默认事件FINISHED,需要注意
 如需表达复杂分支，请使用“中间状态”进行显式拆分，保持「一事件一跳转」不变。
+CallMethod行为的method必须为plublic的，否则会报错
 新增事件/跳转后的初始化（强制）
 新增 Event 或 Transition 后，必须在最后重新初始化引用：
     _attackControlFsm.Fsm.InitData();
