@@ -51,11 +51,12 @@ public class Plugin : BaseUnityPlugin
         {
             _harmony = new Harmony(MyPluginInfo.PLUGIN_GUID);
             _harmony.PatchAll(typeof(BossPatches));
-            Log.Info("BossPatches Harmony patches applied successfully");
+            _harmony.PatchAll(typeof(MemorySceneTransitionPatch));
+            Log.Info("Harmony patches applied successfully");
         }
         catch (System.Exception ex)
         {
-            Log.Error($"Failed to apply BossPatches Harmony patches: {ex.Message}");
+            Log.Error($"Failed to apply Harmony patches: {ex.Message}");
             Log.Error($"Stack trace: {ex.StackTrace}");
         }
     }
@@ -101,9 +102,8 @@ public class Plugin : BaseUnityPlugin
             // 添加大丝球管理器组件
             AnySilkBossManager.AddComponent<BigSilkBallManager>();
 
-            // 添加存档管理器组件
-            AnySilkBossManager.AddComponent<SaveSwitchManager>();
-
+            // 添加 Memory 模式管理器组件
+            AnySilkBossManager.AddComponent<MemoryManager>();
             // 添加死亡管理器组件
             AnySilkBossManager.AddComponent<DeathManager>();
 
@@ -111,7 +111,7 @@ public class Plugin : BaseUnityPlugin
             AnySilkBossManager.AddComponent<ToolRestoreManager>();
             // 添加单根丝线管理器组件
             AnySilkBossManager.AddComponent<SingleWebManager>();
-            AnySilkBossManager.AddComponent<LaceBossManager>();
+
             Log.Info("创建持久化管理器和所有组件");
             // StartCoroutine(InitializeLaceBoss());
         }
@@ -242,7 +242,7 @@ public class Plugin : BaseUnityPlugin
                 bool oldValue = platform.Value;
                 platform.Value = false;
                 resetCount++;
-                Log.Info($"平台 {platform.ID} - 原状态: {oldValue} → 新状态: FALSE");
+                Log.Info($"平台 {platform.ID} - 原状态: {oldValue} → 新状态: False");
             }
 
             Log.Info($"成功重置 {resetCount} 个平台");
@@ -251,36 +251,6 @@ public class Plugin : BaseUnityPlugin
         {
             Log.Error($"重置平台失败: {ex.Message}");
             Log.Error($"堆栈跟踪: {ex.StackTrace}");
-        }
-    }
-    /// <summary>
-    /// 初始化并预加载 Lace Boss
-    /// </summary>
-    private IEnumerator InitializeLaceBoss()
-    {
-        Log.Info("[LaceBoss] 开始预加载 Lace Boss...");
-
-        var laceBossManager = AnySilkBossManager.GetComponent<LaceBossManager>();
-        if (laceBossManager == null)
-        {
-            Log.Error("[LaceBoss] 未找到 LaceBossManager 组件");
-            yield break;
-        }
-
-        // 预加载 Lace Boss
-        var preloadTask = laceBossManager.PreloadLaceBoss();
-        while (!preloadTask.IsCompleted)
-        {
-            yield return null;
-        }
-
-        if (laceBossManager.LaceBoss2Cache != null)
-        {
-            Log.Info("[LaceBoss] Lace Boss 预加载成功");
-        }
-        else
-        {
-            Log.Error("[LaceBoss] Lace Boss 预加载失败");
         }
     }
     private void OnDestroy()

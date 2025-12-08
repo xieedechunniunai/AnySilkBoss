@@ -190,7 +190,7 @@ internal class BossBehavior : MonoBehaviour
         SetupControlIdlePendingTransitions();
         
         // 使用 FsmStateBuilder 重新初始化FSM
-        ReinitializeFsm(_bossControlFsm);
+        // ReinitializeFsm(_bossControlFsm);
         ReinitializeFsmVariables(_bossControlFsm);
         Log.Info("Boss Control FSM修改完成");
     }
@@ -289,7 +289,7 @@ internal class BossBehavior : MonoBehaviour
             dashEndState);
 
         // 初始化FSM
-        ReinitializeFsm(_bossControlFsm);
+        // ReinitializeFsm(_bossControlFsm);
 
         Log.Info("移动丝球状态链创建完成");
     }
@@ -580,7 +580,7 @@ internal class BossBehavior : MonoBehaviour
         }
 
         // 重新初始化FSM
-        ReinitializeFsm(_bossControlFsm);
+        // ReinitializeFsm(_bossControlFsm);
 
         Log.Info("大丝球大招锁定状态创建完成");
     }
@@ -1145,7 +1145,7 @@ internal class BossBehavior : MonoBehaviour
         }
 
         // 重新初始化FSM
-        ReinitializeFsm(_bossControlFsm);
+        // ReinitializeFsm(_bossControlFsm);
 
         Log.Info("移动丝球状态全局中断监听添加完成");
     }
@@ -1219,7 +1219,7 @@ internal class BossBehavior : MonoBehaviour
         AddClimbPhaseGlobalTransitionsNew(climbRoarPrepare, climbRoamInit, idleState);
         
         // 重新初始化FSM
-        ReinitializeFsm(_bossControlFsm);
+        // ReinitializeFsm(_bossControlFsm);
         ReinitializeFsmVariables(_bossControlFsm);
         Log.Info("=== 爬升阶段状态链创建完成 ===");
     }
@@ -1823,7 +1823,6 @@ internal class BossBehavior : MonoBehaviour
 
         // 重新初始化FSM
         controlFsm.Fsm.InitData();
-        controlFsm.Fsm.InitEvents();
 
         Log.Info("爬升Cast保护初始化完成");
     }

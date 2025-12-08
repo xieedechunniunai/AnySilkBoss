@@ -133,7 +133,6 @@ namespace AnySilkBoss.Source.Behaviours
             AddClimbPhaseStates();
             Log.Info("阶段控制器行为初始化完成");
             _phaseControl.Fsm.InitData();
-            _phaseControl.Fsm.InitEvents();
             _phaseControl.FsmVariables.Init();
             yield return null;
         }
@@ -1817,7 +1816,7 @@ namespace AnySilkBoss.Source.Behaviours
                 climbBossActiveState, climbCompleteState, setP4State);
 
             // 重新初始化FSM
-            ReinitializeFsm(_phaseControl);
+            // ReinitializeFsm(_phaseControl);
 
             Log.Info("=== 爬升阶段状态序列添加完成 ===");
         }
@@ -2484,14 +2483,13 @@ namespace AnySilkBoss.Source.Behaviours
             }
 
             var rb = hero.GetComponent<Rigidbody2D>();
-
+            GameManager._instance?.inputHandler?.StopAcceptingInput();
             // 1. RelinquishControl
             hero.RelinquishControl();
-
             // 2. StopAnimationControl
             hero.StopAnimationControl();
 
-            // 3. AffectedByGravity(false) - 关键！解决空中BUG
+            // 3. AffectedByGravity(false) 
             hero.AffectedByGravity(false);
 
             // 4. SetVelocity2d(0, 0) - 停止所有速度
@@ -2754,6 +2752,7 @@ namespace AnySilkBoss.Source.Behaviours
             }
 
             // 10. 恢复玩家控制和动画控制
+            GameManager._instance?.inputHandler?.StartAcceptingInput();
             hero.RegainControl();
             hero.StartAnimationControl();
 
@@ -2935,7 +2934,7 @@ namespace AnySilkBoss.Source.Behaviours
                 bossBehavior.EnableBossCollider();
             }
 
-           // ⚠️ Boss完全恢复后，发送 CLIMB PHASE END 到 Attack Control 恢复攻击
+            // ⚠️ Boss完全恢复后，发送 CLIMB PHASE END 到 Attack Control 恢复攻击
             if (_attackControl != null)
             {
                 _attackControl.SendEvent("CLIMB PHASE END");

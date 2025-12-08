@@ -574,9 +574,8 @@ namespace AnySilkBoss.Source.Behaviours
             AddHitHeroDisperseTransitions(hitHeroDisperseState, recycleState);
             AddDisappearTransitions(disappearState, recycleState);
             AddHasGravityTransitions(hasGravityState, disperseState, hitHeroDisperseState);
-            // 初始化 FSM 数据和事件
+            // 初始化 FSM 数据
             controlFSM.Fsm.InitData();
-            controlFSM.Fsm.InitEvents();
             // 确保 Started 标记为 true（PlayMakerFSM.Start() 会检查这个）
             // 通过反射设置 Started 为 true
             var fsmType = controlFSM.Fsm.GetType();

@@ -173,7 +173,6 @@ namespace AnySilkBoss.Source.Behaviours
 
             // 重新初始化 FSM
             _controlFsm.Fsm.InitData();
-            _controlFsm.Fsm.InitEvents();
             Log.Info("  Control FSM 修改完成并已重新初始化");
         }
 

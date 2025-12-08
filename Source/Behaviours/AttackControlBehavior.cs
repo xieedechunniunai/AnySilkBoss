@@ -380,7 +380,7 @@ namespace AnySilkBoss.Source.Behaviours
             if (_attackControlFsm == null) return;
 
             // 使用 FsmStateBuilder 重新初始化FSM
-            ReinitializeFsm(_attackControlFsm);
+            // ReinitializeFsm(_attackControlFsm);
             ReinitializeFsmVariables(_attackControlFsm);
         }
         private T? CloneAction<T>(string sourceStateName, int matchIndex = 0, Func<T, bool>? predicate = null) where T : FsmStateAction
@@ -1700,7 +1700,6 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 actions.Add(setVelocity);
             }
-
             //  播放Cast动画
             actions.Add(new Tk2dPlayAnimationWithEventsV2
             {
@@ -2089,8 +2088,6 @@ namespace AnySilkBoss.Source.Behaviours
 
                 // 重新初始化FSM
                 patternControlFsm.Fsm.InitData();
-                patternControlFsm.Fsm.InitEvents();
-
                 patchedCount++;
                 Log.Info($"已为 {patternTransform.name} 的 Web Burst Start 状态添加 Wait 1.5s");
             }
@@ -2375,7 +2372,7 @@ namespace AnySilkBoss.Source.Behaviours
             AddClimbPhaseAttackGlobalTransitions(climbAttackChoice, idleState);
 
             // 重新初始化FSM
-            ReinitializeFsm(_attackControlFsm);
+            // ReinitializeFsm(_attackControlFsm);
 
             Log.Info("=== 爬升阶段攻击状态链创建完成 ===");
         }

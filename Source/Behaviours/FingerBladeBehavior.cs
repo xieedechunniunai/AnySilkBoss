@@ -231,7 +231,6 @@ namespace AnySilkBoss.Source.Behaviours
             controlFSM.FsmVariables.Init();
             controlFSM.Fsm.InitStates();
             controlFSM.Fsm.InitData();
-            controlFSM.Fsm.InitEvents();
         }
         /// <summary>
         /// 添加环绕攻击全局转换 - 新版本：两个独立状态

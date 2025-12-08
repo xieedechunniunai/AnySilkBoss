@@ -2,6 +2,7 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Text;
 using AnySilkBoss.Source.Behaviours;
+using AnySilkBoss.Source.Behaviours.Memory;  // 梦境版组件
 using AnySilkBoss.Source.Managers;
 using HarmonyLib;
 using HutongGames.PlayMaker.Actions;
@@ -29,44 +30,80 @@ internal static class BossPatches
         //     return;
         if (__instance.name == "Silk Boss" && __instance.FsmName == "Control")
         {
-            if (__instance.gameObject.GetComponent<BossBehavior>() == null)
+            // Memory 模式下跳过 BossBehavior 和 DamageReductionManager
+            if (MemoryManager.IsInMemoryMode)
             {
-                __instance.gameObject.AddComponent<BossBehavior>();
-                Log.Info("检测到没有BossBehavior组件，添加BossBehavior组件");
+                Log.Info("[Memory模式] 跳过 BossBehavior 和 DamageReductionManager 组件");
             }
-
-            // 添加动态减伤管理器
-            if (__instance.gameObject.GetComponent<AnySilkBoss.Source.Managers.DamageReductionManager>() == null)
+            else
             {
-                __instance.gameObject.AddComponent<AnySilkBoss.Source.Managers.DamageReductionManager>();
-                Log.Info("添加DamageReductionManager组件，启用动态减伤系统");
+                if (__instance.gameObject.GetComponent<BossBehavior>() == null)
+                {
+                    __instance.gameObject.AddComponent<BossBehavior>();
+                    Log.Info("检测到没有BossBehavior组件，添加BossBehavior组件");
+                }
+
+                // 添加动态减伤管理器
+                if (__instance.gameObject.GetComponent<AnySilkBoss.Source.Managers.DamageReductionManager>() == null)
+                {
+                    __instance.gameObject.AddComponent<AnySilkBoss.Source.Managers.DamageReductionManager>();
+                    Log.Info("添加DamageReductionManager组件，启用动态减伤系统");
+                }
             }
         }
         //晕眩控制器
         else if (__instance.name == "Silk Boss" && __instance.FsmName == "Stun Control")
         {
-            if (__instance.gameObject.GetComponent<StunControlBehavior>() == null)
+            // Memory 模式下跳过 StunControlBehavior
+            if (MemoryManager.IsInMemoryMode)
             {
-                __instance.gameObject.AddComponent<StunControlBehavior>();
-                Log.Info("检测到没有StunControlBehavior组件，添加StunControlBehavior组件");
+                Log.Info("[Memory模式] 跳过 StunControlBehavior 组件");
+            }
+            else
+            {
+                if (__instance.gameObject.GetComponent<StunControlBehavior>() == null)
+                {
+                    __instance.gameObject.AddComponent<StunControlBehavior>();
+                    Log.Info("检测到没有StunControlBehavior组件，添加StunControlBehavior组件");
+                }
             }
         }
         //阶段控制器
         else if (__instance.name == "Silk Boss" && __instance.FsmName == "Phase Control")
         {
-            if (__instance.gameObject.GetComponent<PhaseControlBehavior>() == null)
+            // Memory 模式下使用梦境版 MemoryPhaseControl，不使用普通版 PhaseControlBehavior
+            if (MemoryManager.IsInMemoryMode)
             {
-                __instance.gameObject.AddComponent<PhaseControlBehavior>();
-                Log.Info("检测到没有PhaseControlBehavior组件，添加PhaseControlBehavior组件");
+                if (__instance.gameObject.GetComponent<MemoryPhaseControl>() == null)
+                {
+                    __instance.gameObject.AddComponent<MemoryPhaseControl>();
+                    Log.Info("[Memory模式] 添加梦境版 MemoryPhaseControl 组件");
+                }
+            }
+            else
+            {
+                if (__instance.gameObject.GetComponent<PhaseControlBehavior>() == null)
+                {
+                    __instance.gameObject.AddComponent<PhaseControlBehavior>();
+                    Log.Info("[普通模式] 添加 PhaseControlBehavior 组件");
+                }
             }
         }
         //攻击控制器
         else if (__instance.name == "Silk Boss" && __instance.FsmName == "Attack Control")
         {
-            if (__instance.gameObject.GetComponent<AttackControlBehavior>() == null)
+            // Memory 模式下不添加 AttackControlBehavior
+            if (MemoryManager.IsInMemoryMode)
             {
-                __instance.gameObject.AddComponent<AttackControlBehavior>();
-                Log.Info("检测到没有AttackControlBehavior组件，添加AttackControlBehavior组件");
+                Log.Info("[Memory模式] 跳过 AttackControlBehavior 组件");
+            }
+            else
+            {
+                if (__instance.gameObject.GetComponent<AttackControlBehavior>() == null)
+                {
+                    __instance.gameObject.AddComponent<AttackControlBehavior>();
+                    Log.Info("检测到没有AttackControlBehavior组件，添加AttackControlBehavior组件");
+                }
             }
         }
         else if ((__instance.name == "Rubble Field M" || __instance.name == "Rubble Field L" || __instance.name == "Rubble Field R") && __instance.FsmName == "FSM")
@@ -132,6 +169,8 @@ internal static class BossPatches
     }
     */
 
+    // 梦境死亡处理已集成到 DeathManager 中
+    
     #region 动态减伤系统
 
     /// <summary>
@@ -222,3 +261,54 @@ internal static class BossPatches
     #endregion
 }
 
+/// <summary>
+/// 拦截场景切换，在梦境模式下阻止离开 BOSS 房间
+/// </summary>
+[HarmonyPatch(typeof(GameManager))]
+internal static class MemorySceneTransitionPatch
+{
+    private const string TARGET_SCENE = "Cradle_03";
+    private const string TRIGGER_SCENE = "Cradle_03_Destroyed";
+    
+    /// <summary>
+    /// 拦截 BeginSceneTransition，在梦境模式下重定向到退出梦境
+    /// </summary>
+    [HarmonyPrefix]
+    [HarmonyPatch("BeginSceneTransition")]
+    private static bool OnBeginSceneTransition(GameManager __instance, GameManager.SceneLoadInfo info)
+    {
+        // 不在梦境模式，不拦截
+        if (!MemoryManager.IsInMemoryMode)
+            return true;
+        
+        // 当前不在 BOSS 房间，不拦截
+        string currentScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+        if (currentScene != TARGET_SCENE)
+            return true;
+        
+        // 目标是主菜单或退出游戏，不拦截
+        if (info.SceneName == "Menu_Title" || info.SceneName == "Quit_To_Menu" || 
+            info.SceneName == "PermaDeath" || string.IsNullOrEmpty(info.SceneName))
+            return true;
+        
+        // 目标是原触发场景（正常退出梦境），不拦截
+        if (info.SceneName == TRIGGER_SCENE)
+            return true;
+        
+        // 目标是当前场景（同场景重生），不拦截
+        if (info.SceneName == currentScene)
+        {
+            Log.Info($"[MemoryPatch] 允许同场景重生: {currentScene}");
+            return true;
+        }
+        
+        // 梦境模式下试图离开 BOSS 房间到其他场景，拦截并改为退出梦境
+        Log.Info($"[MemoryPatch] 拦截梦境中的场景切换: {currentScene} → {info.SceneName}，改为退出梦境");
+        
+        // 触发退出梦境流程
+        MemoryManager.Instance?.TriggerExitMemory();
+        
+        // 阻止原来的场景切换
+        return false;
+    }
+}

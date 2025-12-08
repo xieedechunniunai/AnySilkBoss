@@ -130,6 +130,7 @@ internal class BigSilkBallBehavior : MonoBehaviour
     private int absorbedCount = 0;            // 已吸收数量
     private float currentScale = 0.1f;        // 当前缩放
     private bool shouldStopSpawning = false;  // 是否停止生成
+    private bool shouldUpdateCollisionBoxPosition = true;  // 是否更新碰撞箱位置（Final Burst阶段禁用）
 
     // 强制覆盖Animator控制的标志
     // 只覆盖heart的缩放（蓄力动画），位置（包括Z轴）保持原版
@@ -210,6 +211,9 @@ internal class BigSilkBallBehavior : MonoBehaviour
     /// </summary>
     private void UpdateCollisionBoxPosition()
     {
+        // Final Burst阶段禁用位置更新，避免影响小丝球受力计算
+        if (!shouldUpdateCollisionBoxPosition) return;
+        
         if (collisionBox == null || heroObject == null) return;
 
         float currentHeroX = heroObject.transform.position.x;
@@ -400,7 +404,6 @@ internal class BigSilkBallBehavior : MonoBehaviour
 
         // 初始化 FSM 数据和事件
         controlFSM.Fsm.InitData();
-        controlFSM.Fsm.InitEvents();
 
         // 设置初始状态
         var fsmType = controlFSM.Fsm.GetType();
@@ -1108,6 +1111,9 @@ internal class BigSilkBallBehavior : MonoBehaviour
     public void StartFinalBurstCoroutine()
     {
         Log.Info("开始最终爆炸阶段");
+        
+        // 禁用碰撞箱位置更新，固定位置避免影响小丝球受力计算
+        shouldUpdateCollisionBoxPosition = false;        
         StartCoroutine(FinalBurstCoroutine());
     }
 
