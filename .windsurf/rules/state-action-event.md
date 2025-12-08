@@ -28,25 +28,18 @@ FsmString 必须显式赋 Value，构造函数仅设置“键/名字”，不含
 对于全是瞬发性Action的State，完成后会自动触发默认事件FINISHED,需要注意
 如需表达复杂分支，请使用“中间状态”进行显式拆分，保持「一事件一跳转」不变。
 CallMethod行为的method必须为plublic的，否则会报错
-新增事件/跳转后的初始化（强制）
-新增 Event 或 Transition 后，必须在最后重新初始化引用：
-    _attackControlFsm.Fsm.InitData();
-    _attackControlFsm.Fsm.InitEvents();
-新增Variable最后，也要重新初始化FsmVariables.Init();
+新增Variable最后，要重新初始化FsmVariables.Init();
 开发工作流建议
 明确 FSM 与 GameObject 名称（顶部标签一致）。
 设计状态图时按「一事件一跳转」建模；复杂流转用中间状态拆分。
 使用 FsmString 时同步赋 Value。
-完成新增/修改后执行 InitData() 与 InitEvents()。
 自检通过后再提交。
 自检清单（提交前逐项勾选）
 [ ] 顶部标签中的 FSM 名称、GameObject 名称与实现一致。
 [ ] 所有 A→B 的跳转均由单一事件触发，无多事件收敛。
 [ ] 未使用 FINISHED 作为多路通配事件。
 [ ] 所有 FsmString 同步设置了 Value。
-[ ] 变更后调用了 InitData() 与 InitEvents()。
 [ ] 右侧 Actions 对应的状态职责清晰、无副作用越界。
 常见错误与修正
 错误：new FsmString("X") 未赋值。→ 修正：new FsmString("X") { Value = "X" }
 错误：从同一状态对同一目标状态注册多个不同事件。→ 修正：保留唯一事件或拆出中间状态。
-错误：变更事件/跳转后未重新初始化。→ 修正：调用 InitData() 与 InitEvents()。

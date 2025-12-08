@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using AnySilkBoss.Source.Tools;
 
 namespace AnySilkBoss.Source.Managers
@@ -51,6 +52,22 @@ namespace AnySilkBoss.Source.Managers
                 RuntimePlatform.LinuxPlayer => "StandaloneLinux64",
                 _ => ""
             }
+        );
+
+        /// <summary>
+        /// 场景 bundle 文件夹路径（用于加载场景中的对象）
+        /// </summary>
+        private static readonly string SceneBundleFolder = Path.Combine(
+            Application.streamingAssetsPath,
+            "aa",
+            Application.platform switch
+            {
+                RuntimePlatform.WindowsPlayer => "StandaloneWindows64",
+                RuntimePlatform.OSXPlayer => "StandaloneOSX",
+                RuntimePlatform.LinuxPlayer => "StandaloneLinux64",
+                _ => ""
+            },
+            "scenes_scenes_scenes"
         );
         #endregion
 
@@ -363,6 +380,197 @@ namespace AnySilkBoss.Source.Managers
         private void OnDestroy()
         {
             UnloadAll();
+        }
+        #endregion
+
+        #region 场景对象加载
+        /// <summary>
+        /// 从指定场景加载 GameObject（异步加载场景 -> 查找对象 -> 复制 -> 卸载场景）
+        /// </summary>
+        /// <param name="sceneName">场景名称</param>
+        /// <param name="objectPath">对象路径（支持层级路径如 "Parent/Child/Target"）</param>
+        /// <returns>复制的 GameObject（已设置 DontDestroyOnLoad）</returns>
+        public async Task<GameObject?> LoadObjectFromSceneAsync(string sceneName, string objectPath)
+        {
+            Log.Info($"[AssetManager] 开始从场景 '{sceneName}' 加载对象 '{objectPath}'");
+
+            string bundlePath = Path.Combine(SceneBundleFolder, $"{sceneName}.bundle".ToLower());
+            if (!File.Exists(bundlePath))
+            {
+                Log.Error($"[AssetManager] 场景 bundle 文件不存在: {bundlePath}");
+                return null;
+            }
+
+            AssetBundle? bundle = null;
+            GameObject? result = null;
+
+            try
+            {
+                // 1. 加载场景 bundle
+                bundle = AssetBundle.LoadFromFile(bundlePath);
+                if (bundle == null)
+                {
+                    Log.Error($"[AssetManager] 无法加载场景 bundle: {bundlePath}");
+                    return null;
+                }
+                Log.Debug($"[AssetManager] 成功加载场景 bundle: {bundle.name}");
+
+                // 2. 异步加载场景
+                var loadOp = UnityEngine.SceneManagement.SceneManager.LoadSceneAsync(sceneName, LoadSceneMode.Additive);
+                while (!loadOp.isDone)
+                {
+                    await Task.Yield();
+                }
+
+                var scene = UnityEngine.SceneManagement.SceneManager.GetSceneByName(sceneName);
+                Log.Debug($"[AssetManager] 场景 '{scene.name}' 加载成功");
+
+                // 3. 查找对象
+                var sourceObject = FindObjectInScene(scene, objectPath);
+                if (sourceObject == null)
+                {
+                    Log.Error($"[AssetManager] 在场景 '{sceneName}' 中未找到对象 '{objectPath}'");
+                }
+                else
+                {
+                    // 4. 复制对象
+                    result = UnityEngine.Object.Instantiate(sourceObject);
+                    UnityEngine.Object.DontDestroyOnLoad(result);
+                    result.SetActive(false);
+                    Log.Info($"[AssetManager] 成功复制对象: {result.name}");
+                }
+
+                // 5. 卸载场景
+                var unloadOp = UnityEngine.SceneManagement.SceneManager.UnloadSceneAsync(scene.name);
+                while (!unloadOp.isDone)
+                {
+                    await Task.Yield();
+                }
+                Log.Debug($"[AssetManager] 场景 '{sceneName}' 已卸载");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"[AssetManager] 从场景加载对象时出错: {ex.Message}");
+                Log.Error($"堆栈: {ex.StackTrace}");
+            }
+            finally
+            {
+                // 6. 卸载 bundle（保留已加载的资源）
+                if (bundle != null)
+                {
+                    bundle.Unload(false);
+                    Log.Debug($"[AssetManager] 场景 bundle 已卸载（资源保留）");
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 在场景中查找对象（支持层级路径）
+        /// </summary>
+        private GameObject? FindObjectInScene(Scene scene, string objectPath)
+        {
+            if (!scene.IsValid())
+            {
+                Log.Error($"[AssetManager] 无效的场景");
+                return null;
+            }
+
+            string[] pathParts = objectPath.Split('/');
+            if (pathParts.Length == 0)
+            {
+                Log.Error($"[AssetManager] 无效的对象路径: {objectPath}");
+                return null;
+            }
+
+            // 查找根对象
+            GameObject? current = null;
+            foreach (var root in scene.GetRootGameObjects())
+            {
+                if (root.name == pathParts[0])
+                {
+                    current = root;
+                    break;
+                }
+            }
+
+            if (current == null)
+            {
+                Log.Error($"[AssetManager] 未找到根对象: {pathParts[0]}");
+                return null;
+            }
+
+            // 遍历子对象路径
+            for (int i = 1; i < pathParts.Length; i++)
+            {
+                var childTransform = current.transform.GetComponentsInChildren<Transform>(true)
+                    .FirstOrDefault(t => t.name == pathParts[i]);
+
+                if (childTransform == null)
+                {
+                    Log.Error($"[AssetManager] 未找到子对象: {pathParts[i]} (路径: {objectPath})");
+                    return null;
+                }
+                current = childTransform.gameObject;
+            }
+
+            Log.Debug($"[AssetManager] 找到对象: {current.name}");
+            return current;
+        }
+
+        /// <summary>
+        /// 在当前场景中查找对象
+        /// </summary>
+        public static GameObject? FindObjectInCurrentScene(string objectPath)
+        {
+            var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
+            
+            string[] pathParts = objectPath.Split('/');
+            if (pathParts.Length == 0) return null;
+
+            GameObject? current = null;
+            foreach (var root in scene.GetRootGameObjects())
+            {
+                if (root.name == pathParts[0])
+                {
+                    current = root;
+                    break;
+                }
+            }
+
+            if (current == null) return null;
+
+            for (int i = 1; i < pathParts.Length; i++)
+            {
+                var childTransform = current.transform.GetComponentsInChildren<Transform>(true)
+                    .FirstOrDefault(t => t.name == pathParts[i]);
+                if (childTransform == null) return null;
+                current = childTransform.gameObject;
+            }
+
+            return current;
+        }
+
+        /// <summary>
+        /// 在 GameObject 中查找子对象
+        /// </summary>
+        public static GameObject? FindChildObject(GameObject parent, string childPath)
+        {
+            if (parent == null) return null;
+
+            string[] pathParts = childPath.Split('/');
+            GameObject current = parent;
+
+            foreach (var partName in pathParts)
+            {
+                var childTransform = current.transform.GetComponentsInChildren<Transform>(true)
+                    .FirstOrDefault(t => t.name == partName);
+                if (childTransform == null) return null;
+                current = childTransform.gameObject;
+            }
+
+            return current;
         }
         #endregion
 

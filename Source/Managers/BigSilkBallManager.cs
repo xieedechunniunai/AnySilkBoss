@@ -31,16 +31,20 @@ namespace AnySilkBoss.Source.Managers
         {
             // 监听场景加载事件
             SceneManager.sceneLoaded += OnSceneLoaded;
+            // 监听场景切换事件（离开场景）
+            SceneManager.activeSceneChanged += OnSceneChanged;
         }
 
         private void OnDisable()
         {
             // 取消监听场景加载事件
             SceneManager.sceneLoaded -= OnSceneLoaded;
+            // 取消监听场景切换事件
+            SceneManager.activeSceneChanged -= OnSceneChanged;
         }
 
         /// <summary>
-        /// 场景加载回调
+        /// 场景加载回调（进入场景）
         /// </summary>
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
@@ -50,11 +54,21 @@ namespace AnySilkBoss.Source.Managers
                 return;
             }
 
-            // 首次初始化
-            if (!_initialized)
+            // 每次进入 BOSS 场景都重新初始化
+            Log.Info($"检测到 BOSS 场景 {scene.name}，开始初始化 BigSilkBallManager...");
+            StartCoroutine(Initialize());
+        }
+
+        /// <summary>
+        /// 场景切换回调（离开场景）
+        /// </summary>
+        private void OnSceneChanged(Scene oldScene, Scene newScene)
+        {
+            // 当离开 BOSS 场景时清理
+            if (oldScene.name == BossSceneName)
             {
-                Log.Info($"检测到 BOSS 场景 {scene.name}，开始初始化 BigSilkBallManager...");
-                StartCoroutine(Initialize());
+                Log.Info($"离开 BOSS 场景 {oldScene.name}，清理 BigSilkBallManager 缓存");
+                CleanupPrefab();
             }
         }
 
@@ -65,12 +79,6 @@ namespace AnySilkBoss.Source.Managers
         /// </summary>
         private IEnumerator Initialize()
         {
-            if (_initialized)
-            {
-                Log.Info("BigSilkBallManager 已初始化");
-                yield break;
-            }
-
             Log.Info("开始初始化 BigSilkBallManager...");
 
             // 等待场景加载完成
@@ -420,6 +428,36 @@ namespace AnySilkBoss.Source.Managers
         {
             Log.Info("===== 原版 silk_cocoon_core 完整分析 =====");
             AnalyzeHierarchy(obj);
+        }
+
+        /// <summary>
+        /// 清理预制体和缓存（离开 BOSS 场景时调用）
+        /// </summary>
+        private void CleanupPrefab()
+        {
+            Log.Info("=== 开始清理 BigSilkBallManager 缓存 ===");
+
+            // 停止所有协程
+            StopAllCoroutines();
+
+            // 清理所有活跃的大丝球实例
+            DestroyAllActiveBigSilkBalls();
+
+            // 销毁预制体
+            if (_bigSilkBallPrefab != null)
+            {
+                Object.Destroy(_bigSilkBallPrefab);
+                _bigSilkBallPrefab = null;
+                Log.Info("已销毁大丝球预制体");
+            }
+
+            // 清理缓存的 Animator 引用
+            _cachedAnimator = null;
+
+            // 重置初始化标志
+            _initialized = false;
+
+            Log.Info("=== BigSilkBallManager 清理完成 ===");
         }
         #endregion
     }

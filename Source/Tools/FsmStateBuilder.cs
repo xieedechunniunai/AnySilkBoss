@@ -303,8 +303,7 @@ namespace AnySilkBoss.Source.Tools
         /// <param name="pmFsm">PlayMakerFSM组件</param>
         public static void ReinitializeFsm(PlayMakerFSM pmFsm)
         {
-            pmFsm.Fsm.InitData();
-            pmFsm.Fsm.InitEvents();
+            // pmFsm.Fsm.InitData();
         }
 
         /// <summary>

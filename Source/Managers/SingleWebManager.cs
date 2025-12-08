@@ -42,12 +42,16 @@ namespace AnySilkBoss.Source.Managers
         {
             // 监听场景加载事件
             SceneManager.sceneLoaded += OnSceneLoaded;
+            // 监听场景切换事件（离开场景）
+            SceneManager.activeSceneChanged += OnSceneChanged;
         }
 
         private void OnDisable()
         {
             // 取消监听场景加载事件
             SceneManager.sceneLoaded -= OnSceneLoaded;
+            // 取消监听场景切换事件
+            SceneManager.activeSceneChanged -= OnSceneChanged;
         }
 
         private void Update()
@@ -70,7 +74,7 @@ namespace AnySilkBoss.Source.Managers
 
         #region Scene Management
         /// <summary>
-        /// 场景加载回调
+        /// 场景加载回调（进入场景）
         /// </summary>
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
@@ -80,16 +84,22 @@ namespace AnySilkBoss.Source.Managers
                 return;
             }
 
-            // 如果已经初始化过，跳过
-            if (_initialized)
-            {
-                Log.Info($"重新进入 BOSS 场景 {scene.name}，SingleWebManager 已初始化");
-                return;
-            }
-
-            // 首次初始化
+            // 每次进入 BOSS 场景都重新初始化
             Log.Info($"检测到 BOSS 场景 {scene.name}，开始初始化 SingleWebManager...");
             StartCoroutine(Initialize());
+        }
+
+        /// <summary>
+        /// 场景切换回调（离开场景）
+        /// </summary>
+        private void OnSceneChanged(Scene oldScene, Scene newScene)
+        {
+            // 当离开 BOSS 场景时清理
+            if (oldScene.name == BossSceneName)
+            {
+                Log.Info($"离开 BOSS 场景 {oldScene.name}，清理 SingleWebManager 缓存");
+                CleanupPrefab();
+            }
         }
 
         #endregion
@@ -100,12 +110,6 @@ namespace AnySilkBoss.Source.Managers
         /// </summary>
         private IEnumerator Initialize()
         {
-            if (_initialized)
-            {
-                Log.Info("SingleWebManager 已初始化");
-                yield break;
-            }
-
             Log.Info("=== 开始初始化 SingleWebManager ===");
 
             // 等待场景加载完成
@@ -667,6 +671,58 @@ namespace AnySilkBoss.Source.Managers
         public GameObject? GetPattern1TemplateReference()
         {
             return _pattern1Template;
+        }
+
+        /// <summary>
+        /// 清理预制体和缓存（离开 BOSS 场景时调用）
+        /// </summary>
+        private void CleanupPrefab()
+        {
+            Log.Info("=== 开始清理 SingleWebManager 缓存 ===");
+
+            // 停止所有协程
+            StopAllCoroutines();
+
+            // 清理对象池：销毁所有实例
+            if (_webPool != null)
+            {
+                int destroyedCount = 0;
+                foreach (var web in _webPool)
+                {
+                    if (web != null && web.gameObject != null)
+                    {
+                        Object.Destroy(web.gameObject);
+                        destroyedCount++;
+                    }
+                }
+                _webPool.Clear();
+                Log.Info($"已销毁对象池中的 {destroyedCount} 个丝线实例");
+            }
+
+            // 销毁对象池容器
+            if (_poolContainer != null)
+            {
+                Object.Destroy(_poolContainer);
+                _poolContainer = null;
+                Log.Info("已销毁对象池容器");
+            }
+
+            // 销毁预制体
+            if (_singleWebStrandPrefab != null)
+            {
+                Object.Destroy(_singleWebStrandPrefab);
+                _singleWebStrandPrefab = null;
+                Log.Info("已销毁单根丝线预制体");
+            }
+
+            // 清理场景引用
+            _strandPatterns = null;
+            _pattern1Template = null;
+
+            // 重置初始化标志
+            _initialized = false;
+
+            Log.Info("=== SingleWebManager 清理完成 ===");
         }
         #endregion
 

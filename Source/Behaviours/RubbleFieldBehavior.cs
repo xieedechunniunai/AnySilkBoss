@@ -37,7 +37,6 @@ namespace AnySilkBoss.Source.Behaviours
             ModifyAnticState();
             ModifyRockSpawnState();
             _fsm.Fsm.InitData();
-            _fsm.Fsm.InitEvents();
             _fsm.FsmVariables.Init();
         }
         private void ModifyIdleState()

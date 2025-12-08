@@ -99,7 +99,6 @@ namespace AnySilkBoss.Source.Behaviours
             ModifyOriginalSwipeStates(); // 修改原版 Swipe 状态，添加追踪参数设置
             handFSM.FsmVariables.Init();
             handFSM.Fsm.InitData();
-            handFSM.Fsm.InitEvents();
             yield break;
         }
         /// <summary>
@@ -632,7 +631,6 @@ namespace AnySilkBoss.Source.Behaviours
 
             // 重新初始化FSM数据，确保所有事件引用正确
             handFSM.Fsm.InitData();
-            handFSM.Fsm.InitEvents();
 
             Log.Info($"{handName} Hand FSM事件引用重新链接完成");
         }
