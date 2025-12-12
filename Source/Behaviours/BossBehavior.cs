@@ -32,8 +32,6 @@ internal class BossBehavior : MonoBehaviour
 
     // 区域坐标定义
     private const float DASH_SPEED = 8f; // 移动速度
-    private const float MAX_DASH_ANIMATION_TIME = 1.2f; // 最大动画播放时长（秒），避免长距离时动画过慢
-    private const float MIN_DASH_ANIMATION_TIME = 0.4f; // 最小动画播放时长（秒），避免短距离时动画过快
     private const float DASH_ANTIC_TIME = 0.3f; // Dash准备动画时长（默认）
     private const float DASH_ANTIC_TIME_FIRST = 0.6f; // 第一次Dash准备动画时长（增加0.3秒）
     private const float IDLE_WAIT_TIME = 0.6f; // Idle等待时间（减少20%：从0.75到0.6）
@@ -75,10 +73,6 @@ internal class BossBehavior : MonoBehaviour
     private FsmGameObject? _fsmTargetPoint1;
     private FsmGameObject? _fsmTargetPoint2;
     private FsmGameObject? _fsmTargetPointSpecial;
-
-    // 原版Dash动画（我们将直接修改其fps）
-    private tk2dSpriteAnimationClip? _originalDashClip;
-    private float _originalDashFps; // 保存原始fps以便恢复
 
     #endregion
 
@@ -181,16 +175,11 @@ internal class BossBehavior : MonoBehaviour
         // 添加眩晕时的丝球清理逻辑
         AddStunInterruptHandling();
 
-        // 为移动丝球状态添加全局中断监听
-        AddDashStatesGlobalInterruptHandling();
-
         // 添加爬升阶段修复
         InitializeClimbCastProtection();
 
         SetupControlIdlePendingTransitions();
         
-        // 使用 FsmStateBuilder 重新初始化FSM
-        // ReinitializeFsm(_bossControlFsm);
         ReinitializeFsmVariables(_bossControlFsm);
         Log.Info("Boss Control FSM修改完成");
     }
@@ -204,8 +193,6 @@ internal class BossBehavior : MonoBehaviour
 
         Log.Info("=== 开始创建移动丝球攻击状态链 ===");
 
-        // 1. 获取并复制原版Dash动画
-        GetAndCopyDashAnimations();
 
         // 2. 创建隐形目标点GameObject
         CreateInvisibleTargetPoints();
@@ -375,21 +362,6 @@ internal class BossBehavior : MonoBehaviour
             Log.Error($"CreateDashAnticState: Target object for point {pointIndex} is null.");
             return state;
         }
-
-        // 1. 计算距离和调整动画速度（使用 CallMethod 调用我们的方法）
-        // 注意：每次Antic都会根据当前实际位置和目标位置动态计算距离，并调整Dash动画的fps
-        // 这样可以确保每段不同距离的冲刺都有匹配的动画时长
-        actions.Add(new CallMethod
-        {
-            behaviour = this,
-            methodName = nameof(CalculateAndAdjustDashAnimationByIndex),
-            parameters = new FsmVar[]
-            {
-                new FsmVar(typeof(int)) { intValue = pointIndex }
-            },
-            everyFrame = false
-        });
-
         // 2. 面向目标点
         actions.Add(new FaceObjectV2
         {
@@ -432,129 +404,6 @@ internal class BossBehavior : MonoBehaviour
         state.Actions = actions.ToArray();
         return state;
     }
-
-    /// <summary>
-    /// 计算冲刺距离并调整原版Dash动画的fps（由CallMethod调用）
-    /// </summary>
-    public void CalculateAndAdjustDashAnimationByIndex(int pointIndex)
-    {
-        // 获取对应的目标坐标
-        FsmFloat? targetX = null;
-        FsmFloat? targetY = null;
-
-        switch (pointIndex)
-        {
-            case -1:  // Special点位
-                targetX = RoutePointSpecialX;
-                targetY = RoutePointSpecialY;
-                break;
-            case 0:
-                targetX = RoutePoint0X;
-                targetY = RoutePoint0Y;
-                break;
-            case 1:
-                targetX = RoutePoint1X;
-                targetY = RoutePoint1Y;
-                break;
-            case 2:
-                targetX = RoutePoint2X;
-                targetY = RoutePoint2Y;
-                break;
-        }
-
-        if (targetX == null || targetY == null)
-        {
-            Log.Error($"CalculateAndAdjustDashAnimationByIndex: Target coordinates for point {pointIndex} are null");
-            return;
-        }
-
-        if (_originalDashClip == null)
-        {
-            Log.Error("CalculateAndAdjustDashAnimationByIndex: Original Dash clip is null");
-            return;
-        }
-
-        Vector2 currentPos = transform.position;
-        Vector2 targetPos = new Vector2(targetX.Value, targetY.Value);
-
-        float distance = Vector2.Distance(currentPos, targetPos);
-        float dashTime = Mathf.Max(distance / DASH_SPEED, 0.1f);
-
-        // 调整动画时长：限制在合理范围内
-        // 长距离时：动画快速循环播放，保持节奏感
-        // 短距离时：动画正常播放，不会过快
-        // float adjustedDashTime = Mathf.Clamp(dashTime, MIN_DASH_ANIMATION_TIME, MAX_DASH_ANIMATION_TIME);
-
-        // 直接调整原版Dash动画的fps以匹配调整后的动画时长（使用整数fps）
-        // if (_originalDashClip.frames != null && _originalDashClip.frames.Length > 0)
-        // {
-        //     float calculatedFps = _originalDashClip.frames.Length * 2f / dashTime;
-        //     _originalDashClip.fps = Mathf.RoundToInt(calculatedFps);
-        //     Log.Info($"Point {pointIndex} 动态调整Dash动画: Distance={distance:F2}, DashTime={dashTime:F2}s, ClampedAnimTime={dashTime:F2}s (Clamp:{MIN_DASH_ANIMATION_TIME}-{MAX_DASH_ANIMATION_TIME}), CalculatedFPS={calculatedFps:F2}, FinalFPS={_originalDashClip.fps}");
-        // }
-    }
-
-    /// <summary>
-    /// 恢复原版Dash动画的fps（在Idle状态或攻击结束后调用）
-    /// </summary>
-    public void RestoreOriginalDashFps()
-    {
-        if (_originalDashClip != null)
-        {
-            _originalDashClip.fps = _originalDashFps;
-            Log.Info($"恢复原版Dash动画fps: {_originalDashFps}");
-        }
-    }
-
-    /// <summary>
-    /// 获取原版Dash动画并复制多份用于不同点位的移动
-    /// </summary>
-    private void GetAndCopyDashAnimations()
-    {
-        if (_bossControlFsm == null)
-        {
-            Log.Error("BossControl FSM为null，无法获取Dash动画");
-            return;
-        }
-
-        // 1. 获取原版Dash状态
-        var originalDashState = _bossControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Dash");
-        if (originalDashState == null)
-        {
-            Log.Error("未找到原版Dash状态");
-            return;
-        }
-
-        // 2. 从Dash状态的Actions中获取Tk2dPlayAnimationWithEvents
-        var playAnimAction = originalDashState.Actions.OfType<Tk2dPlayAnimationWithEvents>().FirstOrDefault();
-        if (playAnimAction == null)
-        {
-            Log.Error("Dash状态中未找到Tk2dPlayAnimationWithEvents动作");
-            return;
-        }
-
-        // 3. 获取原版动画clip（从tk2dSpriteAnimator组件获取）
-        var animator = GetComponent<tk2dSpriteAnimator>();
-        if (animator == null)
-        {
-            Log.Error("未找到tk2dSpriteAnimator组件");
-            return;
-        }
-
-        _originalDashClip = animator.GetClipByName("Dash");
-        if (_originalDashClip == null)
-        {
-            Log.Error("未找到名为'Dash'的动画clip");
-            return;
-        }
-
-        // 保存原始fps
-        _originalDashFps = _originalDashClip.fps;
-
-        Log.Info($"获取到原版Dash动画: fps={_originalDashClip.fps}, frames={_originalDashClip.frames?.Length}, duration={(_originalDashClip.frames?.Length ?? 0) / _originalDashClip.fps}秒");
-        Log.Info("将在每次Dash前动态调整原版Dash动画的fps以匹配移动时间");
-    }
-
 
     /// <summary>
     /// 创建大丝球大招锁定状态
@@ -798,15 +647,6 @@ internal class BossBehavior : MonoBehaviour
 
         var actions = new List<FsmStateAction>();
 
-        // 0. 恢复原版Dash动画的fps（在攻击结束时）
-        actions.Add(new CallMethod
-        {
-            behaviour = this,
-            methodName = nameof(RestoreOriginalDashFps),
-            parameters = new FsmVar[0],
-            everyFrame = false
-        });
-
         // 1. 恢复硬直
         actions.Add(new SendEventByName
         {
@@ -959,20 +799,6 @@ internal class BossBehavior : MonoBehaviour
             everyFrame = false
         });
 
-        // 在状态开头添加发送中断事件给AttackControl
-        actions.Insert(1, new SendEventByName
-        {
-            eventTarget = new FsmEventTarget
-            {
-                target = FsmEventTarget.EventTarget.GameObjectFSM,
-                excludeSelf = new FsmBool(false),
-                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
-                fsmName = new FsmString("Attack Control") { Value = "Attack Control" }
-            },
-            sendEvent = new FsmString("SILK BALL INTERRUPT") { Value = "SILK BALL INTERRUPT" },
-            delay = new FsmFloat(0f),
-            everyFrame = false
-        });
 
         stunStaggerState.Actions = actions.ToArray();
         Log.Info("已在 Stun Stagger 状态添加丝球清理、中断事件和状态同步");
@@ -1098,57 +924,6 @@ internal class BossBehavior : MonoBehaviour
     //     }
     // }
 
-    /// <summary>
-    /// 为移动丝球的所有Dash状态添加全局中断监听
-    /// 确保眩晕时能正确中断移动状态
-    /// </summary>
-    private void AddDashStatesGlobalInterruptHandling()
-    {
-        if (_bossControlFsm == null) return;
-
-        Log.Info("=== 为移动丝球状态添加全局中断监听 ===");
-
-        // 找到Idle状态作为中断目标
-        var idleState = FindState(_bossControlFsm, "Idle");
-        if (idleState == null)
-        {
-            Log.Error("未找到Idle状态，无法添加中断监听");
-            return;
-        }
-
-        // 获取所有需要添加中断的状态
-        var dashStateNames = new[]
-        {
-            "Dash Antic 0", "Dash To Point 0", "Idle At Point 0",
-            "Dash Antic 1", "Dash To Point 1", "Idle At Point 1",
-            "Dash Antic 2", "Dash To Point 2"
-        };
-
-        var interruptEvent = FsmEvent.GetFsmEvent("SILK BALL INTERRUPT");
-        var interruptTransition = CreateTransition(interruptEvent, idleState);
-
-        foreach (var stateName in dashStateNames)
-        {
-            var state = FindState(_bossControlFsm, stateName);
-            if (state == null)
-            {
-                Log.Warn($"未找到状态: {stateName}");
-                continue;
-            }
-
-            // 检查是否已存在该事件的转换
-            if (!state.Transitions.Any(t => t.FsmEvent == interruptEvent))
-            {
-                AddTransition(state, CreateTransition(interruptEvent, idleState));
-                Log.Info($"已为状态 {stateName} 添加中断转换");
-            }
-        }
-
-        // 重新初始化FSM
-        // ReinitializeFsm(_bossControlFsm);
-
-        Log.Info("移动丝球状态全局中断监听添加完成");
-    }
 
     #endregion
 

@@ -39,7 +39,9 @@ namespace AnySilkBoss.Source.Managers
             { "Abyss Bullet", (AssetType.Persistent, null) },
             
             // 临时资源（需要从文件加载的外部 bundle）
-            { "lace_circle_slash", (AssetType.Transient, "localpoolprefabs_assets_laceboss.bundle") }
+            { "lace_circle_slash", (AssetType.Transient, "localpoolprefabs_assets_laceboss.bundle") },
+            { "First Weaver Anim", (AssetType.Transient, "tk2danimations_assets_areaslab.bundle") },
+            { "First Weaver Cln", (AssetType.Transient, "tk2dcollections_assets_areaslab.bundle") }
         };
 
         private static readonly string SceneFolder = Path.Combine(

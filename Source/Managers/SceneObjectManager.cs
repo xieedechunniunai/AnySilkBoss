@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -39,9 +40,12 @@ namespace AnySilkBoss.Source.Managers
         public static async Task<GameObject> LoadObjectFromScene(string sceneName, string objectPath)
         {
             GameObject objectCopy = null;
+            GameObject tempCamera = null;
 
             try
             {
+                tempCamera = CreateTempCamera();
+
                 Log.Info($"[SceneObjectManager] 当前场景: {SceneManager.GetActiveScene().name}");
                 Log.Info($"[SceneObjectManager] 开始加载场景: {sceneName}");
 
@@ -74,6 +78,8 @@ namespace AnySilkBoss.Source.Managers
                 }
 
                 Log.Info($"[SceneObjectManager] 场景 {scene.name} 加载成功");
+
+                DisableProblematicComponents(scene);
 
                 // 3. 从场景中查找目标对象
                 GameObject targetObject = FindObjectInScene(scene, objectPath);
@@ -109,8 +115,137 @@ namespace AnySilkBoss.Source.Managers
                 Log.Error($"[SceneObjectManager] 加载对象时发生异常: {ex}");
                 return null;
             }
+            finally
+            {
+                if (tempCamera != null)
+                {
+                    UnityEngine.Object.Destroy(tempCamera);
+                }
+            }
 
             return objectCopy;
+        }
+
+        /// <summary>
+        /// 从指定场景一次性提取多个对象（单次加载/卸载）
+        /// </summary>
+        /// <param name="sceneName">场景名称</param>
+        /// <param name="objectPaths">对象路径列表</param>
+        /// <returns>路径到实例的映射，未找到的路径不会出现在结果中</returns>
+        public static async Task<Dictionary<string, GameObject>> LoadObjectsFromScene(string sceneName, params string[] objectPaths)
+        {
+            var result = new Dictionary<string, GameObject>();
+            GameObject tempCamera = null;
+
+            try
+            {
+                tempCamera = CreateTempCamera();
+
+                Log.Info($"[SceneObjectManager] 当前场景: {SceneManager.GetActiveScene().name}");
+                Log.Info($"[SceneObjectManager] 开始加载场景: {sceneName}");
+
+                string bundlePath = Path.Combine(SceneFolder, $"{sceneName}.bundle".ToLower());
+                if (!File.Exists(bundlePath))
+                {
+                    Log.Error($"[SceneObjectManager] 场景 bundle 文件不存在: {bundlePath}");
+                    return result;
+                }
+
+                AssetBundle bundle = AssetBundle.LoadFromFile(bundlePath);
+                if (bundle == null)
+                {
+                    Log.Error($"[SceneObjectManager] 无法加载场景 bundle: {bundlePath}");
+                    return result;
+                }
+
+                await SceneManager.LoadSceneAsync(sceneName, LoadSceneMode.Additive);
+                Scene scene = SceneManager.GetSceneByName(sceneName);
+                if (!scene.isLoaded)
+                {
+                    Log.Error($"[SceneObjectManager] 场景加载失败: {sceneName}");
+                    bundle.Unload(true);
+                    return result;
+                }
+
+                Log.Info($"[SceneObjectManager] 场景 {scene.name} 加载成功");
+
+                // 静默禁用可能依赖主场景相机的组件，避免附加加载时抛错
+                DisableProblematicComponents(scene);
+
+                foreach (var path in objectPaths)
+                {
+                    var target = FindObjectInScene(scene, path);
+                    if (target == null)
+                    {
+                        Log.Error($"[SceneObjectManager] 在场景 {sceneName} 中未找到对象: {path}");
+                        continue;
+                    }
+
+                    var copy = UnityEngine.Object.Instantiate(target);
+                    UnityEngine.Object.DontDestroyOnLoad(copy);
+                    copy.SetActive(false);
+                    result[path] = copy;
+                    Log.Info($"[SceneObjectManager] 成功实例化对象: {copy.name}");
+                }
+
+                Log.Info($"[SceneObjectManager] 卸载场景: {scene.name}");
+                await SceneManager.UnloadSceneAsync(scene.name);
+
+                Log.Info($"[SceneObjectManager] 卸载 bundle: {bundle.name}");
+                await bundle.UnloadAsync(false);
+
+                Log.Info($"[SceneObjectManager] 对象批量加载完成: {result.Count}/{objectPaths.Length}");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"[SceneObjectManager] 批量加载对象时发生异常: {ex}");
+            }
+            finally
+            {
+                if (tempCamera != null)
+                {
+                    UnityEngine.Object.Destroy(tempCamera);
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 静默禁用附加场景中可能导致报错的组件
+        /// </summary>
+        private static void DisableProblematicComponents(Scene scene)
+        {
+            var behaviours = scene.GetRootGameObjects()
+                .SelectMany(o => o.GetComponentsInChildren<Behaviour>(true))
+                .Where(b => b != null)
+                .ToArray();
+
+            foreach (var b in behaviours)
+            {
+                string typeName = b.GetType().Name;
+                if (!b.enabled) continue;
+
+                if (typeName == "TintRendererGroup" || typeName == "CustomSceneManager")
+                {
+                    b.enabled = false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 创建临时相机，避免附加场景中的渲染组件找不到 Camera.main
+        /// </summary>
+        private static GameObject CreateTempCamera()
+        {
+            var go = new GameObject("SceneObjectManager_TempCamera")
+            {
+                hideFlags = HideFlags.HideAndDontSave,
+                tag = "MainCamera"
+            };
+            go.AddComponent<Camera>();
+            go.AddComponent<AudioListener>();
+            return go;
         }
 
         /// <summary>

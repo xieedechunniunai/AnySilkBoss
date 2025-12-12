@@ -30,23 +30,61 @@ internal static class BossPatches
         //     return;
         if (__instance.name == "Silk Boss" && __instance.FsmName == "Control")
         {
-            // Memory 模式下跳过 BossBehavior 和 DamageReductionManager
             if (MemoryManager.IsInMemoryMode)
             {
-                Log.Info("[Memory模式] 跳过 BossBehavior 和 DamageReductionManager 组件");
+                // 禁用普通版组件，启用梦境版
+                var normalBossBehavior = __instance.gameObject.GetComponent<BossBehavior>();
+                if (normalBossBehavior != null)
+                {
+                    Object.Destroy(normalBossBehavior);
+                    Log.Info("[Memory模式] 移除普通BossBehavior组件");
+                }
+
+                if (__instance.gameObject.GetComponent<MemoryBossBehavior>() == null)
+                {
+                    __instance.gameObject.AddComponent<MemoryBossBehavior>();
+                    Log.Info("[Memory模式] 添加梦境版 MemoryBossBehavior 组件");
+                }
+
+                var normalDamageReduction = __instance.gameObject.GetComponent<DamageReductionManager>();
+                if (normalDamageReduction != null)
+                {
+                    Object.Destroy(normalDamageReduction);
+                    Log.Info("[Memory模式] 移除普通DamageReductionManager组件");
+                }
+
+                if (__instance.gameObject.GetComponent<MemoryDamageReductionManager>() == null)
+                {
+                    __instance.gameObject.AddComponent<MemoryDamageReductionManager>();
+                    Log.Info("[Memory模式] 添加梦境版 MemoryDamageReductionManager 组件");
+                }
             }
             else
             {
+                // 非梦境模式，确保使用普通版组件
+                var memoryBossBehavior = __instance.gameObject.GetComponent<MemoryBossBehavior>();
+                if (memoryBossBehavior != null)
+                {
+                    Object.Destroy(memoryBossBehavior);
+                    Log.Info("[普通模式] 移除梦境版 MemoryBossBehavior 组件");
+                }
+
                 if (__instance.gameObject.GetComponent<BossBehavior>() == null)
                 {
                     __instance.gameObject.AddComponent<BossBehavior>();
                     Log.Info("检测到没有BossBehavior组件，添加BossBehavior组件");
                 }
 
-                // 添加动态减伤管理器
-                if (__instance.gameObject.GetComponent<AnySilkBoss.Source.Managers.DamageReductionManager>() == null)
+                var memoryDamageReduction = __instance.gameObject.GetComponent<MemoryDamageReductionManager>();
+                if (memoryDamageReduction != null)
                 {
-                    __instance.gameObject.AddComponent<AnySilkBoss.Source.Managers.DamageReductionManager>();
+                    Object.Destroy(memoryDamageReduction);
+                    Log.Info("[普通模式] 移除梦境版 MemoryDamageReductionManager 组件");
+                }
+
+                if (__instance.gameObject.GetComponent<DamageReductionManager>() == null)
+                {
+                    __instance.gameObject.AddComponent<DamageReductionManager>();
                     Log.Info("添加DamageReductionManager组件，启用动态减伤系统");
                 }
             }
@@ -54,13 +92,30 @@ internal static class BossPatches
         //晕眩控制器
         else if (__instance.name == "Silk Boss" && __instance.FsmName == "Stun Control")
         {
-            // Memory 模式下跳过 StunControlBehavior
             if (MemoryManager.IsInMemoryMode)
             {
-                Log.Info("[Memory模式] 跳过 StunControlBehavior 组件");
+                var normalStunBehavior = __instance.gameObject.GetComponent<StunControlBehavior>();
+                if (normalStunBehavior != null)
+                {
+                    Object.Destroy(normalStunBehavior);
+                    Log.Info("[Memory模式] 移除普通StunControlBehavior组件");
+                }
+
+                if (__instance.gameObject.GetComponent<MemoryStunControlBehavior>() == null)
+                {
+                    __instance.gameObject.AddComponent<MemoryStunControlBehavior>();
+                    Log.Info("[Memory模式] 添加梦境版 MemoryStunControlBehavior 组件");
+                }
             }
             else
             {
+                var memoryStunBehavior = __instance.gameObject.GetComponent<MemoryStunControlBehavior>();
+                if (memoryStunBehavior != null)
+                {
+                    Object.Destroy(memoryStunBehavior);
+                    Log.Info("[普通模式] 移除梦境版 MemoryStunControlBehavior 组件");
+                }
+
                 if (__instance.gameObject.GetComponent<StunControlBehavior>() == null)
                 {
                     __instance.gameObject.AddComponent<StunControlBehavior>();
@@ -74,14 +129,28 @@ internal static class BossPatches
             // Memory 模式下使用梦境版 MemoryPhaseControl，不使用普通版 PhaseControlBehavior
             if (MemoryManager.IsInMemoryMode)
             {
-                if (__instance.gameObject.GetComponent<MemoryPhaseControl>() == null)
+                var normalPhaseBehavior = __instance.gameObject.GetComponent<PhaseControlBehavior>();
+                if (normalPhaseBehavior != null)
                 {
-                    __instance.gameObject.AddComponent<MemoryPhaseControl>();
+                    Object.Destroy(normalPhaseBehavior);
+                    Log.Info("[Memory模式] 移除普通 PhaseControlBehavior 组件");
+                }
+
+                if (__instance.gameObject.GetComponent<MemoryPhaseControlBehavior>() == null)
+                {
+                    __instance.gameObject.AddComponent<MemoryPhaseControlBehavior>();
                     Log.Info("[Memory模式] 添加梦境版 MemoryPhaseControl 组件");
                 }
             }
             else
             {
+                var memoryPhaseBehavior = __instance.gameObject.GetComponent<MemoryPhaseControlBehavior>();
+                if (memoryPhaseBehavior != null)
+                {
+                    Object.Destroy(memoryPhaseBehavior);
+                    Log.Info("[普通模式] 移除梦境版 MemoryPhaseControl 组件");
+                }
+
                 if (__instance.gameObject.GetComponent<PhaseControlBehavior>() == null)
                 {
                     __instance.gameObject.AddComponent<PhaseControlBehavior>();
@@ -92,13 +161,30 @@ internal static class BossPatches
         //攻击控制器
         else if (__instance.name == "Silk Boss" && __instance.FsmName == "Attack Control")
         {
-            // Memory 模式下不添加 AttackControlBehavior
             if (MemoryManager.IsInMemoryMode)
             {
-                Log.Info("[Memory模式] 跳过 AttackControlBehavior 组件");
+                var normalAttackBehavior = __instance.gameObject.GetComponent<AttackControlBehavior>();
+                if (normalAttackBehavior != null)
+                {
+                    Object.Destroy(normalAttackBehavior);
+                    Log.Info("[Memory模式] 移除普通 AttackControlBehavior 组件");
+                }
+
+                if (__instance.gameObject.GetComponent<MemoryAttackControlBehavior>() == null)
+                {
+                    __instance.gameObject.AddComponent<MemoryAttackControlBehavior>();
+                    Log.Info("[Memory模式] 添加梦境版 MemoryAttackControlBehavior 组件");
+                }
             }
             else
             {
+                var memoryAttackBehavior = __instance.gameObject.GetComponent<MemoryAttackControlBehavior>();
+                if (memoryAttackBehavior != null)
+                {
+                    Object.Destroy(memoryAttackBehavior);
+                    Log.Info("[普通模式] 移除梦境版 MemoryAttackControlBehavior 组件");
+                }
+
                 if (__instance.gameObject.GetComponent<AttackControlBehavior>() == null)
                 {
                     __instance.gameObject.AddComponent<AttackControlBehavior>();
@@ -109,17 +195,67 @@ internal static class BossPatches
         else if ((__instance.name == "Rubble Field M" || __instance.name == "Rubble Field L" || __instance.name == "Rubble Field R") && __instance.FsmName == "FSM")
         {
 
-            if (__instance.gameObject.GetComponent<RubbleFieldBehavior>() == null)
+            if (MemoryManager.IsInMemoryMode)
             {
-                __instance.gameObject.AddComponent<RubbleFieldBehavior>();
-                Log.Info("检测到没有RubbleFieldBehavior组件，添加RubbleFieldBehavior组件");
+                var normalRubbleField = __instance.gameObject.GetComponent<RubbleFieldBehavior>();
+                if (normalRubbleField != null)
+                {
+                    Object.Destroy(normalRubbleField);
+                    Log.Info("[Memory模式] 移除普通 RubbleFieldBehavior 组件");
+                }
+
+                if (__instance.gameObject.GetComponent<MemoryRubbleFieldBehavior>() == null)
+                {
+                    __instance.gameObject.AddComponent<MemoryRubbleFieldBehavior>();
+                    Log.Info("[Memory模式] 添加梦境版 MemoryRubbleFieldBehavior 组件");
+                }
+            }
+            else
+            {
+                var memoryRubbleField = __instance.gameObject.GetComponent<MemoryRubbleFieldBehavior>();
+                if (memoryRubbleField != null)
+                {
+                    Object.Destroy(memoryRubbleField);
+                    Log.Info("[普通模式] 移除梦境版 MemoryRubbleFieldBehavior 组件");
+                }
+
+                if (__instance.gameObject.GetComponent<RubbleFieldBehavior>() == null)
+                {
+                    __instance.gameObject.AddComponent<RubbleFieldBehavior>();
+                    Log.Info("检测到没有RubbleFieldBehavior组件，添加RubbleFieldBehavior组件");
+                }
             }
         }
         else if (__instance.name.Contains("Silk Boulder") && __instance.FsmName == "Control")
         {
-            if (__instance.gameObject.GetComponent<RubbleRockBehavior>() == null)
+            if (MemoryManager.IsInMemoryMode)
             {
-                __instance.gameObject.AddComponent<RubbleRockBehavior>();
+                var normalRubbleRock = __instance.gameObject.GetComponent<RubbleRockBehavior>();
+                if (normalRubbleRock != null)
+                {
+                    Object.Destroy(normalRubbleRock);
+                    Log.Info("[Memory模式] 移除普通 RubbleRockBehavior 组件");
+                }
+
+                if (__instance.gameObject.GetComponent<MemoryRubbleRockBehavior>() == null)
+                {
+                    __instance.gameObject.AddComponent<MemoryRubbleRockBehavior>();
+                    Log.Info("[Memory模式] 添加梦境版 MemoryRubbleRockBehavior 组件");
+                }
+            }
+            else
+            {
+                var memoryRubbleRock = __instance.gameObject.GetComponent<MemoryRubbleRockBehavior>();
+                if (memoryRubbleRock != null)
+                {
+                    Object.Destroy(memoryRubbleRock);
+                    Log.Info("[普通模式] 移除梦境版 MemoryRubbleRockBehavior 组件");
+                }
+
+                if (__instance.gameObject.GetComponent<RubbleRockBehavior>() == null)
+                {
+                    __instance.gameObject.AddComponent<RubbleRockBehavior>();
+                }
             }
         }
     }
@@ -170,7 +306,7 @@ internal static class BossPatches
     */
 
     // 梦境死亡处理已集成到 DeathManager 中
-    
+
     #region 动态减伤系统
 
     /// <summary>
@@ -269,7 +405,7 @@ internal static class MemorySceneTransitionPatch
 {
     private const string TARGET_SCENE = "Cradle_03";
     private const string TRIGGER_SCENE = "Cradle_03_Destroyed";
-    
+
     /// <summary>
     /// 拦截 BeginSceneTransition，在梦境模式下重定向到退出梦境
     /// </summary>
@@ -280,34 +416,34 @@ internal static class MemorySceneTransitionPatch
         // 不在梦境模式，不拦截
         if (!MemoryManager.IsInMemoryMode)
             return true;
-        
+
         // 当前不在 BOSS 房间，不拦截
         string currentScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
         if (currentScene != TARGET_SCENE)
             return true;
-        
+
         // 目标是主菜单或退出游戏，不拦截
-        if (info.SceneName == "Menu_Title" || info.SceneName == "Quit_To_Menu" || 
+        if (info.SceneName == "Menu_Title" || info.SceneName == "Quit_To_Menu" ||
             info.SceneName == "PermaDeath" || string.IsNullOrEmpty(info.SceneName))
             return true;
-        
+
         // 目标是原触发场景（正常退出梦境），不拦截
         if (info.SceneName == TRIGGER_SCENE)
             return true;
-        
+
         // 目标是当前场景（同场景重生），不拦截
         if (info.SceneName == currentScene)
         {
             Log.Info($"[MemoryPatch] 允许同场景重生: {currentScene}");
             return true;
         }
-        
+
         // 梦境模式下试图离开 BOSS 房间到其他场景，拦截并改为退出梦境
         Log.Info($"[MemoryPatch] 拦截梦境中的场景切换: {currentScene} → {info.SceneName}，改为退出梦境");
-        
+
         // 触发退出梦境流程
         MemoryManager.Instance?.TriggerExitMemory();
-        
+
         // 阻止原来的场景切换
         return false;
     }

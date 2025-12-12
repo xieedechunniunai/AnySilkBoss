@@ -32,6 +32,8 @@ CallMethod行为的method必须为plublic的，否则会报错
 明确 FSM 与 GameObject 名称（顶部标签一致）。
 设计状态图时按「一事件一跳转」建模；复杂流转用中间状态拆分。
 使用 FsmString 时同步赋 Value。
+尽量使用FsmStateBuilder创建和查找状态和跳转
+事件和全局事件的添加不用使用反射，直接获取该事件列表并插入即可
 自检通过后再提交。
 自检清单（提交前逐项勾选）
 [ ] 顶部标签中的 FSM 名称、GameObject 名称与实现一致。
