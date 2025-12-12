@@ -211,7 +211,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 SetFinishedTransition(_p6WebRecoverState, moveRestartState);
             }
 
-            Log.Info("P6 Web攻击状态转换设置完�?");
+            Log.Info("P6 Web攻击状态转换设置完");
         }
 
         /// <summary>
@@ -247,17 +247,12 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             Log.Info($"找到 {colliderInfos.Count} 根丝线碰撞体");
 
             var intersectionPointsPrecise = CalculateIntersectionPointsPrecise(colliderInfos);
-
-            // ==========================================
-            // 备用：简化算法（相邻中点，用于回退�?
-            // ==========================================
             List<Vector3> intersectionPoints = new List<Vector3>();
 
             if (intersectionPointsPrecise.Count > 0)
             {
-                // 使用精确算法的结�?
                 intersectionPoints = intersectionPointsPrecise;
-                Log.Info($"�?使用精确算法，找{intersectionPoints.Count} 个交汇点");
+                Log.Info($"使用精确算法，找{intersectionPoints.Count} 个交汇点");
             }
             else
             {

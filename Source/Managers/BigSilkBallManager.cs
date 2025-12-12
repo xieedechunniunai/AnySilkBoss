@@ -5,6 +5,8 @@ using UnityEngine.SceneManagement;
 using HutongGames.PlayMaker;
 using AnySilkBoss.Source.Tools;
 using AnySilkBoss.Source.Behaviours;
+using AnySilkBoss.Source.Behaviours.Normal;
+using AnySilkBoss.Source.Behaviours.Memory;
 
 namespace AnySilkBoss.Source.Managers
 {
@@ -308,6 +310,56 @@ namespace AnySilkBoss.Source.Managers
             if (behavior == null)
             {
                 behavior = bigSilkBall.AddComponent<BigSilkBallBehavior>();
+            }
+
+            // 初始化行为（传入根物品获取组件，同时传入heart用于位置和缩放）
+            behavior.Initialize(bigSilkBall, bossObject, heart);
+
+            return bigSilkBall;
+        }
+         /// <summary>
+        /// 生成一个大丝球实例
+        /// </summary>
+        public GameObject? SpawnMemoryBigSilkBall(Vector3 position, GameObject bossObject)
+        {
+            if (_bigSilkBallPrefab == null)
+            {
+                Log.Error("大丝球预制体未初始化");
+                return null;
+            }
+
+            var bigSilkBall = Object.Instantiate(_bigSilkBallPrefab);
+            
+            // 根物品保持原版的Z轴（57.4491）和原版Scale，只调整XY位置
+            Vector3 rootPosition = position;
+            rootPosition.z = 57.4491f;  // 保持原版Z轴
+            bigSilkBall.transform.position = rootPosition;
+            
+            // 确保根物品Scale为原版（应该默认就是，但记录一下）
+            Log.Info($"根物品Scale: {bigSilkBall.transform.localScale}（应保持原版）");
+            
+            // 保持heart的原版相对位置（不做任何调整）
+            // 后续通过PhaseControl调整BOSS的Z轴，让BOSS和大丝球在同一深度
+            Transform heart = bigSilkBall.transform.Find("heart");
+            if (heart != null)
+            {
+                Vector3 heartLocalPos = heart.localPosition;
+                Log.Info($"heart保持原版相对位置: ({heartLocalPos.x:F4}, {heartLocalPos.y:F4}, {heartLocalPos.z:F4})");
+            }
+            else
+            {
+                Log.Warn("未找到heart子物品");
+            }
+            
+            bigSilkBall.SetActive(true);
+            Log.Info($"生成大丝球 - 根物品位置: {rootPosition}，heart将显示在Z≈0的位置");
+
+    
+            // 添加 MemoryBigSilkBallBehavior 组件
+            var behavior = bigSilkBall.GetComponent<MemoryBigSilkBallBehavior>();
+            if (behavior == null)
+            {
+                behavior = bigSilkBall.AddComponent<MemoryBigSilkBallBehavior>();
             }
 
             // 初始化行为（传入根物品获取组件，同时传入heart用于位置和缩放）

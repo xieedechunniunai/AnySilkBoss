@@ -6,7 +6,7 @@ using AnySilkBoss.Source.Tools;
 using AnySilkBoss.Source.Managers;
 using HutongGames.PlayMaker.Actions;
 
-namespace AnySilkBoss.Source.Behaviours
+namespace AnySilkBoss.Source.Behaviours.Normal
 {
     /// <summary>
     /// 单根丝线行为组件

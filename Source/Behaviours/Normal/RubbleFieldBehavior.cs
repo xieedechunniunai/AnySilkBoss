@@ -5,7 +5,7 @@ using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
 using AnySilkBoss.Source.Tools;
 
-namespace AnySilkBoss.Source.Behaviours
+namespace AnySilkBoss.Source.Behaviours.Normal
 {
     internal class RubbleFieldBehavior : MonoBehaviour
     {

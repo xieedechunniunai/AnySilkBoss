@@ -91,8 +91,9 @@ namespace AnySilkBoss.Source.Managers
             _initialized = true;
             Log.Info("SilkBallManager initialization completed.");
 
-            // 启动自动补充池机制（默认不启用，可通过设置 _enableAutoPooling = true 来启用）
+            // 启动自动补充池机制
             StartCoroutine(AutoPoolGeneration());
+            StartCoroutine(AutoMemoryPoolGeneration());
         }
 
         /// <summary>
@@ -153,12 +154,9 @@ namespace AnySilkBoss.Source.Managers
             // 删除原版 PlayMakerFSM 组件
             RemoveOriginalFSM();
 
-            // 添加 SilkBallBehavior 组件
-            var silkBallBehavior = _customSilkBallPrefab.AddComponent<SilkBallBehavior>();
-            if (silkBallBehavior != null)
-            {
-                Log.Info("成功添加 SilkBallBehavior 组件");
-            }
+            // ⚠️ 不在预制体上添加任何 Behavior 组件
+            // Behavior 组件会在创建实例时根据需要添加（普通版或 Memory 版）
+            // 这样可以避免预制体初始化时添加的子组件（如 CollisionForwarder）被重复添加
 
             Log.Info($"=== 自定义丝球预制体创建完成: {_customSilkBallPrefab.name} ===");
             yield return null;
@@ -398,11 +396,11 @@ namespace AnySilkBoss.Source.Managers
             var silkBallInstance = Object.Instantiate(_customSilkBallPrefab, _poolContainer.transform);
             silkBallInstance.name = $"Silk Ball #{_silkBallPool.Count}";
 
-            // 获取 Behavior 组件
-            var behavior = silkBallInstance.GetComponent<SilkBallBehavior>();
+            // 添加 SilkBallBehavior 组件（预制体上没有，需要在实例化时添加）
+            var behavior = silkBallInstance.AddComponent<SilkBallBehavior>();
             if (behavior == null)
             {
-                Log.Error("丝球实例没有 SilkBallBehavior 组件！");
+                Log.Error("无法添加 SilkBallBehavior 组件！");
                 Object.Destroy(silkBallInstance);
                 return null;
             }
@@ -488,14 +486,7 @@ namespace AnySilkBoss.Source.Managers
             var silkBallInstance = Object.Instantiate(_customSilkBallPrefab, _memoryPoolContainer.transform);
             silkBallInstance.name = $"Memory Silk Ball #{_memorySilkBallPool.Count}";
 
-            // 移除普通版本的 Behavior（如果有）
-            var normalBehavior = silkBallInstance.GetComponent<SilkBallBehavior>();
-            if (normalBehavior != null)
-            {
-                Object.Destroy(normalBehavior);
-            }
-
-            // 添加 Memory 版本的 Behavior
+            // 添加 Memory 版本的 Behavior（预制体上没有任何 Behavior，直接添加）
             var behavior = silkBallInstance.AddComponent<MemorySilkBallBehavior>();
             if (behavior == null)
             {
@@ -591,7 +582,7 @@ namespace AnySilkBoss.Source.Managers
         }
 
         /// <summary>
-        /// 自动补充对象池机制
+        /// 自动补充对象池机制（普通版本）
         /// 如果池内数量小于 MIN_POOL_SIZE，则每 POOL_GENERATION_INTERVAL 秒生成一个到池子里
         /// </summary>
         private IEnumerator AutoPoolGeneration()
@@ -618,6 +609,43 @@ namespace AnySilkBoss.Source.Managers
                 if (currentPoolSize < MIN_POOL_SIZE)
                 {
                     var newBall = CreateNewSilkBallInstance();
+                    if (newBall != null)
+                    {
+                        // 创建后立即回收，使其处于可用状态
+                        newBall.RecycleToPool();
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 自动补充 Memory 对象池机制
+        /// 如果池内数量小于 MIN_POOL_SIZE，则每 POOL_GENERATION_INTERVAL 秒生成一个到池子里
+        /// </summary>
+        private IEnumerator AutoMemoryPoolGeneration()
+        {
+            while (true)
+            {
+                // 等待间隔时间
+                yield return new WaitForSeconds(POOL_GENERATION_INTERVAL);
+
+                // 如果未启用，跳过本次检查
+                if (!_enableAutoPooling)
+                {
+                    continue;
+                }
+                // 如果未初始化完成，跳过本次检查
+                if (!_initialized || _customSilkBallPrefab == null || _memoryPoolContainer == null)
+                {
+                    continue;
+                }
+                // 统计 Memory 池中实际存在的对象数量（排除 null）
+                int currentPoolSize = _memorySilkBallPool.Count(b => b != null);
+
+                // 如果池内数量小于最小值，生成一个新实例到池中
+                if (currentPoolSize < MIN_POOL_SIZE)
+                {
+                    var newBall = CreateNewMemorySilkBallInstance();
                     if (newBall != null)
                     {
                         // 创建后立即回收，使其处于可用状态

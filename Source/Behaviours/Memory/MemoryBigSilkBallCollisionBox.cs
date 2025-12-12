@@ -1,15 +1,15 @@
 using UnityEngine;
 using AnySilkBoss.Source.Tools;
-
-namespace AnySilkBoss.Source.Behaviours;
+using AnySilkBoss.Source.Behaviours.Memory;
+namespace AnySilkBoss.Source.Behaviours.Memory;
 
 /// <summary>
 /// 大丝球碰撞箱 - 处理吸收小丝球的碰撞逻辑
 /// 位于Z=0的实际碰撞层，负责检测和吸收小丝球
 /// </summary>
-internal class BigSilkBallCollisionBox : MonoBehaviour
+internal class MemoryBigSilkBallCollisionBox : MonoBehaviour
 {
-    public BigSilkBallBehavior? parentBehavior;
+    public MemoryBigSilkBallBehavior? parentBehavior;
     private CircleCollider2D? circleCollider;
     private Rigidbody2D? rb;
 
@@ -56,11 +56,11 @@ internal class BigSilkBallCollisionBox : MonoBehaviour
         }
 
         // 检查是否是小丝球（先检查自身，再检查父物体）
-        var silkBall = other.GetComponent<SilkBallBehavior>();
+        var silkBall = other.GetComponent<MemorySilkBallBehavior>();
         if (silkBall == null)
         {
             // 如果是子物体（如Sprite Silk），尝试从父物体获取
-            silkBall = other.GetComponentInParent<SilkBallBehavior>();
+            silkBall = other.GetComponentInParent<MemorySilkBallBehavior>();
         }
 
         if (silkBall != null)
@@ -73,7 +73,7 @@ internal class BigSilkBallCollisionBox : MonoBehaviour
     /// <summary>
     /// 被小丝球的碰撞转发器直接调用（双向检测）
     /// </summary>
-    public void OnCollisionWithSilkBall(SilkBallBehavior silkBall)
+    public void OnCollisionWithSilkBall(MemorySilkBallBehavior silkBall)
     {
         if (parentBehavior == null)
         {

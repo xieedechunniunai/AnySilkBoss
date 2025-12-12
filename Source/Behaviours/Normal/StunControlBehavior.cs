@@ -2,7 +2,7 @@ using System.Collections;
 using UnityEngine;
 using HutongGames.PlayMaker;
 using AnySilkBoss.Source.Tools;
-namespace AnySilkBoss.Source.Behaviours
+namespace AnySilkBoss.Source.Behaviours.Normal
 {
     /// <summary>
     /// 晕眩控制器行为

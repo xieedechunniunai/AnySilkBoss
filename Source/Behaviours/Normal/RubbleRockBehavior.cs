@@ -3,7 +3,7 @@ using UnityEngine;
 using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
 
-namespace AnySilkBoss.Source.Behaviours
+namespace AnySilkBoss.Source.Behaviours.Normal
 {
     /// <summary>
     /// 挂载到 Rubble Field 生成的石头上，修改其 Control FSM 中 Drop 状态的 AccelerateToY 的 targetSpeed
