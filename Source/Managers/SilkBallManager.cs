@@ -6,7 +6,8 @@ using UnityEngine;
 using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
 using AnySilkBoss.Source.Tools;
-using AnySilkBoss.Source.Behaviours;
+using AnySilkBoss.Source.Behaviours.Normal;
+using AnySilkBoss.Source.Behaviours.Memory;
 
 namespace AnySilkBoss.Source.Managers
 {
@@ -34,9 +35,13 @@ namespace AnySilkBoss.Source.Managers
         public FsmObject? GetSilkAudioTable => _getSilkAudioTable;
         public FsmObject? GetSilkAudioPlayerPrefab => _getSilkAudioPlayerPrefab;
 
-        // 对象池
+        // 对象池 - 普通版本
         private readonly List<SilkBallBehavior> _silkBallPool = new List<SilkBallBehavior>();
         private GameObject? _poolContainer;
+
+        // 对象池 - Memory 版本
+        private readonly List<MemorySilkBallBehavior> _memorySilkBallPool = new List<MemorySilkBallBehavior>();
+        private GameObject? _memoryPoolContainer;
 
         // 自动补充池机制（默认不启用）
         private bool _enableAutoPooling = true;
@@ -99,6 +104,11 @@ namespace AnySilkBoss.Source.Managers
             _poolContainer.transform.SetParent(transform);
             // DontDestroyOnLoad(_poolContainer);
             Log.Info("已创建丝球对象池容器（不随场景销毁）");
+
+            // 创建 Memory 版本的对象池容器
+            _memoryPoolContainer = new GameObject("Memory SilkBall Pool");
+            _memoryPoolContainer.transform.SetParent(transform);
+            Log.Info("已创建 Memory 丝球对象池容器");
         }
 
 
@@ -430,6 +440,123 @@ namespace AnySilkBoss.Source.Managers
             return behavior;
         }
 
+        #region Memory SilkBall Pool Management
+        /// <summary>
+        /// 从 Memory 对象池获取可用丝球（如果没有则创建新实例）
+        /// </summary>
+        private MemorySilkBallBehavior? GetAvailableMemorySilkBall()
+        {
+            // 严格筛选：只使用明确被回收的丝球（IsAvailable=true且isActive=false）
+            var availableBall = _memorySilkBallPool.FirstOrDefault(b =>
+                b != null &&
+                b.IsAvailable &&           // 标记为可用
+                !b.isActive            // 确认未激活
+            );
+
+            if (availableBall != null)
+            {
+                return availableBall;
+            }
+
+            // 没有可用的，创建新实例
+            int activeCount = _memorySilkBallPool.Count(b => b != null && b.isActive);
+            int availableCount = _memorySilkBallPool.Count(b => b != null && b.IsAvailable);
+            int enabledCount = _memorySilkBallPool.Count(b => b != null && b.gameObject.activeSelf);
+            Log.Info($"  Memory池统计 - 总数:{_memorySilkBallPool.Count}, 激活:{activeCount}, 可用:{availableCount}, GameObject启用:{enabledCount}");
+
+            return CreateNewMemorySilkBallInstance();
+        }
+
+        /// <summary>
+        /// 创建新的 Memory 丝球实例并加入池中
+        /// </summary>
+        private MemorySilkBallBehavior? CreateNewMemorySilkBallInstance()
+        {
+            if (_customSilkBallPrefab == null)
+            {
+                Log.Error("自定义丝球预制体未初始化，无法创建 Memory 实例");
+                return null;
+            }
+
+            if (_memoryPoolContainer == null)
+            {
+                Log.Error("Memory 对象池容器未初始化，无法创建实例");
+                return null;
+            }
+
+            // 克隆预制体（作为 Memory 池容器的子对象）
+            var silkBallInstance = Object.Instantiate(_customSilkBallPrefab, _memoryPoolContainer.transform);
+            silkBallInstance.name = $"Memory Silk Ball #{_memorySilkBallPool.Count}";
+
+            // 移除普通版本的 Behavior（如果有）
+            var normalBehavior = silkBallInstance.GetComponent<SilkBallBehavior>();
+            if (normalBehavior != null)
+            {
+                Object.Destroy(normalBehavior);
+            }
+
+            // 添加 Memory 版本的 Behavior
+            var behavior = silkBallInstance.AddComponent<MemorySilkBallBehavior>();
+            if (behavior == null)
+            {
+                Log.Error("无法添加 MemorySilkBallBehavior 组件！");
+                Object.Destroy(silkBallInstance);
+                return null;
+            }
+
+            // 初始化 Behavior（只初始化一次，传入管理器引用）
+            behavior.InitializeOnce(_memoryPoolContainer.transform, this);
+
+            // 加入池中
+            _memorySilkBallPool.Add(behavior);
+            return behavior;
+        }
+
+        /// <summary>
+        /// 生成并准备 Memory 丝球（基础版本）
+        /// </summary>
+        public MemorySilkBallBehavior? SpawnMemorySilkBall(Vector3 position)
+        {
+            return SpawnMemorySilkBall(position, 30f, 20f, 6f, 1f);
+        }
+
+        /// <summary>
+        /// 生成并准备 Memory 丝球（完整参数版本）
+        /// </summary>
+        public MemorySilkBallBehavior? SpawnMemorySilkBall(Vector3 position, float acceleration, float maxSpeed, float chaseTime, float scale, bool enableRotation = true, Transform? customTarget = null, bool ignoreWall = false)
+        {
+            var behavior = GetAvailableMemorySilkBall();
+            if (behavior == null)
+            {
+                Log.Error("无法获取可用 Memory 丝球，生成失败");
+                return null;
+            }
+
+            // 准备丝球
+            behavior.PrepareForUse(position, acceleration, maxSpeed, chaseTime, scale, enableRotation, customTarget, ignoreWall);
+            return behavior;
+        }
+
+        /// <summary>
+        /// 回收所有活跃的 Memory 丝球到对象池
+        /// </summary>
+        public void RecycleAllActiveMemorySilkBalls()
+        {
+            int recycledCount = 0;
+
+            foreach (var behavior in _memorySilkBallPool)
+            {
+                if (behavior != null && behavior.isActive)
+                {
+                    behavior.RecycleToPool();
+                    recycledCount++;
+                }
+            }
+
+            Log.Info($"已回收所有活跃 Memory 丝球到对象池，共 {recycledCount} 个");
+        }
+        #endregion
+
         /// <summary>
         /// 回收所有活跃的丝球到对象池
         /// </summary>
@@ -510,22 +637,40 @@ namespace AnySilkBoss.Source.Managers
             // 停止所有协程
             StopAllCoroutines();
 
-            // 回收所有活跃丝球
+            // 回收所有活跃丝球（普通版本）
             RecycleAllActiveSilkBalls();
 
-            // 清空池列表
+            // 回收所有活跃丝球（Memory 版本）
+            RecycleAllActiveMemorySilkBalls();
+
+            // 清空普通池列表
             if (_silkBallPool != null)
             {
                 _silkBallPool.Clear();
                 Log.Info("已清空丝球对象池");
             }
 
-            // 销毁池容器
+            // 清空 Memory 池列表
+            if (_memorySilkBallPool != null)
+            {
+                _memorySilkBallPool.Clear();
+                Log.Info("已清空 Memory 丝球对象池");
+            }
+
+            // 销毁普通池容器
             if (_poolContainer != null)
             {
                 UnityEngine.Object.Destroy(_poolContainer);
                 _poolContainer = null;
                 Log.Info("已销毁丝球对象池容器");
+            }
+
+            // 销毁 Memory 池容器
+            if (_memoryPoolContainer != null)
+            {
+                UnityEngine.Object.Destroy(_memoryPoolContainer);
+                _memoryPoolContainer = null;
+                Log.Info("已销毁 Memory 丝球对象池容器");
             }
 
             _initialized = false;
