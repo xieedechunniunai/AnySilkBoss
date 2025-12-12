@@ -4,9 +4,10 @@ using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
 using AnySilkBoss.Source.Tools;
 using AnySilkBoss.Source.Managers;
+using AnySilkBoss.Source.Behaviours.Normal;
 using System.Linq;
 
-namespace AnySilkBoss.Source.Behaviours;
+namespace AnySilkBoss.Source.Behaviours.Normal;
 
 /// <summary>
 /// 大丝球Behavior - 管理单个大丝球的行为和FSM

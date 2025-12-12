@@ -5,7 +5,8 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using HutongGames.PlayMaker;
 using AnySilkBoss.Source.Tools;
-using AnySilkBoss.Source.Behaviours;
+using AnySilkBoss.Source.Behaviours.Normal;
+using AnySilkBoss.Source.Behaviours.Memory;
 using HutongGames.PlayMaker.Actions;
 
 namespace AnySilkBoss.Source.Managers
@@ -25,15 +26,24 @@ namespace AnySilkBoss.Source.Managers
         private GameObject? _singleWebStrandPrefab;
         public GameObject? SingleWebStrandPrefab => _singleWebStrandPrefab;
 
-        // 对象池
+        // 对象池 - 普通版本
         private readonly List<SingleWebBehavior> _webPool = new List<SingleWebBehavior>();
         private GameObject? _poolContainer;  // 池容器（用于组织层级）
+
+        // 对象池 - Memory 版本
+        private readonly List<MemorySingleWebBehavior> _memoryWebPool = new List<MemorySingleWebBehavior>();
+        private GameObject? _memoryPoolContainer;  // Memory 池容器
 
         // 初始化标志
         private bool _initialized = false;
 
         // BOSS 场景名称
         private const string BossSceneName = "Cradle_03";
+
+        // 自动补充池机制
+        private bool _enableAutoPooling = true;
+        private const int MIN_POOL_SIZE = 20;  // 丝线池最小数量
+        private const float POOL_GENERATION_INTERVAL = 0.2f;  // 生成间隔
         #endregion
 
         #region Unity Lifecycle
@@ -98,7 +108,11 @@ namespace AnySilkBoss.Source.Managers
             if (oldScene.name == BossSceneName)
             {
                 Log.Info($"离开 BOSS 场景 {oldScene.name}，清理 SingleWebManager 缓存");
+                StopCoroutine(AutoPoolGeneration());
+                StopCoroutine(AutoMemoryPoolGeneration());
                 CleanupPrefab();
+                _initialized = false;
+                Log.Info("=== SingleWebManager 清理完成 ===");
             }
         }
 
@@ -129,6 +143,10 @@ namespace AnySilkBoss.Source.Managers
 
             _initialized = true;
             Log.Info("=== SingleWebManager 初始化完成 ===");
+
+            // 启动自动补充池机制
+            StartCoroutine(AutoPoolGeneration());
+            StartCoroutine(AutoMemoryPoolGeneration());
         }
 
         /// <summary>
@@ -290,8 +308,12 @@ namespace AnySilkBoss.Source.Managers
         {
             _poolContainer = new GameObject("SingleWeb Pool");
             _poolContainer.transform.SetParent(transform);
-            // DontDestroyOnLoad(_poolContainer);
-            Log.Info("已创建对象池容器（不随场景销毁）");
+            Log.Info("已创建丝线对象池容器");
+
+            // 创建 Memory 版本的对象池容器
+            _memoryPoolContainer = new GameObject("Memory SingleWeb Pool");
+            _memoryPoolContainer.transform.SetParent(transform);
+            Log.Info("已创建 Memory 丝线对象池容器");
         }
 
         /// <summary>
@@ -411,7 +433,70 @@ namespace AnySilkBoss.Source.Managers
             Log.Info($"创建新丝线实例: {webInstance.name}，当前池大小: {_webPool.Count}");
             return behavior;
         }
+        #endregion
 
+        #region Memory Object Pool
+        /// <summary>
+        /// 从 Memory 对象池获取可用丝线（如果没有则创建新实例）
+        /// </summary>
+        private MemorySingleWebBehavior? GetAvailableMemoryWeb()
+        {
+            // 先查找池中可用的丝线
+            var availableWeb = _memoryWebPool.FirstOrDefault(w => w != null && w.IsAvailable);
+            
+            if (availableWeb != null)
+            {
+                Log.Debug($"从 Memory 池中获取可用丝线: {availableWeb.gameObject.name}");
+                return availableWeb;
+            }
+
+            // 没有可用的，创建新实例
+            Log.Info("Memory 池中无可用丝线，创建新实例...");
+            return CreateNewMemoryWebInstance();
+        }
+
+        /// <summary>
+        /// 创建新的 Memory 丝线实例并加入池中
+        /// </summary>
+        private MemorySingleWebBehavior? CreateNewMemoryWebInstance()
+        {
+            if (_singleWebStrandPrefab == null)
+            {
+                Log.Error("单根丝线预制体未初始化，无法创建 Memory 实例");
+                return null;
+            }
+
+            if (_memoryPoolContainer == null)
+            {
+                Log.Error("Memory 对象池容器未初始化，无法创建实例");
+                return null;
+            }
+
+            // 克隆预制体（作为 Memory 池容器的子对象）
+            var webInstance = Object.Instantiate(_singleWebStrandPrefab, _memoryPoolContainer.transform);
+            webInstance.name = $"Memory SingleWeb #{_memoryWebPool.Count}";
+            webInstance.SetActive(true);
+
+            // 配置基础组件
+            ConfigureWebInstance(webInstance);
+
+            // 移除普通版本的 Behavior（如果有）
+            var normalBehavior = webInstance.GetComponent<SingleWebBehavior>();
+            if (normalBehavior != null)
+            {
+                Object.Destroy(normalBehavior);
+            }
+
+            // 添加并初始化 Memory Behavior
+            var behavior = webInstance.AddComponent<MemorySingleWebBehavior>();
+            behavior.InitializeBehavior(_memoryPoolContainer.transform);
+
+            // 加入池中
+            _memoryWebPool.Add(behavior);
+            
+            Log.Info($"创建新 Memory 丝线实例: {webInstance.name}，当前池大小: {_memoryWebPool.Count}");
+            return behavior;
+        }
         #endregion
 
         #region Public Methods
@@ -458,6 +543,166 @@ namespace AnySilkBoss.Source.Managers
         {
             return SpawnAndAttack(position, null, null, 0f, 0.75f);
         }
+
+        #region Memory Public Methods
+        /// <summary>
+        /// 生成 Memory 单根丝线并触发攻击（使用对象池）
+        /// </summary>
+        public MemorySingleWebBehavior? SpawnMemoryWebAndAttack(
+            Vector3 position,
+            Vector3? rotation = null,
+            Vector3? scale = null,
+            float appearDelay = 0f,
+            float burstDelay = 0.75f)
+        {
+            // 从 Memory 池中获取可用丝线
+            var webBehavior = GetAvailableMemoryWeb();
+            if (webBehavior == null)
+            {
+                Log.Error("无法获取可用 Memory 丝线，生成失败");
+                return null;
+            }
+
+            // 设置位置和变换
+            webBehavior.transform.position = position;
+            webBehavior.transform.eulerAngles = rotation ?? Vector3.zero;
+            webBehavior.transform.localScale = scale ?? Vector3.one;
+
+            // 触发攻击
+            webBehavior.TriggerAttack(appearDelay, burstDelay);
+
+            Log.Debug($"已生成并触发 Memory 丝线攻击: {webBehavior.gameObject.name} at {position}");
+            return webBehavior;
+        }
+
+        /// <summary>
+        /// Memory 简化版：只指定位置
+        /// </summary>
+        public MemorySingleWebBehavior? SpawnMemoryWebAndAttack(Vector3 position)
+        {
+            return SpawnMemoryWebAndAttack(position, null, null, 0f, 0.75f);
+        }
+
+        /// <summary>
+        /// 批量生成多根 Memory 丝线并触发攻击
+        /// </summary>
+        public List<MemorySingleWebBehavior> SpawnMultipleMemoryWebAndAttack(
+            Vector3[] positions,
+            Vector3? rotation = null,
+            Vector3? scale = null,
+            Vector2? randomAppearDelay = null,
+            float burstDelay = 0.75f)
+        {
+            List<MemorySingleWebBehavior> behaviors = new List<MemorySingleWebBehavior>();
+            Vector2 delayRange = randomAppearDelay ?? new Vector2(0f, 0.3f);
+
+            foreach (var pos in positions)
+            {
+                float randomDelay = Random.Range(delayRange.x, delayRange.y);
+                var behavior = SpawnMemoryWebAndAttack(pos, rotation, scale, randomDelay, burstDelay);
+                
+                if (behavior != null)
+                {
+                    behaviors.Add(behavior);
+                }
+            }
+
+            Log.Info($"批量生成了 {behaviors.Count} 根 Memory 丝线并触发攻击");
+            return behaviors;
+        }
+
+        /// <summary>
+        /// 清空 Memory 对象池
+        /// </summary>
+        public void ClearMemoryPool()
+        {
+            foreach (var web in _memoryWebPool)
+            {
+                if (web != null)
+                {
+                    web.StopAttack();
+                    web.ResetCooldown();
+                }
+            }
+            Log.Info($"已清空 Memory 对象池（共 {_memoryWebPool.Count} 个丝线）");
+        }
+        #endregion
+
+        #region Auto Pool Generation
+        /// <summary>
+        /// 自动补充普通对象池机制
+        /// 如果池内数量小于 MIN_POOL_SIZE，则每 POOL_GENERATION_INTERVAL 秒生成一个到池子里
+        /// </summary>
+        private IEnumerator AutoPoolGeneration()
+        {
+            while (true)
+            {
+                // 等待间隔时间
+                yield return new WaitForSeconds(POOL_GENERATION_INTERVAL);
+
+                // 如果未启用，跳过本次检查
+                if (!_enableAutoPooling)
+                {
+                    continue;
+                }
+                // 如果未初始化完成，跳过本次检查
+                if (!_initialized || _singleWebStrandPrefab == null || _poolContainer == null)
+                {
+                    continue;
+                }
+                // 统计池中实际存在的对象数量（排除 null）
+                int currentPoolSize = _webPool.Count(w => w != null);
+
+                // 如果池内数量小于最小值，生成一个新实例到池中
+                if (currentPoolSize < MIN_POOL_SIZE)
+                {
+                    var newWeb = CreateNewWebInstance();
+                    if (newWeb != null)
+                    {
+                        // 创建后立即重置冷却，使其处于可用状态
+                        newWeb.ResetCooldown();
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 自动补充 Memory 对象池机制
+        /// 如果池内数量小于 MIN_POOL_SIZE，则每 POOL_GENERATION_INTERVAL 秒生成一个到池子里
+        /// </summary>
+        private IEnumerator AutoMemoryPoolGeneration()
+        {
+            while (true)
+            {
+                // 等待间隔时间
+                yield return new WaitForSeconds(POOL_GENERATION_INTERVAL);
+
+                // 如果未启用，跳过本次检查
+                if (!_enableAutoPooling)
+                {
+                    continue;
+                }
+                // 如果未初始化完成，跳过本次检查
+                if (!_initialized || _singleWebStrandPrefab == null || _memoryPoolContainer == null)
+                {
+                    continue;
+                }
+                // 统计 Memory 池中实际存在的对象数量（排除 null）
+                int currentPoolSize = _memoryWebPool.Count(w => w != null);
+
+                // 如果池内数量小于最小值，生成一个新实例到池中
+                if (currentPoolSize < MIN_POOL_SIZE)
+                {
+                    var newWeb = CreateNewMemoryWebInstance();
+                    if (newWeb != null)
+                    {
+                        // 创建后立即重置冷却，使其处于可用状态
+                        newWeb.ResetCooldown();
+                    }
+                }
+            }
+        }
+        #endregion
 
         /// <summary>
         /// 配置丝线实例的基础组件（Rigidbody2D、Layer、Collider 等）
@@ -683,7 +928,7 @@ namespace AnySilkBoss.Source.Managers
             // 停止所有协程
             StopAllCoroutines();
 
-            // 清理对象池：销毁所有实例
+            // 清理普通对象池：销毁所有实例
             if (_webPool != null)
             {
                 int destroyedCount = 0;
@@ -696,15 +941,39 @@ namespace AnySilkBoss.Source.Managers
                     }
                 }
                 _webPool.Clear();
-                Log.Info($"已销毁对象池中的 {destroyedCount} 个丝线实例");
+                Log.Info($"已销毁普通对象池中的 {destroyedCount} 个丝线实例");
             }
 
-            // 销毁对象池容器
+            // 清理 Memory 对象池：销毁所有实例
+            if (_memoryWebPool != null)
+            {
+                int destroyedCount = 0;
+                foreach (var web in _memoryWebPool)
+                {
+                    if (web != null && web.gameObject != null)
+                    {
+                        Object.Destroy(web.gameObject);
+                        destroyedCount++;
+                    }
+                }
+                _memoryWebPool.Clear();
+                Log.Info($"已销毁 Memory 对象池中的 {destroyedCount} 个丝线实例");
+            }
+
+            // 销毁普通对象池容器
             if (_poolContainer != null)
             {
                 Object.Destroy(_poolContainer);
                 _poolContainer = null;
-                Log.Info("已销毁对象池容器");
+                Log.Info("已销毁普通对象池容器");
+            }
+
+            // 销毁 Memory 对象池容器
+            if (_memoryPoolContainer != null)
+            {
+                Object.Destroy(_memoryPoolContainer);
+                _memoryPoolContainer = null;
+                Log.Info("已销毁 Memory 对象池容器");
             }
 
             // 销毁预制体

@@ -5,7 +5,7 @@ using UnityEngine;
 using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
 using AnySilkBoss.Source.Tools;
-namespace AnySilkBoss.Source.Behaviours
+namespace AnySilkBoss.Source.Behaviours.Normal
 {
     /// <summary>
     /// 手部控制Behavior - 管理单个手部对象及其控制的3根Finger Blade

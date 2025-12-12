@@ -7,12 +7,12 @@ using AnySilkBoss.Source.Tools;
 using System.Collections.Generic;
 using System;
 
-namespace AnySilkBoss.Source.Behaviours
+namespace AnySilkBoss.Source.Behaviours.Memory
 {
     /// <summary>
     /// 丝球Behavior - 管理单个丝球的行为和FSM
     /// </summary>
-    internal class SilkBallBehavior : MonoBehaviour
+    internal class MemorySilkBallBehavior : MonoBehaviour
     {
         #region 物理参数
         [Header("物理参数")]
@@ -179,10 +179,10 @@ namespace AnySilkBoss.Source.Behaviours
                     }
 
                     // 添加碰撞转发器
-                    var collisionForwarder = spriteSilk.GetComponent<SilkBallCollisionForwarder>();
+                    var collisionForwarder = spriteSilk.GetComponent<MemorySilkBallCollisionForwarder>();
                     if (collisionForwarder == null)
                     {
-                        collisionForwarder = spriteSilk.gameObject.AddComponent<SilkBallCollisionForwarder>();
+                        collisionForwarder = spriteSilk.gameObject.AddComponent<MemorySilkBallCollisionForwarder>();
                         collisionForwarder.parent = this;
                     }
                 }
@@ -785,7 +785,7 @@ namespace AnySilkBoss.Source.Behaviours
         private void AddChaseHeroActions(FsmState chaseState)
         {
             // 自定义追踪动作
-            var chaseAction = new SilkBallChaseAction
+            var chaseAction = new MemorySilkBallChaseAction
             {
                 silkBallBehavior = this,
                 acceleration = accelerationVar,
@@ -1352,7 +1352,7 @@ namespace AnySilkBoss.Source.Behaviours
                 Glow.gameObject.SetActive(false);
             }
             // 禁用所有碰撞转发器
-            var forwarders = GetComponentsInChildren<SilkBallCollisionForwarder>();
+            var forwarders = GetComponentsInChildren<MemorySilkBallCollisionForwarder>();
             foreach (var forwarder in forwarders)
             {
                 forwarder.enabled = false;
@@ -1442,7 +1442,7 @@ namespace AnySilkBoss.Source.Behaviours
             {
                 Glow.gameObject.SetActive(true);
             }
-            var forwarders = GetComponentsInChildren<SilkBallCollisionForwarder>();
+            var forwarders = GetComponentsInChildren<MemorySilkBallCollisionForwarder>();
             foreach (var forwarder in forwarders)
             {
                 forwarder.enabled = true;
@@ -1463,7 +1463,7 @@ namespace AnySilkBoss.Source.Behaviours
             }
 
             // 检查大丝球碰撞箱（追踪大丝球的小丝球会被吸收）
-            var collisionBox = otherObject.GetComponent<BigSilkBallCollisionBox>();
+            var collisionBox = otherObject.GetComponent<MemoryBigSilkBallCollisionBox>();
             if (collisionBox != null)
             {
                 return;
@@ -1527,9 +1527,9 @@ namespace AnySilkBoss.Source.Behaviours
     /// <summary>
     /// 丝球追踪玩家的自定义Action
     /// </summary>
-    internal class SilkBallChaseAction : FsmStateAction
+    internal class MemorySilkBallChaseAction : FsmStateAction
     {
-        public SilkBallBehavior? silkBallBehavior;
+        public MemorySilkBallBehavior? silkBallBehavior;
         public FsmFloat? acceleration;
         public FsmFloat? maxSpeed;
 
@@ -1648,9 +1648,9 @@ namespace AnySilkBoss.Source.Behaviours
     /// <summary>
     /// 碰撞转发器 - 将子物体的碰撞事件转发给父 SilkBallBehavior
     /// </summary>
-    internal class SilkBallCollisionForwarder : MonoBehaviour
+    internal class MemorySilkBallCollisionForwarder : MonoBehaviour
     {
-        public SilkBallBehavior? parent;
+        public MemorySilkBallBehavior? parent;
 
         private void OnTriggerEnter2D(Collider2D other)
         {

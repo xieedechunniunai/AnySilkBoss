@@ -2,6 +2,7 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Text;
 using AnySilkBoss.Source.Behaviours;
+using AnySilkBoss.Source.Behaviours.Normal;  // 普通版组件
 using AnySilkBoss.Source.Behaviours.Memory;  // 梦境版组件
 using AnySilkBoss.Source.Managers;
 using HarmonyLib;

@@ -1,55 +1,35 @@
-using AnySilkBoss.Source.Behaviours;
-using AnySilkBoss.Source.Tools;
-using HutongGames.PlayMaker;
-using HutongGames.PlayMaker.Actions;
+using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using HutongGames.PlayMaker;
+using HutongGames.PlayMaker.Actions;
+using AnySilkBoss.Source.Tools;
+using AnySilkBoss.Source.Managers;
 using static AnySilkBoss.Source.Tools.FsmStateBuilder;
 
 namespace AnySilkBoss.Source.Behaviours.Memory
 {
-    /// <summary>
-    /// 梦境版攻击控制器，在普通版基础上增强攻击连击和缩短恢复时间
-    /// - 复制10份Pattern（Pattern 3 到 Pattern 10）
-    /// - Single路径：随机2次(0.6权重)或3次(0.4权重)
-    /// - Double路径：随机3次(0.5权重)或4次(0.5权重)
-    /// - 所有攻击发送delay调整为0.6s
-    /// - 缩短 Web Recover 和 Move Restart 的等待时间
-    /// - 使用 MemoryHandControlBehavior 和 MemoryFingerBladeBehavior
-    /// </summary>
-    internal class MemoryAttackControlBehavior : AttackControlBehavior
+    internal partial class MemoryAttackControlBehavior
     {
-        // 攻击发送延迟常量
-        private const float ATTACK_SEND_DELAY = 0.6f;
-
-        /// <summary>
-        /// 创建梦境版 Hand Behavior
-        /// </summary>
-        protected override HandControlBehavior CreateHandBehavior(GameObject handObj)
-        {
-            Log.Info($"[MemoryAttackControl] 创建 MemoryHandControlBehavior: {handObj.name}");
-            return handObj.AddComponent<MemoryHandControlBehavior>();
-        }
-
-        /// <summary>
-        /// 梦境版Pattern复制逻辑：复制Pattern 1为Pattern 3到Pattern 10（共10份）
-        /// </summary>
-        protected override void PatchOriginalAttackPatterns()
+        #region 原版AttackControl调整
+        protected virtual void PatchOriginalAttackPatterns()
         {
             if (_strandPatterns == null)
             {
-                Log.Warn("_strandPatterns为null，无法调整梦境版攻击Pattern！");
+                Log.Warn("_strandPatterns为null，无法调整原版攻击Pattern！");
                 return;
             }
-
-            // 查找Pattern 1作为模板
             var pattern1 = _strandPatterns.transform.Find("Pattern 1");
             if (pattern1 == null)
             {
-                Log.Warn("未找到 Pattern 1，梦境版攻击调整跳过");
+                Log.Warn("未找到 Pattern 1，原版攻击调整跳过");
                 return;
             }
-
+            if (_strandPatterns.transform.Find("Pattern 3") != null)
+            {
+                Log.Info("Pattern 3 已存在，无需再次复制");
+                return;
+            }
             // 复制 Pattern 1 为 Pattern 3 到 Pattern 10
             int copiedCount = 0;
             for (int i = 3; i <= 10; i++)
@@ -72,15 +52,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             PatchSingleAndDoubleStatesLastActionsV2();
             PatchAllPatternsWebBurstStartDelay();
         }
-
-        /// <summary>
-        /// 梦境版Single路径随机连击：2次(0.6权重)或3次(0.4权重)
-        /// 
-        /// 状态流程：
-        /// Single (第1+2次攻击) -> Single Extra Check (随机判断) 
-        ///   -> SINGLE EXTRA (0.4) -> Single Extra (第3次攻击) -> Web Recover
-        ///   -> FINISHED (0.6) -> Web Recover
-        /// </summary>
         private void PatchSinglePathRandomCombo()
         {
             if (_attackControlFsm == null) return;
@@ -222,7 +193,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         ///   -> QUADRUPLE (0.5) -> Quadruple (第4次攻击) -> Web Recover
         ///   -> FINISHED (0.5) -> Web Recover
         /// </summary>
-        protected override void PatchSingleAndDoubleStatesLastActionsV2()
+        private void PatchSingleAndDoubleStatesLastActionsV2()
         {
             if (_attackControlFsm == null) return;
 
@@ -374,5 +345,148 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 }
             }
         }
+        private void AddAttactStopAction()
+        {
+            var attackStopState = _attackControlFsm?.FsmStates.FirstOrDefault(x => x.Name == "Attack Stop");
+            if (attackStopState == null) { return; }
+            var actions = attackStopState.Actions.ToList();
+            actions.Insert(0, new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("ClearSilkBallMethod") { Value = "ClearSilkBallMethod" },
+                parameters = new FsmVar[0],
+                everyFrame = false
+            });
+            attackStopState.Actions = actions.ToArray();
+        }
+
+        private void ModifyDashAttackState()
+        {
+            var dashAttackState = _attackControlFsm?.FsmStates.FirstOrDefault(x => x.Name == "Dash Attack");
+            if (dashAttackState == null) { return; }
+            var dashAttackAnticState = _attackControlFsm?.FsmStates.FirstOrDefault(x => x.Name == "Dash Attack Antic");
+            if (dashAttackAnticState == null) { return; }
+
+            var dashAttackactions = dashAttackAnticState.Actions.ToList();
+            foreach (var action in dashAttackactions)
+            {
+                if (action is SendEventByName sendEventByName &&
+                    sendEventByName.sendEvent?.Value != null &&
+                    sendEventByName.sendEvent.Value.Contains("STOMP DASH"))
+                {
+                    sendEventByName.delay = new FsmFloat(0.28f);
+                }
+            }
+            dashAttackAnticState.Actions = dashAttackactions.ToArray();
+
+            var dashAttackEndState = _attackControlFsm?.FsmStates.FirstOrDefault(x => x.Name == "Dash Attack End");
+            if (dashAttackEndState == null) { return; }
+
+            var dashAttackEndactions = dashAttackEndState.Actions.ToList();
+
+            if (laceCircleSlash != null)
+            {
+                dashAttackEndactions.Insert(0, new SpawnObjectFromGlobalPool
+                {
+                    gameObject = new FsmGameObject { Value = laceCircleSlash },
+                    spawnPoint = new FsmGameObject { Value = this.gameObject },
+                    position = new FsmVector3 { Value = Vector3.zero },
+                    rotation = new FsmVector3 { Value = Vector3.zero },
+                    storeObject = _laceSlashObj
+                });
+            }
+            else
+            {
+                Log.Warn("laceCircleSlash 为 null，跳过 Dash Attack End 的斩击特效生成");
+            }
+            dashAttackEndState.Actions = dashAttackEndactions.ToArray();
+        }
+
+        private void ModifySpikeLiftAimState()
+        {
+            var spikeLiftAimState = _attackControlFsm?.FsmStates.FirstOrDefault(x => x.Name == "Spike Lift Aim");
+            var spikeLiftAimState2 = _attackControlFsm?.FsmStates.FirstOrDefault(x => x.Name == "Spike Lift Aim 2");
+            if (spikeLiftAimState == null || spikeLiftAimState2 == null || _bossScene == null) { return; }
+            var spikeFloors = _bossScene.transform.Find("Spike Floors").gameObject;
+            var spikeLiftAimactions = spikeLiftAimState.Actions.ToList();
+            var spikeLiftAimactions2 = spikeLiftAimState2.Actions.ToList();
+            spikeLiftAimactions.Add(new GetRandomChild
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.SpecifyGameObject, gameObject = new FsmGameObject { Value = spikeFloors } },
+                storeResult = _spikeFloorsX
+            });
+            spikeLiftAimactions.Add(new SendEventByName
+            {
+                eventTarget = new FsmEventTarget
+                {
+                    target = FsmEventTarget.EventTarget.GameObject,
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        gameObject = _spikeFloorsX
+                    }
+                },
+                sendEvent = new FsmString { Value = "ATTACK" },
+                delay = new FsmFloat { Value = 0.2f }
+            });
+            foreach (var action in spikeLiftAimactions)
+            {
+                if (action is Wait wait &&
+                    wait.time?.Value != null)
+                {
+                    wait.time = new FsmFloat(0.3f);
+                }
+            }
+
+            spikeLiftAimactions2.Add(new GetRandomChild
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.SpecifyGameObject, gameObject = new FsmGameObject { Value = spikeFloors } },
+                storeResult = _spikeFloorsX
+            });
+            spikeLiftAimactions2.Add(new SendEventByName
+            {
+                eventTarget = new FsmEventTarget
+                {
+                    target = FsmEventTarget.EventTarget.GameObject,
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        gameObject = _spikeFloorsX
+                    }
+                },
+                sendEvent = new FsmString { Value = "ATTACK" },
+                delay = new FsmFloat { Value = 0.2f }
+            });
+            spikeLiftAimState.Actions = spikeLiftAimactions.ToArray();
+            spikeLiftAimState2.Actions = spikeLiftAimactions2.ToArray();
+        }
+
+        public void ClearSilkBallMethod()
+        {
+            Log.Info("Boss眩晕，开始清理丝球");
+
+            var managerObj = GameObject.Find("AnySilkBossManager");
+            if (managerObj != null)
+            {
+                var silkBallManager = managerObj.GetComponent<SilkBallManager>();
+                if (silkBallManager != null)
+                {
+                    silkBallManager.RecycleAllActiveSilkBalls();
+                    Log.Info("已通过SilkBallManager清理所有丝球");
+                }
+                else
+                {
+                    Log.Warn("未找到SilkBallManager组件");
+                }
+            }
+            else
+            {
+                Log.Warn("未找到AnySilkBossManager GameObject");
+            }
+            StopGeneratingSilkBall();
+            ClearActiveSilkBalls();
+        }
+        #endregion
     }
 }
+
