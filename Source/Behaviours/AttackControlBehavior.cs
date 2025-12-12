@@ -35,7 +35,7 @@ namespace AnySilkBoss.Source.Behaviours
         public HandControlBehavior? handRBehavior;
 
         // FSM引用
-        private PlayMakerFSM? _attackControlFsm;
+        protected PlayMakerFSM? _attackControlFsm;
 
         /// <summary>
         /// 公共属性：Attack Control FSM 是否已初始化
@@ -43,76 +43,74 @@ namespace AnySilkBoss.Source.Behaviours
         public bool IsAttackControlFsmReady => _attackControlFsm != null;
 
         // 状态引用
-        private FsmState? _handPtnChoiceState;
-        private FsmState? _orbitAttackState;
-        private FsmState? _waitForHandsReadyState;
+        protected FsmState? _handPtnChoiceState;
+        protected FsmState? _orbitAttackState;
+        protected FsmState? _waitForHandsReadyState;
         // 用于存储第二个Hand的信息
-        private string _secondHandName = "";
-        private GameObject? _bossScene;
-        private GameObject? _strandPatterns;
-        private GameObject? _secondHandObject;
+        protected string _secondHandName = "";
+        protected GameObject? _bossScene;
+        protected GameObject? _strandPatterns;
+        protected GameObject? _secondHandObject;
 
         // 事件引用缓存
-        private FsmEvent? _orbitAttackEvent;
-        private FsmEvent? _orbitStartHandLEvent;
-        private FsmEvent? _orbitStartHandREvent;
+        protected FsmEvent? _orbitAttackEvent;
+        protected FsmEvent? _orbitStartHandLEvent;
+        protected FsmEvent? _orbitStartHandREvent;
 
-        private FsmEvent? _nullEvent;
+        protected FsmEvent? _nullEvent;
 
         // 丝球环绕攻击相关
-        private FsmEvent? _silkBallAttackEvent;
-        private Managers.SilkBallManager? _silkBallManager;
-        private List<GameObject> _activeSilkBalls = new List<GameObject>();
-        private Coroutine? _silkBallSummonCoroutine;
+        protected FsmEvent? _silkBallAttackEvent;
+        protected Managers.SilkBallManager? _silkBallManager;
+        protected List<GameObject> _activeSilkBalls = new List<GameObject>();
+        protected Coroutine? _silkBallSummonCoroutine;
 
         // 丝球攻击状态引用
-        private FsmState? _silkBallPrepareState;
-        private FsmState? _silkBallPrepareCastState;
-        private FsmState? _silkBallCastState;
-        private FsmState? _silkBallLiftState;
-        private FsmState? _silkBallAnticState;
-        private FsmState? _silkBallReleaseState;
-        private FsmState? _silkBallEndState;
-        private FsmState? _silkBallRecoverState;
+        protected FsmState? _silkBallPrepareState;
+        protected FsmState? _silkBallPrepareCastState;
+        protected FsmState? _silkBallCastState;
+        protected FsmState? _silkBallLiftState;
+        protected FsmState? _silkBallAnticState;
+        protected FsmState? _silkBallReleaseState;
+        protected FsmState? _silkBallEndState;
+        protected FsmState? _silkBallRecoverState;
 
         // 移动丝球攻击状态引用
-        private FsmState? _silkBallDashPrepareState;
-        private FsmState? _silkBallDashEndState;
+        protected FsmState? _silkBallDashPrepareState;
+        protected FsmState? _silkBallDashEndState;
 
         // BossControl FSM引用（用于通信）
-        private PlayMakerFSM? _bossControlFsm;
+        protected PlayMakerFSM? _bossControlFsm;
 
         // 移动丝球相关变量（AttackControl中）
-        private FsmBool? _isGeneratingSilkBall;  // 是否正在生成丝球
-        private FsmFloat? _totalDistanceTraveled; // 累计移动距离
-        private FsmVector2? _lastBallPosition;    // 上次生成丝球的位置
+        protected FsmBool? _isGeneratingSilkBall;  // 是否正在生成丝球
+        protected FsmFloat? _totalDistanceTraveled; // 累计移动距离
+        protected FsmVector2? _lastBallPosition;    // 上次生成丝球的位置
 
-        private FsmGameObject? _laceSlashObj;
-        private FsmGameObject? _spikeFloorsX;
+        protected FsmGameObject? _laceSlashObj;
+        protected FsmGameObject? _spikeFloorsX;
         // 移动丝球相关事件
-        private FsmEvent? _silkBallStaticEvent;
-        private FsmEvent? _silkBallDashEvent;
-        private FsmEvent? _silkBallDashStartEvent;
-        private FsmEvent? _silkBallDashEndEvent;
+        protected FsmEvent? _silkBallStaticEvent;
+        protected FsmEvent? _silkBallDashEvent;
+        protected FsmEvent? _silkBallDashStartEvent;
+        protected FsmEvent? _silkBallDashEndEvent;
 
         // 眩晕中断相关事件
-        private FsmEvent? _silkBallInterruptEvent;
-        private FsmEvent? _silkBallRecoverEvent;
 
         // P6 Web攻击相关事件
-        private FsmEvent? _p6WebAttackEvent;
+        protected FsmEvent? _p6WebAttackEvent;
 
         // P6 Web攻击状态引用
-        private FsmState? _p6WebPrepareState;
-        private FsmState? _p6WebCastState;
-        private FsmState? _p6WebAttack1State;
-        private FsmState? _p6WebAttack2State;
-        private FsmState? _p6WebAttack3State;
-        private FsmState? _p6WebRecoverState;
+        protected FsmState? _p6WebPrepareState;
+        protected FsmState? _p6WebCastState;
+        protected FsmState? _p6WebAttack1State;
+        protected FsmState? _p6WebAttack2State;
+        protected FsmState? _p6WebAttack3State;
+        protected FsmState? _p6WebRecoverState;
 
         // 丝球释放时的冲击波和音效动作缓存
-        private StartRoarEmitter? _cachedRoarEmitter;
-        private PlayAudioEventRandom? _cachedPlayRoarAudio;
+        protected StartRoarEmitter? _cachedRoarEmitter;
+        protected PlayAudioEventRandom? _cachedPlayRoarAudio;
 
         // 坐标常量
         private static readonly Vector3 POS_LEFT_DOWN = new Vector3(25f, 137f, 0f);
@@ -349,8 +347,6 @@ namespace AnySilkBoss.Source.Behaviours
                 "SILK BALL DASH",
                 "SILK BALL DASH START",
                 "SILK BALL DASH END",
-                "SILK BALL INTERRUPT",
-                "SILK BALL RECOVER",
                 "NULL",
                 "CLIMB PHASE ATTACK",
                 "CLIMB PHASE END",
@@ -366,8 +362,6 @@ namespace AnySilkBoss.Source.Behaviours
             _silkBallDashEvent = FsmEvent.GetFsmEvent("SILK BALL DASH");
             _silkBallDashStartEvent = FsmEvent.GetFsmEvent("SILK BALL DASH START");
             _silkBallDashEndEvent = FsmEvent.GetFsmEvent("SILK BALL DASH END");
-            _silkBallInterruptEvent = FsmEvent.GetFsmEvent("SILK BALL INTERRUPT");
-            _silkBallRecoverEvent = FsmEvent.GetFsmEvent("SILK BALL RECOVER");
             _nullEvent = FsmEvent.GetFsmEvent("NULL");
             _p6WebAttackEvent = FsmEvent.GetFsmEvent("P6 WEB ATTACK");
         }
@@ -383,7 +377,7 @@ namespace AnySilkBoss.Source.Behaviours
             // ReinitializeFsm(_attackControlFsm);
             ReinitializeFsmVariables(_attackControlFsm);
         }
-        private T? CloneAction<T>(string sourceStateName, int matchIndex = 0, Func<T, bool>? predicate = null) where T : FsmStateAction
+        protected T? CloneAction<T>(string sourceStateName, int matchIndex = 0, Func<T, bool>? predicate = null) where T : FsmStateAction
         {
             if (_attackControlFsm == null)
             {
@@ -443,7 +437,7 @@ namespace AnySilkBoss.Source.Behaviours
                 handLBehavior = handL.GetComponent<HandControlBehavior>();
                 if (handLBehavior == null)
                 {
-                    handLBehavior = handL.AddComponent<HandControlBehavior>();
+                    handLBehavior = CreateHandBehavior(handL);
                 }
             }
             else
@@ -456,13 +450,21 @@ namespace AnySilkBoss.Source.Behaviours
                 handRBehavior = handR.GetComponent<HandControlBehavior>();
                 if (handRBehavior == null)
                 {
-                    handRBehavior = handR.AddComponent<HandControlBehavior>();
+                    handRBehavior = CreateHandBehavior(handR);
                 }
             }
             else
             {
                 Log.Warn("未找到Hand R对象");
             }
+        }
+
+        /// <summary>
+        /// 创建 Hand Behavior（子类可覆盖以创建不同版本）
+        /// </summary>
+        protected virtual HandControlBehavior CreateHandBehavior(GameObject handObj)
+        {
+            return handObj.AddComponent<HandControlBehavior>();
         }
         /// <summary>
         /// 创建环绕攻击状态
@@ -763,15 +765,13 @@ namespace AnySilkBoss.Source.Behaviours
             _silkBallPrepareState.Transitions = new FsmTransition[]
             {
                 CreateTransition(_silkBallStaticEvent!, _silkBallPrepareCastState!),
-                CreateTransition(_silkBallDashEvent!, _silkBallDashPrepareState!),
-                CreateTransition(_silkBallInterruptEvent!, moveRestartState!)
+                CreateTransition(_silkBallDashEvent!, _silkBallDashPrepareState!)
             };
 
             // Dash Prepare -> Dash End + 中断 + 超时保护
             _silkBallDashPrepareState!.Transitions = new FsmTransition[]
             {
                 CreateTransition(_silkBallDashEndEvent!, _silkBallDashEndState!),
-                CreateTransition(_silkBallInterruptEvent!, moveRestartState!),
                 CreateFinishedTransition(moveRestartState!)  // 超时保护
             };
 
@@ -785,28 +785,24 @@ namespace AnySilkBoss.Source.Behaviours
             _silkBallCastState!.Transitions = new FsmTransition[]
             {
                 CreateFinishedTransition(_silkBallLiftState!),
-                CreateTransition(_silkBallInterruptEvent!, moveRestartState!)
             };
 
             // Lift -> Antic + 中断转换
             _silkBallLiftState!.Transitions = new FsmTransition[]
             {
                 CreateFinishedTransition(_silkBallAnticState!),
-                CreateTransition(_silkBallInterruptEvent!, moveRestartState!)
             };
 
             // Antic -> Release + 中断转换
             _silkBallAnticState!.Transitions = new FsmTransition[]
             {
                 CreateFinishedTransition(_silkBallReleaseState!),
-                CreateTransition(_silkBallInterruptEvent!, moveRestartState!)
             };
 
             // Release -> End + 中断转换
             _silkBallReleaseState!.Transitions = new FsmTransition[]
             {
                 CreateFinishedTransition(_silkBallEndState!),
-                CreateTransition(_silkBallInterruptEvent!, moveRestartState!)
             };
 
             // End -> Recover
@@ -2002,8 +1998,9 @@ namespace AnySilkBoss.Source.Behaviours
         #region 原版AttackControl调整
         /// <summary>
         /// 原版攻击相关调整：为了某些特殊玩法兼容，自动复制Pattern 1为Pattern 3
+        /// 子类可重写此方法以实现不同的Pattern复制逻辑
         /// </summary>
-        private void PatchOriginalAttackPatterns()
+        protected virtual void PatchOriginalAttackPatterns()
         {
             if (_strandPatterns == null)
             {
@@ -2065,7 +2062,7 @@ namespace AnySilkBoss.Source.Behaviours
                 // 创建或获取 REPARENT 事件
                 var reparentEvent = FsmEvent.GetFsmEvent("REPARENT");
 
-                // 创建 Wait 1.5s Action，结束事件为 REPARENT
+                // 创建 Wait 3.3s Action，结束事件为 REPARENT
                 var waitAction = new Wait
                 {
                     time = new FsmFloat(3.3f),
@@ -2130,17 +2127,20 @@ namespace AnySilkBoss.Source.Behaviours
         }
         /// <summary>
         /// Double加Triple状态，Triple做复制攻击/延时1s后转Web Recover
+        /// 子类可重写此方法以添加更多连击状态
         /// </summary>
-        private void PatchSingleAndDoubleStatesLastActionsV2()
+        protected virtual void PatchSingleAndDoubleStatesLastActionsV2()
         {
             if (_attackControlFsm == null) return;
-            var doubleState = _attackControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Double");
-            var webRecoverState = _attackControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Web Recover");
+
+            var doubleState = FindState(_attackControlFsm, "Double");
+            var webRecoverState = FindState(_attackControlFsm, "Web Recover");
             if (doubleState == null || webRecoverState == null)
             {
                 Log.Warn("Double或Web Recover状态不存在，无法补丁Triple攻击链");
                 return;
             }
+
             // 克隆Double里的GetRandomChild与SendEventByName
             var atkAction = CloneAction<GetRandomChild>("Double");
             var sendEventAction = CloneAction<SendEventByName>("Double");
@@ -2150,35 +2150,32 @@ namespace AnySilkBoss.Source.Behaviours
                 return;
             }
             sendEventAction.delay = new FsmFloat(0.8f);
-            // Triple挂载这俩
-            var waitAction = new Wait { time = new FsmFloat(1.0f), finishEvent = FsmEvent.Finished };
-            var tripleState = new FsmState(_attackControlFsm.Fsm)
+
+            // 使用 FsmStateBuilder 创建 Triple 状态
+            var tripleState = CreateState(_attackControlFsm.Fsm, "Triple", "补丁三连击：1次GetRandomChild+SendEvent+延时1s");
+            tripleState.Actions = new FsmStateAction[]
             {
-                Name = "Triple",
-                Description = "补丁三连击：1次GetRandomChild+SendEvent+延时1s"
+                atkAction,
+                sendEventAction,
+                new Wait { time = new FsmFloat(1.0f), finishEvent = FsmEvent.Finished }
             };
-            tripleState.Actions = new FsmStateAction[] { atkAction, sendEventAction, waitAction };
-            // 插入FSM列表
-            var allStates = _attackControlFsm.FsmStates.ToList();
-            allStates.Add(tripleState);
-            _attackControlFsm.Fsm.States = allStates.ToArray();
+
+            // 使用 FsmStateBuilder 添加状态到FSM
+            AddStateToFsm(_attackControlFsm, tripleState);
+
             // 把Double所有to Web Recover的跳转改成Triple
             foreach (var trans in doubleState.Transitions)
             {
                 if (trans.toState == "Web Recover" || trans.toFsmState == webRecoverState)
                 {
-                    trans.toState = "Triple";
+                    trans.toState = tripleState.Name;
                     trans.toFsmState = tripleState;
                 }
             }
-            // Triple唯一跳转：FINISHED -> Web Recover
-            tripleState.Transitions = new FsmTransition[] {
-                new FsmTransition {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Web Recover",
-                    toFsmState = webRecoverState
-                }
-            };
+
+            // 使用 FsmStateBuilder 设置跳转
+            SetFinishedTransition(tripleState, webRecoverState);
+
             Log.Info("已自动插入补丁Triple攻击链，并更新Double跳转");
         }
         private void AddAttactStopAction()

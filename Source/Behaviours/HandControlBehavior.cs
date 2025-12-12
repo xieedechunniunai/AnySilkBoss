@@ -528,11 +528,11 @@ namespace AnySilkBoss.Source.Behaviours
                 FingerBladeBehavior bladeBehavior = bladeObj.GetComponent<FingerBladeBehavior>();
                 if (bladeBehavior == null)
                 {
-                    bladeBehavior = bladeObj.AddComponent<FingerBladeBehavior>();
+                    bladeBehavior = CreateFingerBladeBehavior(bladeObj);
                 }
 
                 // 初始化FingerBladeBehavior
-                bladeBehavior.Initialize(bladeIndex, handName, this);
+                InitializeFingerBlade(bladeBehavior, bladeIndex);
                 fingerBladeBehaviors[bladeIndex] = bladeBehavior;
 
                 // 添加环绕攻击全局转换
@@ -541,6 +541,22 @@ namespace AnySilkBoss.Source.Behaviours
             }
 
             Log.Info($"{handName} 初始化完成，找到 {bladeIndex} 根Finger Blade");
+        }
+
+        /// <summary>
+        /// 创建 FingerBlade Behavior（子类可覆盖以创建不同版本）
+        /// </summary>
+        protected virtual FingerBladeBehavior CreateFingerBladeBehavior(GameObject bladeObj)
+        {
+            return bladeObj.AddComponent<FingerBladeBehavior>();
+        }
+
+        /// <summary>
+        /// 初始化 FingerBlade（子类可覆盖以执行不同的初始化逻辑）
+        /// </summary>
+        protected virtual void InitializeFingerBlade(FingerBladeBehavior bladeBehavior, int bladeIndex)
+        {
+            bladeBehavior.Initialize(bladeIndex, handName, this);
         }
 
         /// <summary>
