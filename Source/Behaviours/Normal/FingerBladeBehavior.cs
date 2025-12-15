@@ -7,6 +7,7 @@ using System.Linq;
 using System;
 using AnySilkBoss.Source.Tools;
 using GenericVariableExtension;
+using static AnySilkBoss.Source.Tools.FsmStateBuilder;
 
 namespace AnySilkBoss.Source.Behaviours.Normal
 {
@@ -272,36 +273,28 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             AddOrbitShootActions(orbitShootState);
 
             // 添加状态转换
-            AddOrbitStartTransitions(orbitStartState, orbitPrepareState);
-            AddOrbitPrepareTransitions(orbitPrepareState, orbitShootState);
-            AddOrbitShootTransitions(orbitShootState);
+            if (_shootEvent != null)
+            {
+                orbitStartState.Transitions = new FsmTransition[] { CreateTransition(_shootEvent, orbitPrepareState) };
+            }
+            SetFinishedTransition(orbitPrepareState, orbitShootState);
+            var shootState = controlFSM!.FsmStates.FirstOrDefault(state => state.Name == "Shoot");
+            if (shootState != null)
+            {
+                SetFinishedTransition(orbitShootState, shootState);
+            }
 
             // 创建全局转换（从Idle到Orbit Start）
-            var globalTransition = new FsmTransition
-            {
-                FsmEvent = _orbitStartEvent,
-                toState = "Orbit Start",
-                toFsmState = orbitStartState
-            };
+            var globalTransition = CreateTransition(_orbitStartEvent!, orbitStartState);
 
-            // 添加全局转换（使用反射修改只读属性）
-            var existingTransitions = controlFSM.FsmGlobalTransitions.ToList();
+            // 添加全局转换
+            var existingTransitions = controlFSM.fsm.globalTransitions.ToList();
             existingTransitions.Add(globalTransition);
-
-            // 使用反射设置FsmGlobalTransitions
-            var fsmType = controlFSM.Fsm.GetType();
-            var globalTransitionsField = fsmType.GetField("globalTransitions", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            if (globalTransitionsField != null)
-            {
-                globalTransitionsField.SetValue(controlFSM.Fsm, existingTransitions.ToArray());
-            }
-            else
-            {
-                Log.Error($"Finger Blade {bladeIndex} ({gameObject.name}) 未找到globalTransitions字段");
-            }
+            controlFSM.fsm.globalTransitions = existingTransitions.ToArray();
 
             // 重新链接所有事件引用
         }
+
         /// <summary>
         /// 创建Orbit Start状态（接收环绕指令，持续环绕）
         /// </summary>
@@ -310,16 +303,10 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             if (controlFSM == null) return null;
 
             // 创建Orbit Start状态
-            var orbitStartState = new FsmState(controlFSM.Fsm)
-            {
-                Name = "Orbit Start",
-                Description = $"Finger Blade {bladeIndex} 环绕开始状态"
-            };
+            var orbitStartState = CreateState(controlFSM.Fsm, "Orbit Start", $"Finger Blade {bladeIndex} 环绕开始状态");
 
             // 添加状态到FSM
-            var existingStates = controlFSM.FsmStates.ToList();
-            existingStates.Add(orbitStartState);
-            controlFSM.Fsm.States = existingStates.ToArray();
+            AddStateToFsm(controlFSM, orbitStartState);
 
             return orbitStartState;
         }
@@ -332,16 +319,10 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             if (controlFSM == null) return null;
 
             // 创建Orbit Prepare状态
-            var orbitPrepareState = new FsmState(controlFSM.Fsm)
-            {
-                Name = "Orbit Prepare",
-                Description = $"Finger Blade {bladeIndex} 环绕准备状态"
-            };
+            var orbitPrepareState = CreateState(controlFSM.Fsm, "Orbit Prepare", $"Finger Blade {bladeIndex} 环绕准备状态");
 
             // 添加状态到FSM
-            var existingStates = controlFSM.FsmStates.ToList();
-            existingStates.Add(orbitPrepareState);
-            controlFSM.Fsm.States = existingStates.ToArray();
+            AddStateToFsm(controlFSM, orbitPrepareState);
 
             return orbitPrepareState;
         }
@@ -354,16 +335,10 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             if (controlFSM == null) return null;
 
             // 创建Orbit Shoot状态
-            var orbitShootState = new FsmState(controlFSM.Fsm)
-            {
-                Name = "Orbit Shoot",
-                Description = $"Finger Blade {bladeIndex} 环绕发射状态"
-            };
+            var orbitShootState = CreateState(controlFSM.Fsm, "Orbit Shoot", $"Finger Blade {bladeIndex} 环绕发射状态");
 
             // 添加状态到FSM
-            var existingStates = controlFSM.FsmStates.ToList();
-            existingStates.Add(orbitShootState);
-            controlFSM.Fsm.States = existingStates.ToArray();
+            AddStateToFsm(controlFSM, orbitShootState);
 
             return orbitShootState;
         }
@@ -450,8 +425,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         /// </summary>
         private void AddOrbitShootActions(FsmState orbitShootState)
         {
-
-
             // 动作1：确保物理不下落与无残余速度
             var zeroGravityAction = new SetGravity2dScale
             {
@@ -501,63 +474,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             };
 
             orbitShootState.Actions = new FsmStateAction[] { zeroGravityAction, zeroVelocityAction, activateDamager, activatePhysCollider, waitAction };
-        }
-
-        /// <summary>
-        /// 添加Orbit Start状态的转换
-        /// </summary>
-        private void AddOrbitStartTransitions(FsmState orbitStartState, FsmState orbitPrepareState)
-        {
-            // 从Orbit Start到Orbit Shoot的转换（通过SHOOT事件）
-            if (_shootEvent == null)
-            {
-                Log.Error($"Finger Blade {bladeIndex} ({gameObject.name}) 未找到SHOOT事件: SHOOT {parentHandName} Blade {bladeIndex}");
-                return;
-            }
-
-            var shootTransition = new FsmTransition
-            {
-                FsmEvent = _shootEvent,
-                toState = "Orbit Prepare",
-                toFsmState = orbitPrepareState
-            };
-
-            orbitStartState.Transitions = new FsmTransition[] { shootTransition };
-        }
-
-        private void AddOrbitPrepareTransitions(FsmState orbitPrepareState, FsmState orbitShootState)
-        {
-            var finishedTransition = new FsmTransition
-            {
-                FsmEvent = FsmEvent.Finished,
-                toState = "Orbit Shoot",
-                toFsmState = orbitShootState
-            };
-
-            orbitPrepareState.Transitions = new FsmTransition[] { finishedTransition };
-        }
-        /// <summary>
-        /// 添加Orbit Shoot状态的转换
-        /// </summary>
-        private void AddOrbitShootTransitions(FsmState orbitShootState)
-        {
-            // 直接进入Shoot（从当前环绕位置立即发射）
-            var shootState = controlFSM!.FsmStates.FirstOrDefault(state => state.Name == "Shoot");
-            if (shootState == null)
-            {
-                Log.Error($"Finger Blade {bladeIndex} ({gameObject.name}) 未找到Shoot状态");
-                return;
-            }
-
-            // 发射准备完成后直接进入Shoot
-            var finishedTransition = new FsmTransition
-            {
-                FsmEvent = FsmEvent.Finished,
-                toState = "Shoot",
-                toFsmState = shootState
-            };
-
-            orbitShootState.Transitions = new FsmTransition[] { finishedTransition };
         }
 
         /// <summary>
@@ -702,7 +618,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             if (!events.Contains(customEvent)) { events.Add(customEvent); controlFSM.Fsm.Events = events.ToArray(); }
 
             // 创建参数设置状态（模仿原版 Set Stomp）
-            var setParamsState = new FsmState(controlFSM.Fsm) { Name = paramsStateName };
+            var setParamsState = CreateState(controlFSM.Fsm, paramsStateName);
             var actions = new List<FsmStateAction>();
 
             // 设置 Attack Rotation（针尖旋转角度）
@@ -750,20 +666,15 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             var attackStartPauseState = controlFSM.FsmStates.FirstOrDefault(s => s.Name == "Attack Start Pause");
             if (attackStartPauseState != null)
             {
-                setParamsState.Transitions = new FsmTransition[]
-                {
-                    new FsmTransition { FsmEvent = FsmEvent.Finished, toState = "Attack Start Pause", toFsmState = attackStartPauseState }
-                };
+                SetFinishedTransition(setParamsState, attackStartPauseState);
             }
 
             // 添加状态到FSM
-            var states = controlFSM.FsmStates.ToList();
-            states.Add(setParamsState);
-            controlFSM.Fsm.States = states.ToArray();
+            AddStateToFsm(controlFSM, setParamsState);
 
             // 全局转换指向参数设置状态
             var globalTrans = controlFSM.FsmGlobalTransitions.ToList();
-            globalTrans.Add(new FsmTransition { FsmEvent = customEvent, toState = paramsStateName, toFsmState = setParamsState });
+            globalTrans.Add(CreateTransition(customEvent, setParamsState));
             controlFSM.Fsm.GlobalTransitions = globalTrans.ToArray();
         }
 
@@ -793,7 +704,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             if (!events.Contains(customEvent)) { events.Add(customEvent); controlFSM.Fsm.Events = events.ToArray(); }
 
             // 创建参数设置状态（模仿原版 Set Swipe L/R）
-            var setParamsState = new FsmState(controlFSM.Fsm) { Name = paramsStateName };
+            var setParamsState = CreateState(controlFSM.Fsm, paramsStateName);
             var actions = new List<FsmStateAction>();
 
             // 设置 Attack Rotation（针尖旋转角度）
@@ -994,7 +905,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         {
             if (controlFSM == null) return;
 
-            var trackState = new FsmState(controlFSM.Fsm) { Name = "Phase2 Track" };
+            var trackState = CreateState(controlFSM.Fsm, "Phase2 Track");
             var actions = new List<FsmStateAction>();
 
             // 追踪玩家

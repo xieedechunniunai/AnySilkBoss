@@ -6,6 +6,7 @@ using AnySilkBoss.Source.Tools;
 using AnySilkBoss.Source.Managers;
 using AnySilkBoss.Source.Behaviours.Normal;
 using System.Linq;
+using static AnySilkBoss.Source.Tools.FsmStateBuilder;
 
 namespace AnySilkBoss.Source.Behaviours.Memory;
 
@@ -70,19 +71,20 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     // 半径基于碰撞箱radius=5
     private readonly (float spawnAngle, float radiusMult, float shootAngle, int ballCount, float interval)[] _shootWaveConfigs = new[]
     {
-            (352.5f, 0.5f, 45f, 4, 0.8f),    // 第1波：3.15位置，半径一半，向1.30
-            (0f, 0f, 35f, 4, 0.4f),          // 第2波：中心，向1.50
-            (45f, 0.125f, 40f, 4, 0.4f),     // 第3波：1.30方向，半径1/8，向1.40
-            (130f, 0.5f, 115f, 7, 0.6f),     // 第4波：10.40位置，半径一半，向11.10（左侧+2球）
-            (0f, 0f, 60f, 4, 0.4f),          // 第5波：中心，向1.00
-            (0f, 0f, 145f, 7, 1.3f),         // 第6波：中心，向10.10（左侧+2球）
-            (0f, 0f, 90f, 7, 0.6f)           // 第7波：中心，向正上方
+            (352.5f, 0.5f, 45f, 7, 0.7f),    // 第1波：3.15位置，半径一半，向1.30（密度提升）
+            (0f, 0f, 35f, 6, 0.35f),         // 第2波：中心，向1.50（密度提升）
+            (45f, 0.125f, 40f, 6, 0.35f),    // 第3波：1.30方向，半径1/8，向1.40（密度提升）
+            (130f, 0.5f, 115f, 10, 0.5f),    // 第4波：10.40位置，半径一半，向11.10（密度提升）
+            (0f, 0f, 60f, 6, 0.35f),         // 第5波：中心，向1.00（密度提升）
+            (0f, 0f, 145f, 10, 1.0f),        // 第6波：中心，向10.10（密度提升）
+            (0f, 0f, 90f, 10, 0.5f)          // 第7波：中心，向正上方（密度提升）
         };
 
     [Header("最终爆炸参数")]
-    public int finalBurstRings = 4;          // 圈数
+    public int finalBurstRings = 5;          // 圈数（从4提升到5）
     public int ballsPerRing = 20;            // 每圈数量
-    public float[] ringRadii = new float[] { 1f, 2f, 3f, 4f };  // 各圈半径
+    public float[] ringRadii = new float[] { 1f, 2f, 3f, 4f, 5f };  // 各圈半径（添加第5圈）
+    public float orbitalAngularSpeed = 60f;  // 公转角速度（度/秒）
     public float ringSpawnInterval = 0.5f;   // 圈间隔爆发
     public float ringBurstDelay = 1.6f;      // 生成完后延迟爆发
     public float burstSpeed = 18f;           // 爆发速度
@@ -137,6 +139,9 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     // 只覆盖heart的缩放（蓄力动画），位置（包括Z轴）保持原版
     private bool forceOverrideScale = false;            // 是否强制覆盖缩放
     private Vector3 targetHeartScale;                   // 目标缩放（本地缩放）
+
+    // 最终爆炸阶段保存的圆心位置（碰撞箱位置快照）
+    private Vector3 savedBurstCenter;                   // 爆发圆心（大丝球销毁后小丝球仍可使用）
     #endregion
 
     /// <summary>
@@ -462,56 +467,32 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     #region 创建状态
     private FsmState CreateInitState()
     {
-        return new FsmState(controlFSM!.Fsm)
-        {
-            Name = "Init",
-            Description = "初始化状态"
-        };
+        return CreateState(controlFSM!.Fsm, "Init", "初始化状态");
     }
 
     private FsmState CreateFollowBossState()
     {
-        return new FsmState(controlFSM!.Fsm)
-        {
-            Name = "Follow Boss",
-            Description = "跟随Boss胸前"
-        };
+        return CreateState(controlFSM!.Fsm, "Follow Boss", "跟随Boss胸前");
     }
 
     private FsmState CreateAbsorbChargeState()
     {
-        return new FsmState(controlFSM!.Fsm)
-        {
-            Name = "Absorb Charge",
-            Description = "吸收蓄力"
-        };
+        return CreateState(controlFSM!.Fsm, "Absorb Charge", "吸收蓄力");
     }
 
     private FsmState CreateShootWavesState()
     {
-        return new FsmState(controlFSM!.Fsm)
-        {
-            Name = "Shoot Waves",
-            Description = "抛射波次"
-        };
+        return CreateState(controlFSM!.Fsm, "Shoot Waves", "抛射波次");
     }
 
     private FsmState CreateFinalBurstState()
     {
-        return new FsmState(controlFSM!.Fsm)
-        {
-            Name = "Final Burst",
-            Description = "最终爆炸"
-        };
+        return CreateState(controlFSM!.Fsm, "Final Burst", "最终爆炸");
     }
 
     private FsmState CreateDestroyState()
     {
-        return new FsmState(controlFSM!.Fsm)
-        {
-            Name = "Destroy",
-            Description = "销毁自身"
-        };
+        return CreateState(controlFSM!.Fsm, "Destroy", "销毁自身");
     }
     #endregion
 
@@ -1119,11 +1100,19 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     }
 
     /// <summary>
-    /// 最终爆炸协程：4圈同心圆，每圈生成后立即爆发
+    /// 最终爆炸协程：5圈同心圆，每圈生成后立即爆发，奇数圈顺时针、偶数圈逆时针旋转
     /// </summary>
     private IEnumerator FinalBurstCoroutine()
     {
         Log.Info($"最终爆炸开始 - 圈数: {finalBurstRings}, 每圈数量: {ballsPerRing}");
+        
+        // ⚠️ 保存碰撞箱位置作为旋转圆心（大丝球销毁后小丝球仍需使用）
+        if (collisionBoxTransform != null)
+        {
+            savedBurstCenter = collisionBoxTransform.position;
+            Log.Info($"保存爆发圆心位置: {savedBurstCenter}");
+        }
+        
         yield return new WaitForSeconds(2f);
         // 1. 先全部生成所有圈的小丝球，保存每一圈
         var allRingsBalls = new System.Collections.Generic.List<System.Collections.Generic.List<GameObject>>();
@@ -1158,7 +1147,8 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
             {
                 if (ball != null)
                 {
-                    BurstRingBall(ball, ring * ballsPerRing + ballIndex);
+                    // 传递圈索引用于确定旋转方向：奇数圈(0,2,4)顺时针，偶数圈(1,3)逆时针
+                    BurstRingBall(ball, ring);
                     ballIndex++;
                 }
             }
@@ -1221,8 +1211,9 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
                 {
                     // 先发送PREPARE事件
                     fsm.SendEvent("PREPARE");
-                    // 延迟后发送RELEASE事件
-                    StartCoroutine(SetToGravityStateStaticWithPrepare(fsm));
+                    // 延迟后发送 SILK BALL RELEASE 进入 Chase Hero 状态
+                    // 由于 acceleration=0，丝球会保持当前速度直线飞行
+                    StartCoroutine(ReleaseToChaseStateWithPrepare(fsm));
                 }
 
                 return behavior.gameObject;
@@ -1233,9 +1224,10 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     }
 
     /// <summary>
-    /// 设置小丝球到重力状态但保持静止（带PREPARE事件）
+    /// 释放小丝球进入 Chase Hero 状态（Final Burst 阶段使用）
+    /// 由于 acceleration=0，丝球会保持当前速度直线飞行
     /// </summary>
-    private IEnumerator SetToGravityStateStaticWithPrepare(PlayMakerFSM fsm)
+    private IEnumerator ReleaseToChaseStateWithPrepare(PlayMakerFSM fsm)
     {
         // 等待PREPARE完成
         yield return new WaitForSeconds(0.1f);
@@ -1243,46 +1235,52 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
         // 检查FSM是否还存在（小丝球可能已被销毁）
         if (fsm != null && fsm.Fsm != null)
         {
-            fsm.Fsm.SetState("Has Gravity");
+            // 通过 SILK BALL RELEASE 进入 Chase Hero 状态
+            // 由于 acceleration=0，丝球不会追踪，而是保持当前速度直线飞行
+            fsm.SendEvent("SILK BALL RELEASE");
         }
     }
 
     /// <summary>
-    /// 给圆环小丝球施加径向速度并启动保护时间
+    /// 给圆环小丝球施加径向速度并启动保护时间，同时设置公转参数
     /// </summary>
-    private void BurstRingBall(GameObject ball, int index)
+    /// <param name="ball">小丝球GameObject</param>
+    /// <param name="ringIndex">圈索引（0=第一圈，1=第二圈...）</param>
+    private void BurstRingBall(GameObject ball, int ringIndex)
     {
-        if (ball == null || collisionBoxTransform == null) return;
+        if (ball == null) return;
 
         var rb = ball.GetComponent<Rigidbody2D>();
         var behavior = ball.GetComponent<MemorySilkBallBehavior>();
         if (rb == null || behavior == null) return;
 
-        // 计算径向方向
-        Vector3 direction = (ball.transform.position - collisionBoxTransform.position).normalized;
+        // 计算径向方向（使用保存的圆心位置）
+        Vector3 direction = (ball.transform.position - savedBurstCenter).normalized;
 
-        // 根据球在哪一圈计算速度倍数
-        // 简单估算：通过距离判断是哪一圈
-        float distance = Vector3.Distance(ball.transform.position, collisionBoxTransform.position);
+        // 根据圈索引计算速度倍数
         float speedMultiplier = 1f;
-
-        if (distance <= ringRadii[0] + 0.5f)
+        if (ringIndex == 0)
         {
-            // 内圈
+            // 最内圈
             speedMultiplier = innerRingSpeedMultiplier;
         }
-        else if (distance >= ringRadii[ringRadii.Length - 1] - 0.5f)
+        else if (ringIndex >= finalBurstRings - 1)
         {
-            // 外圈
+            // 最外圈
             speedMultiplier = outerRingSpeedMultiplier;
         }
 
-        // 设置速度
-        Vector2 velocity = new Vector2(direction.x, direction.y) * burstSpeed * speedMultiplier;
-        rb.linearVelocity = velocity;
+        // 设置初始径向速度
+        Vector2 radialVelocity = new Vector2(direction.x, direction.y) * burstSpeed * speedMultiplier;
+        rb.linearVelocity = radialVelocity;
 
         // 启动1秒保护时间（在此期间不会因碰到英雄或墙壁消失）
         behavior.StartProtectionTime(1f);
+
+        // ⚠️ 设置公转参数：奇数圈(0,2,4)顺时针（负角速度），偶数圈(1,3)逆时针（正角速度）
+        bool isClockwise = (ringIndex % 2 == 0);  // 第1、3、5圈顺时针
+        float angularSpeed = isClockwise ? -orbitalAngularSpeed : orbitalAngularSpeed;
+        behavior.StartOrbitalMotion(savedBurstCenter, angularSpeed, burstSpeed * speedMultiplier);
     }
 
     /// <summary>

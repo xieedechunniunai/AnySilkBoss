@@ -83,10 +83,10 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             SetP6WebAttack3Actions(_p6WebAttack3State);
             SetP6WebRecoverActions(_p6WebRecoverState);
 
-            // 查找Move Restart状态用于链�?
+            // 查找Move Restart状态
             var moveRestartState = FindState(_attackControlFsm, "Move Restart");
 
-            // 设置状态转�?
+            // 设置状态转换
             SetP6WebAttackTransitions(moveRestartState);
 
             Log.Info("=== P6 Web攻击状态链创建完成 ===");

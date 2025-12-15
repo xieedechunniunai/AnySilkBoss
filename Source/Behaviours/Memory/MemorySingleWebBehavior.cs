@@ -83,9 +83,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 Log.Debug($"MemorySingleWebBehavior 已初始化: {gameObject.name}");
                 return;
             }
-
-            Log.Info($"=== 初始化 MemorySingleWebBehavior: {gameObject.name} ===");
-
             // 0. 保存池容器引用
             _poolContainer = poolContainer;
 
@@ -96,8 +93,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 Log.Error($"未找到 Control FSM，初始化失败: {gameObject.name}");
                 return;
             }
-            Log.Info("  找到 Control FSM");
-
             // 2. 查找 hero_catcher
             _heroCatcher = FindChildRecursive(transform, "hero_catcher");
             if (_heroCatcher == null)
@@ -105,8 +100,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 Log.Error($"未找到 hero_catcher，初始化失败: {gameObject.name}");
                 return;
             }
-            Log.Info("  找到 hero_catcher");
-
             // 3. 获取 DamageHero 组件并设置事件
             _damageHero = _heroCatcher.GetComponent<DamageHero>();
             if (_damageHero == null)
@@ -139,8 +132,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 return;
             }
 
-            Log.Info("--- 修改 Control FSM ---");
-
             // 找到 Catch Hero 状态
             var catchHeroState = _controlFsm.FsmStates.FirstOrDefault(s => s.Name == "Catch Hero");
             if (catchHeroState == null)
@@ -153,7 +144,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             var actions = catchHeroState.Actions.ToList();
             actions.Clear();
             catchHeroState.Actions = actions.ToArray();
-            Log.Info("  已清空 Catch Hero 状态的所有 Actions");
 
             // 修改跳转：简化为直接回到 Catch Cancel（保持原版流程）
             var inactiveState = _controlFsm.FsmStates.FirstOrDefault(s => s.Name == "Catch Cancel");
@@ -168,12 +158,10 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                         ToState = "Catch Cancel"
                     }
                 };
-                Log.Info("  已修改 Catch Hero 跳转：FINISHED -> Catch Cancel");
             }
 
             // 重新初始化 FSM
             _controlFsm.Fsm.InitData();
-            Log.Info("  Control FSM 修改完成并已重新初始化");
         }
 
         /// <summary>
@@ -233,7 +221,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             if (transform.parent == _poolContainer)
             {
                 transform.SetParent(null);
-                Log.Debug($"  已从池容器脱离");
             }
 
             // 2. 等待出现延迟
@@ -292,7 +279,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         public void ResetCooldown()
         {
             _isAvailable = true;
-            Log.Debug($"丝线 {gameObject.name} 冷却已重置");
         }
 
         /// <summary>
@@ -305,7 +291,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 // 发送 ATTACK CLEAR 全局事件（原版用于清理攻击）
                 // 这会触发全局跳转到 Inactive 状态，自动禁用 web_strand_single
                 _controlFsm.SendEvent("ATTACK CLEAR");
-                Log.Debug($"  已发送 ATTACK CLEAR 事件");
             }
 
             // 注意：不禁用父对象，FSM 会自动处理 web_strand_single 的禁用
@@ -315,7 +300,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             if (_poolContainer != null)
             {
                 transform.SetParent(_poolContainer);
-                Log.Debug($"  已回到池容器");
             }
         }
 
@@ -327,7 +311,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             if (_damageHero != null)
             {
                 _damageHero.enabled = true;
-                Log.Debug($"  已启用 DamageHero");
             }
         }
 
@@ -339,7 +322,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             if (_damageHero != null)
             {
                 _damageHero.enabled = false;
-                Log.Debug($"  已禁用 DamageHero");
             }
         }
 
@@ -357,7 +339,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             if (originalDamageHero != null && originalDamageHero.OnDamagedHero != null)
             {
                 _damageHero.OnDamagedHero = originalDamageHero.OnDamagedHero;
-                Log.Debug($"  已设置 DamageHero 事件（外部传入）: {gameObject.name}");
             }
         }
 

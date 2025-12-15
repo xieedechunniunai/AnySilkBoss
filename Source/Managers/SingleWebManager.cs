@@ -63,23 +63,6 @@ namespace AnySilkBoss.Source.Managers
             // 取消监听场景切换事件
             SceneManager.activeSceneChanged -= OnSceneChanged;
         }
-
-        private void Update()
-        {
-            // 按 T 键重新分析 FSM（调试用）
-            if (Input.GetKeyDown(KeyCode.T) && _initialized)
-            {
-                Log.Info("手动触发 FSM 分析");
-                AnalyzeOriginalFSMs();
-            }
-
-            // 按 Y 键测试单根丝线生成和攻击（调试用）
-            if (Input.GetKeyDown(KeyCode.Y) && _initialized)
-            {
-                Log.Info("手动触发单根丝线测试");
-                TestSingleWebStrand();
-            }
-        }
         #endregion
 
         #region Scene Management
@@ -104,8 +87,8 @@ namespace AnySilkBoss.Source.Managers
         /// </summary>
         private void OnSceneChanged(Scene oldScene, Scene newScene)
         {
-            // 当离开 BOSS 场景时清理
-            if (oldScene.name == BossSceneName)
+            // 只有真正离开 BOSS 场景（到其他场景）时才清理，同场景重载（如死亡复活）不清理
+            if (oldScene.name == BossSceneName && newScene.name != BossSceneName)
             {
                 Log.Info($"离开 BOSS 场景 {oldScene.name}，清理 SingleWebManager 缓存");
                 StopCoroutine(AutoPoolGeneration());
@@ -126,6 +109,15 @@ namespace AnySilkBoss.Source.Managers
         {
             Log.Info("=== 开始初始化 SingleWebManager ===");
 
+            // 每次进入场景都需要重新创建预制体，因为组件引用会随场景切换失效
+            // 先销毁旧的预制体
+            if (_singleWebStrandPrefab != null)
+            {
+                Log.Info("销毁旧的丝线预制体...");
+                Object.Destroy(_singleWebStrandPrefab);
+                _singleWebStrandPrefab = null;
+            }
+
             // 等待场景加载完成
             yield return new WaitForSeconds(0.5f);
 
@@ -138,8 +130,11 @@ namespace AnySilkBoss.Source.Managers
             // 创建单根丝线预制体
             yield return CreateSingleWebStrandPrefab();
 
-            // 创建对象池容器
-            CreatePoolContainer();
+            // 对象池可以复用，只在首次创建
+            if (_poolContainer == null)
+            {
+                CreatePoolContainer();
+            }
 
             _initialized = true;
             Log.Info("=== SingleWebManager 初始化完成 ===");
@@ -287,8 +282,9 @@ namespace AnySilkBoss.Source.Managers
             _singleWebStrandPrefab.name = "Single WebStrand Prefab";
             _singleWebStrandPrefab.transform.SetScaleX(2f);
 
-            // 永久保存，不随场景销毁
-            DontDestroyOnLoad(_singleWebStrandPrefab);
+            // 不需要 DontDestroyOnLoad，因为 SingleWebManager 已经在 AnySilkBossManager 上，后者已设置 DontDestroyOnLoad
+            // 预制体作为 Manager 的子物体保存
+            _singleWebStrandPrefab.transform.SetParent(transform);
 
             // 立即禁用（作为预制体模板）
             _singleWebStrandPrefab.SetActive(false);
@@ -316,65 +312,6 @@ namespace AnySilkBoss.Source.Managers
             Log.Info("已创建 Memory 丝线对象池容器");
         }
 
-        /// <summary>
-        /// 分析原版 FSM（使用 FsmAnalyzer）
-        /// </summary>
-        private void AnalyzeOriginalFSMs()
-        {
-            if (_pattern1Template == null)
-            {
-                Log.Warn("Pattern 1 模板为 null，跳过 FSM 分析");
-                return;
-            }
-
-            Log.Info("=== 开始分析原版 FSM ===");
-
-            // 1. 分析 silk_boss_pattern_control FSM
-            var patternControlFsm = FSMUtility.LocateMyFSM(_pattern1Template, "silk_boss_pattern_control");
-            if (patternControlFsm != null)
-            {
-                string outputPath1 = "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\silk_boss_pattern_control.txt";
-                FsmAnalyzer.WriteFsmReport(patternControlFsm, outputPath1);
-                Log.Info($"已导出 silk_boss_pattern_control FSM 到: {outputPath1}");
-            }
-
-            // 2. 找到第一个 Silk Boss WebStrand
-            GameObject? firstWebStrand = null;
-            foreach (Transform child in _pattern1Template.transform)
-            {
-                if (child.name.Contains("Silk Boss WebStrand"))
-                {
-                    firstWebStrand = child.gameObject;
-                    break;
-                }
-            }
-
-            if (firstWebStrand == null)
-            {
-                Log.Warn("未找到 Silk Boss WebStrand，无法分析其 FSM");
-                return;
-            }
-
-            // 3. 分析 Control FSM
-            var controlFsm = FSMUtility.LocateMyFSM(firstWebStrand, "Control");
-            if (controlFsm != null)
-            {
-                string outputPath2 = "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\web_strand_control.txt";
-                FsmAnalyzer.WriteFsmReport(controlFsm, outputPath2);
-                Log.Info($"已导出 WebStrand Control FSM 到: {outputPath2}");
-            }
-
-            // 4. 分析 Hornet Catch FSM
-            var hornetCatchFsm = FSMUtility.LocateMyFSM(firstWebStrand, "Hornet Catch");
-            if (hornetCatchFsm != null)
-            {
-                string outputPath3 = "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\web_strand_hornet_catch.txt";
-                FsmAnalyzer.WriteFsmReport(hornetCatchFsm, outputPath3);
-                Log.Info($"已导出 WebStrand Hornet Catch FSM 到: {outputPath3}");
-            }
-
-            Log.Info("=== FSM 分析完成 ===");
-        }
         #endregion
 
         #region Object Pool
@@ -425,12 +362,8 @@ namespace AnySilkBoss.Source.Managers
             // 添加并初始化 Behavior（传入池容器引用）
             var behavior = webInstance.AddComponent<SingleWebBehavior>();
             behavior.InitializeBehavior(_poolContainer.transform);
-
-
             // 加入池中
             _webPool.Add(behavior);
-            
-            Log.Info($"创建新丝线实例: {webInstance.name}，当前池大小: {_webPool.Count}");
             return behavior;
         }
         #endregion
@@ -493,8 +426,6 @@ namespace AnySilkBoss.Source.Managers
 
             // 加入池中
             _memoryWebPool.Add(behavior);
-            
-            Log.Info($"创建新 Memory 丝线实例: {webInstance.name}，当前池大小: {_memoryWebPool.Count}");
             return behavior;
         }
         #endregion
@@ -531,8 +462,6 @@ namespace AnySilkBoss.Source.Managers
 
             // 触发攻击
             webBehavior.TriggerAttack(appearDelay, burstDelay);
-
-            Log.Debug($"已生成并触发丝线攻击: {webBehavior.gameObject.name} at {position}");
             return webBehavior;
         }
 
@@ -992,67 +921,6 @@ namespace AnySilkBoss.Source.Managers
             _initialized = false;
 
             Log.Info("=== SingleWebManager 清理完成 ===");
-        }
-        #endregion
-
-        #region Testing & Debugging
-        /// <summary>
-        /// 测试单根丝线生成和攻击（按 Y 键触发）
-        /// </summary>
-        private void TestSingleWebStrand()
-        {
-            Log.Info("=== 开始单根丝线测试（新对象池系统）===");
-
-            // 查找玩家
-            var hero = FindFirstObjectByType<HeroController>();
-            if (hero == null)
-            {
-                Log.Error("未找到玩家，测试失败");
-                return;
-            }
-
-            // 测试1：玩家上方单根丝线
-            Vector3 testPos = hero.transform.position + new Vector3(0f, 3f, 0f);
-            var web = SpawnAndAttack(testPos);
-
-            if (web != null)
-            {
-                Log.Info("单根丝线测试成功（玩家上方 3 单位）");
-            }
-
-            // 测试2：3秒后批量生成（验证冷却系统）
-            StartCoroutine(TestMultipleWebStrands(hero));
-        }
-
-        /// <summary>
-        /// 测试批量生成多根丝线（验证对象池复用）
-        /// </summary>
-        private IEnumerator TestMultipleWebStrands(HeroController hero)
-        {
-            // 延迟 3 秒（验证第一根丝线是否能被复用）
-            yield return new WaitForSeconds(3f);
-
-            Log.Info("=== 开始批量丝线测试（5根圆形分布）===");
-
-            // 在玩家周围圆形分布生成 5 根丝线
-            int count = 5;
-            float radius = 8f;
-            Vector3[] positions = new Vector3[count];
-
-            for (int i = 0; i < count; i++)
-            {
-                float angle = i * (360f / count);
-                positions[i] = hero.transform.position + new Vector3(
-                    Mathf.Cos(angle * Mathf.Deg2Rad) * radius,
-                    Mathf.Sin(angle * Mathf.Deg2Rad) * radius,
-                    0f
-                );
-            }
-
-            // 批量生成并触发攻击
-            var webs = SpawnMultipleAndAttack(positions);
-
-
         }
         #endregion
     }

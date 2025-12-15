@@ -26,7 +26,7 @@ internal partial class BossBehavior : MonoBehaviour
     private PlayMakerFSM? _bossControlFsm;
     private AttackControlBehavior? _attackControlBehavior;
 
-    protected bool[] phaseFlags = new bool[10]; // 用于各阶段的标志位
+    private bool[] phaseFlags = new bool[10]; // 用于各阶段的标志位
 
     #region 移动丝球攻击常量
 
@@ -121,7 +121,7 @@ internal partial class BossBehavior : MonoBehaviour
     /// <summary>
     /// 设置Boss
     /// </summary>
-    protected virtual IEnumerator SetupBoss()
+    private IEnumerator SetupBoss()
     {
         GetComponents();
         ModifyBossControlFSM();
@@ -132,7 +132,7 @@ internal partial class BossBehavior : MonoBehaviour
     /// <summary>
     /// 获取必要的组件
     /// </summary>
-    protected virtual void GetComponents()
+    private void GetComponents()
     {
         _bossControlFsm = FSMUtility.LocateMyFSM(base.gameObject, fsmName);
         _attackControlBehavior = GetComponent<AttackControlBehavior>();

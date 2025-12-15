@@ -5,6 +5,8 @@ using UnityEngine;
 using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
 using AnySilkBoss.Source.Tools;
+using static AnySilkBoss.Source.Tools.FsmStateBuilder;
+
 namespace AnySilkBoss.Source.Behaviours.Memory
 {
     /// <summary>
@@ -115,7 +117,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             // 创建决策状态：随机选择 Left 或 Right
             string decisionStateName = "Custom Stomp Decision";
-            var decisionState = new FsmState(handFSM.Fsm) { Name = decisionStateName };
+            var decisionState = CreateState(handFSM.Fsm, decisionStateName);
             var decisionActions = new List<FsmStateAction>();
 
             var randomBool = handFSM.FsmVariables.GetFsmBool("Stomp Random Bool");
@@ -159,8 +161,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             decisionState.Transitions = new FsmTransition[]
             {
-                new FsmTransition { FsmEvent = FsmEvent.GetFsmEvent("CUSTOM_STOMP_L_DECISION"), toState = leftState.Name, toFsmState = leftState },
-                new FsmTransition { FsmEvent = FsmEvent.GetFsmEvent("CUSTOM_STOMP_R_DECISION"), toState = rightState.Name, toFsmState = rightState }
+                CreateTransition(FsmEvent.GetFsmEvent("CUSTOM_STOMP_L_DECISION"), leftState),
+                CreateTransition(FsmEvent.GetFsmEvent("CUSTOM_STOMP_R_DECISION"), rightState)
             };
 
             // 添加决策状态到 FSM
@@ -188,7 +190,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         {
             if (handFSM == null) return;
 
-            var customStompState = new FsmState(handFSM.Fsm) { Name = stateName };
+            var customStompState = CreateState(handFSM.Fsm, stateName);
             var actions = new List<FsmStateAction>();
 
             var heroXVar = handFSM.FsmVariables.GetFsmFloat("Hero X");
@@ -266,7 +268,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             handFSM.Fsm.States = states.ToArray();
 
             var attackReadyState = handFSM.FsmStates.FirstOrDefault(s => s.Name == "Attack Ready Frame");
-            customStompState.Transitions = new FsmTransition[] { new FsmTransition { FsmEvent = FsmEvent.Finished, toState = "Attack Ready Frame", toFsmState = attackReadyState } };
+            SetFinishedTransition(customStompState, attackReadyState);
         }
 
         /// <summary>
@@ -305,7 +307,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         {
             if (handFSM == null) return;
 
-            var swipeDirState = new FsmState(handFSM.Fsm) { Name = "Custom Hand Swipe Dir" };
+            var swipeDirState = CreateState(handFSM.Fsm, "Custom Hand Swipe Dir");
             var actions = new List<FsmStateAction>();
 
             // 设置Ready变量为false
@@ -400,8 +402,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             var swipeRState = handFSM.FsmStates.FirstOrDefault(s => s.Name == "Custom Hand Swipe R");
             swipeDirState.Transitions = new FsmTransition[]
             {
-                new FsmTransition { FsmEvent = swipeDirLEvent, toState = "Custom Hand Swipe L", toFsmState = swipeLState },
-                new FsmTransition { FsmEvent = swipeDirREvent, toState = "Custom Hand Swipe R", toFsmState = swipeRState }
+                CreateTransition(swipeDirLEvent, swipeLState),
+                CreateTransition(swipeDirREvent, swipeRState)
             };
 
             var states = handFSM.FsmStates.ToList();
@@ -416,7 +418,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         {
             if (handFSM == null) return;
 
-            var customSwipeState = new FsmState(handFSM.Fsm) { Name = stateName };
+            var customSwipeState = CreateState(handFSM.Fsm, stateName);
             var actions = new List<FsmStateAction>();
 
             var heroXVar = handFSM.FsmVariables.GetFsmFloat("Hero X");
@@ -502,7 +504,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             handFSM.Fsm.States = states.ToArray();
 
             var attackReadyState = handFSM.FsmStates.FirstOrDefault(s => s.Name == "Attack Ready Frame");
-            customSwipeState.Transitions = new FsmTransition[] { new FsmTransition { FsmEvent = FsmEvent.Finished, toState = "Attack Ready Frame", toFsmState = attackReadyState } };
+            SetFinishedTransition(customSwipeState, attackReadyState);
         }
         /// <summary>
         /// 初始化Finger Blades
@@ -546,7 +548,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// <summary>
         /// 创建 FingerBlade Behavior（子类可覆盖以创建不同版本）
         /// </summary>
-        protected MemoryFingerBladeBehavior CreateFingerBladeBehavior(GameObject bladeObj)
+        private MemoryFingerBladeBehavior CreateFingerBladeBehavior(GameObject bladeObj)
         {
             return bladeObj.AddComponent<MemoryFingerBladeBehavior>();
         }
@@ -554,7 +556,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// <summary>
         /// 初始化 FingerBlade（子类可覆盖以执行不同的初始化逻辑）
         /// </summary>
-        protected void InitializeFingerBlade(MemoryFingerBladeBehavior bladeBehavior, int bladeIndex)
+        private void InitializeFingerBlade(MemoryFingerBladeBehavior bladeBehavior, int bladeIndex)
         {    if (bladeBehavior is MemoryFingerBladeBehavior memoryBlade)
             {
                 memoryBlade.Initialize(bladeIndex, handName, this);
@@ -576,24 +578,13 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             RegisterHandEvents();
 
             // 创建第一个状态：Orbit Start（启动环绕，等待SHOOT事件）
-            var orbitStartState = new FsmState(handFSM.Fsm)
-            {
-                Name = "Orbit Start",
-                Description = $"{handName} 启动环绕状态",
-            };
+            var orbitStartState = CreateState(handFSM.Fsm, "Orbit Start", $"{handName} 启动环绕状态");
 
             // 创建第二个状态：Orbit Shoot（控制三根针间隔发射）
-            var orbitShootState = new FsmState(handFSM.Fsm)
-            {
-                Name = "Orbit Shoot",
-                Description = $"{handName} 环绕发射状态",
-            };
+            var orbitShootState = CreateState(handFSM.Fsm, "Orbit Shoot", $"{handName} 环绕发射状态");
 
             // 添加状态到FSM
-            var existingStates = handFSM.FsmStates.ToList();
-            existingStates.Add(orbitStartState);
-            existingStates.Add(orbitShootState);
-            handFSM.Fsm.States = existingStates.ToArray();
+            AddStatesToFsm(handFSM, orbitStartState, orbitShootState);
 
             // 添加状态动作
             AddOrbitStartActions(orbitStartState);
@@ -672,27 +663,13 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             var idleState = handFSM!.FsmStates.FirstOrDefault(state => state.Name == "Idle");
             if (idleState != null)
             {
-                var idleToOrbitStartTransition = new FsmTransition
-                {
-                    FsmEvent = _orbitStartEvent,
-                    toState = "Orbit Start",
-                    toFsmState = orbitStartState
-                };
-                var idleTransitions = idleState.Transitions.ToList();
-                idleTransitions.Add(idleToOrbitStartTransition);
-                idleState.Transitions = idleTransitions.ToArray();
+                    AddTransition(idleState, CreateTransition(_orbitStartEvent, orbitStartState));
             }
 
             // 添加全局转换
-            var existingTransitions = handFSM.Fsm.GlobalTransitions.ToList();
-            existingTransitions.Add(new FsmTransition
-            {
-                FsmEvent = _orbitStartEvent,
-                toState = "Orbit Start",
-                toFsmState = orbitStartState
-            });
-
-            handFSM.Fsm.GlobalTransitions = existingTransitions.ToArray();
+            var globalTransitions = handFSM.Fsm.GlobalTransitions.ToList();
+            globalTransitions.Add(CreateTransition(_orbitStartEvent, orbitStartState));
+            handFSM.Fsm.GlobalTransitions = globalTransitions.ToArray();
 
         }
 
@@ -879,14 +856,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 return;
             }
 
-            var shootTransition = new FsmTransition
-            {
-                FsmEvent = _shootEvent,
-                toState = "Orbit Shoot",
-                toFsmState = orbitShootState
-            };
-
-            orbitStartState.Transitions = new FsmTransition[] { shootTransition };
+            orbitStartState.Transitions = new FsmTransition[] { CreateTransition(_shootEvent, orbitShootState) };
         }
 
         /// <summary>
@@ -895,14 +865,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         private void AddOrbitShootTransitions(FsmState orbitShootState, FsmState attackReadyFrameState)
         {
             // 发射完成后回到Attack Ready Frame状态
-            var finishedTransition = new FsmTransition
-            {
-                FsmEvent = FsmEvent.Finished,
-                toState = "Attack Ready Frame",
-                toFsmState = attackReadyFrameState
-            };
-
-            orbitShootState.Transitions = new FsmTransition[] { finishedTransition };
+            SetFinishedTransition(orbitShootState, attackReadyFrameState);
         }
 
         /// <summary>

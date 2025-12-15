@@ -201,11 +201,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             string stateName = pointIndex == -1 ? "Dash Antic Special" : $"Dash Antic {pointIndex}";
             string description = pointIndex == -1 ? "准备冲刺到Special点位" : $"准备冲刺到点位 {pointIndex}";
 
-            var state = new FsmState(_bossControlFsm!.Fsm)
-            {
-                Name = stateName,
-                Description = description
-            };
+            var state = CreateState(_bossControlFsm!.Fsm, stateName, description);
 
             var actions = new List<FsmStateAction>();
 
@@ -347,11 +343,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             string stateName = pointIndex == -1 ? "Dash To Special" : $"Dash To Point {pointIndex}";
             string description = pointIndex == -1 ? "冲刺到Special点位" : $"冲刺到点位 {pointIndex}";
 
-            var state = new FsmState(_bossControlFsm!.Fsm)
-            {
-                Name = stateName,
-                Description = description
-            };
+            var state = CreateState(_bossControlFsm!.Fsm, stateName, description);
 
             var actions = new List<FsmStateAction>();
 
@@ -458,11 +450,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             string stateName = pointIndex == -1 ? "Idle At Special" : $"Idle At Point {pointIndex}";
             string description = pointIndex == -1 ? "在Special点位等待" : $"在点位 {pointIndex} 等待";
 
-            var state = new FsmState(_bossControlFsm!.Fsm)
-            {
-                Name = stateName,
-                Description = description
-            };
+            var state = CreateState(_bossControlFsm!.Fsm, stateName, description);
 
             var actions = new List<FsmStateAction>();
 
@@ -510,29 +498,11 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         /// </summary>
         private FsmState CreateSilkBallDashEndState()
         {
-            var state = new FsmState(_bossControlFsm!.Fsm)
-            {
-                Name = "Silk Ball Dash End",
-                Description = "移动丝球结束，恢复硬直"
-            };
+            var state = CreateState(_bossControlFsm!.Fsm, "Silk Ball Dash End", "移动丝球结束，恢复硬直并通知AttackControl停止生成");
 
             var actions = new List<FsmStateAction>();
 
-            // 1. 恢复硬直
-            actions.Add(new SendEventByName
-            {
-                eventTarget = new FsmEventTarget
-                {
-                    target = FsmEventTarget.EventTarget.GameObject,
-                    excludeSelf = new FsmBool(false),
-                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
-                },
-                sendEvent = new FsmString("STUN CONTROL START") { Value = "STUN CONTROL START" },
-                delay = new FsmFloat(0f),
-                everyFrame = false
-            });
-
-            // 2. 通知AttackControl完成
+            // 1. 立即通知AttackControl停止生成（优先级最高，防止继续生成）
             actions.Add(new SendEventByName
             {
                 eventTarget = new FsmEventTarget
@@ -546,6 +516,21 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 delay = new FsmFloat(0f),
                 everyFrame = false
             });
+
+            // 2. 恢复硬直
+            actions.Add(new SendEventByName
+            {
+                eventTarget = new FsmEventTarget
+                {
+                    target = FsmEventTarget.EventTarget.GameObject,
+                    excludeSelf = new FsmBool(false),
+                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                },
+                sendEvent = new FsmString("STUN CONTROL START") { Value = "STUN CONTROL START" },
+                delay = new FsmFloat(0f),
+                everyFrame = false
+            });
+
             // 3. 播放Idle动画
             actions.Add(new Tk2dPlayAnimation
             {
@@ -564,7 +549,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
 
             state.Actions = actions.ToArray();
 
-            Log.Info("创建Silk Ball Dash End状态");
+            Log.Info("创建Silk Ball Dash End状态（优先通知AttackControl停止生成）");
             return state;
         }
 

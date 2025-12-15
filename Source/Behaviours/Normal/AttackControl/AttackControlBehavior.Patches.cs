@@ -12,7 +12,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
     internal partial class AttackControlBehavior
     {
         #region 原版AttackControl调整
-        protected virtual void PatchOriginalAttackPatterns()
+        private void PatchOriginalAttackPatterns()
         {
             if (_strandPatterns == null)
             {
@@ -122,7 +122,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             Log.Info("已将Double最后GetRandomChild/SendEventByName行为复制到Single和Double末尾各一份");
         }
 
-        protected virtual void PatchSingleAndDoubleStatesLastActionsV2()
+        private void PatchSingleAndDoubleStatesLastActionsV2()
         {
             if (_attackControlFsm == null) return;
 
@@ -206,22 +206,42 @@ namespace AnySilkBoss.Source.Behaviours.Normal
 
             var dashAttackEndactions = dashAttackEndState.Actions.ToList();
 
-            if (laceCircleSlash != null)
+            // 使用 CallMethod 调用 SpawnLaceCircleSlashMethod 方法
+            dashAttackEndactions.Insert(0, new CallMethod
             {
-                dashAttackEndactions.Insert(0, new SpawnObjectFromGlobalPool
-                {
-                    gameObject = new FsmGameObject { Value = laceCircleSlash },
-                    spawnPoint = new FsmGameObject { Value = this.gameObject },
-                    position = new FsmVector3 { Value = Vector3.zero },
-                    rotation = new FsmVector3 { Value = Vector3.zero },
-                    storeObject = _laceSlashObj
-                });
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("SpawnLaceCircleSlashMethod") { Value = "SpawnLaceCircleSlashMethod" },
+                parameters = new FsmVar[0],
+                everyFrame = false
+            });
+
+            dashAttackEndState.Actions = dashAttackEndactions.ToArray();
+            Log.Info("已修改 Dash Attack End 状态，添加 SpawnLaceCircleSlashMethod 调用");
+        }
+
+        /// <summary>
+        /// 供 FSM CallMethod 调用的方法，用于生成 LaceCircleSlash
+        /// </summary>
+        public void SpawnLaceCircleSlashMethod()
+        {
+            if (_laceCircleSlashManager == null)
+            {
+                Log.Warn("SpawnLaceCircleSlashMethod: _laceCircleSlashManager 为 null");
+                return;
+            }
+
+            // 在 Boss 当前位置生成 LaceCircleSlash
+            var spawnPosition = transform.position;
+            bool success = _laceCircleSlashManager.SpawnLaceCircleSlash(spawnPosition);
+            
+            if (success)
+            {
+                Log.Info($"SpawnLaceCircleSlashMethod: 成功在位置 {spawnPosition} 生成 LaceCircleSlash");
             }
             else
             {
-                Log.Warn("laceCircleSlash 为 null，跳过 Dash Attack End 的斩击特效生成");
+                Log.Warn("SpawnLaceCircleSlashMethod: 生成 LaceCircleSlash 失败");
             }
-            dashAttackEndState.Actions = dashAttackEndactions.ToArray();
         }
 
         private void ModifySpikeLiftAimState()
@@ -287,6 +307,9 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         {
             Log.Info("Boss眩晕，开始清理丝球");
 
+            // 立即停止生成丝球（防止在清理过程中继续生成）
+            StopGeneratingSilkBall();
+
             var managerObj = GameObject.Find("AnySilkBossManager");
             if (managerObj != null)
             {
@@ -305,7 +328,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             {
                 Log.Warn("未找到AnySilkBossManager GameObject");
             }
-            StopGeneratingSilkBall();
             ClearActiveSilkBalls();
         }
         #endregion

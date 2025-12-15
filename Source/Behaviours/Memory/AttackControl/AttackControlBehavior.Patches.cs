@@ -12,7 +12,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
     internal partial class MemoryAttackControlBehavior
     {
         #region 原版AttackControl调整
-        protected virtual void PatchOriginalAttackPatterns()
+        private void PatchOriginalAttackPatterns()
         {
             if (_strandPatterns == null)
             {
@@ -337,9 +337,19 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 {
                     if (action is Wait waitAction)
                     {
-                        var oldTime = waitAction.time.Value;
-                        waitAction.time = new FsmFloat(1.0f);
-                        Log.Info($"梦境版已将 Move Restart 的 Wait 时间从 {oldTime}s 调整为 1.0s");
+                        waitAction.time = new FsmFloat(0.6f);
+                        break;
+                    }
+                }
+            }
+            var moveRestart3State = FindState(_attackControlFsm, "Move Restart 3");
+            if (moveRestart3State?.Actions != null)
+            {
+                foreach (var action in moveRestart3State.Actions)
+                {
+                    if (action is Wait waitAction)
+                    {
+                        waitAction.time = new FsmFloat(0.6f);
                         break;
                     }
                 }
@@ -464,7 +474,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         public void ClearSilkBallMethod()
         {
             Log.Info("Boss眩晕，开始清理丝球");
-
+            StopGeneratingSilkBall();
             var managerObj = GameObject.Find("AnySilkBossManager");
             if (managerObj != null)
             {
@@ -483,7 +493,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             {
                 Log.Warn("未找到AnySilkBossManager GameObject");
             }
-            StopGeneratingSilkBall();
             ClearActiveSilkBalls();
         }
         #endregion

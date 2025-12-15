@@ -484,3 +484,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Note: bin/Debug/temp/ is ignored by git (because bin/ is ignored above)
+# but accessible to Cursor via .cursorignore configuration

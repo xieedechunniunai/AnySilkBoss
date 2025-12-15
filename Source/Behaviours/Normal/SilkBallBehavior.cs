@@ -6,6 +6,7 @@ using HutongGames.PlayMaker.Actions;
 using AnySilkBoss.Source.Tools;
 using System.Collections.Generic;
 using System;
+using static AnySilkBoss.Source.Tools.FsmStateBuilder;
 
 namespace AnySilkBoss.Source.Behaviours.Normal
 {
@@ -55,6 +56,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         private Transform? spriteSilk;             // Sprite Silk 子物体
         private Transform? Glow;          // Glow 子物体
         private CircleCollider2D? mainCollider;    // 主碰撞器
+        private float _originalColliderRadius;     // 原始碰撞器半径（缩小50%后的值）
         private ParticleSystem? ptCollect;         // 快速消散粒子
         private ParticleSystem? ptDisappear;       // 缓慢消失粒子
         #endregion
@@ -70,6 +72,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         private FsmEvent? releaseEvent;
         private FsmEvent? hitWallEvent;
         private FsmEvent? hitHeroEvent;
+        private FsmEvent? hasGravityEvent;  // 重力状态事件
         #endregion
 
         #region Properties
@@ -174,8 +177,9 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                     {
                         mainCollider.isTrigger = true;
                         mainCollider.enabled = true;
-                        // 降低50%碰撞箱大小（只在第一次调用时执行）
+                        // 降低50%碰撞箱大小（只在第一次调用时执行）并保存原始值
                         mainCollider.radius *= 0.5f;
+                        _originalColliderRadius = mainCollider.radius;
                     }
 
                     // 添加碰撞转发器
@@ -503,13 +507,11 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             // 缩放根物体
             transform.localScale = Vector3.one * scale;
 
-            // 如果碰撞器已经缩小了50%，需要调整回来再应用scale
-            if (mainCollider != null)
+            // 使用原始碰撞器半径乘以scale，避免累积乘法
+            if (mainCollider != null && _originalColliderRadius > 0)
             {
-                // 碰撞器大小已经在 Awake 中缩小了50%，这里再应用scale
-                mainCollider.radius *= scale;
+                mainCollider.radius = _originalColliderRadius * scale;
             }
-
         }
 
         /// <summary>
@@ -566,14 +568,27 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             AddRecycleActions(recycleState);
             AddHasGravityActions(hasGravityState);
             // 添加状态转换
-            AddInitTransitions(initState, idleState);
-            AddIdleTransitions(idleState, prepareState);
-            AddPrepareTransitions(prepareState, chaseState);
-            AddChaseHeroTransitions(chaseState, disperseState, hitHeroDisperseState, disappearState);
-            AddDisperseTransitions(disperseState, recycleState);
-            AddHitHeroDisperseTransitions(hitHeroDisperseState, recycleState);
-            AddDisappearTransitions(disappearState, recycleState);
-            AddHasGravityTransitions(hasGravityState, disperseState, hitHeroDisperseState);
+            SetFinishedTransition(initState, idleState);
+            idleState.Transitions = new FsmTransition[] { CreateTransition(prepareEvent!, prepareState) };
+            prepareState.Transitions = new FsmTransition[]
+            {
+                CreateTransition(releaseEvent!, chaseState),
+                CreateTransition(hasGravityEvent!, hasGravityState)
+            };
+            chaseState.Transitions = new FsmTransition[]
+            {
+                CreateFinishedTransition(disappearState),
+                CreateTransition(hitWallEvent!, disperseState),
+                CreateTransition(hitHeroEvent!, hitHeroDisperseState)
+            };
+            SetFinishedTransition(disperseState, recycleState);
+            SetFinishedTransition(hitHeroDisperseState, recycleState);
+            SetFinishedTransition(disappearState, recycleState);
+            hasGravityState.Transitions = new FsmTransition[]
+            {
+                CreateTransition(hitWallEvent!, disperseState),
+                CreateTransition(hitHeroEvent!, hitHeroDisperseState)
+            };
             // 初始化 FSM 数据
             controlFSM.Fsm.InitData();
             // 确保 Started 标记为 true（PlayMakerFSM.Start() 会检查这个）
@@ -598,12 +613,14 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             releaseEvent = FsmEvent.GetFsmEvent("SILK BALL RELEASE");
             hitWallEvent = FsmEvent.GetFsmEvent("HIT WALL");
             hitHeroEvent = FsmEvent.GetFsmEvent("HIT HERO");
+            hasGravityEvent = FsmEvent.GetFsmEvent("HAS_GRAVITY");
 
             var events = controlFSM!.Fsm.Events.ToList();
             if (!events.Contains(prepareEvent)) events.Add(prepareEvent);
             if (!events.Contains(releaseEvent)) events.Add(releaseEvent);
             if (!events.Contains(hitWallEvent)) events.Add(hitWallEvent);
             if (!events.Contains(hitHeroEvent)) events.Add(hitHeroEvent);
+            if (!events.Contains(hasGravityEvent)) events.Add(hasGravityEvent);
 
             controlFSM.Fsm.Events = events.ToArray();
         }
@@ -629,82 +646,46 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         #region 创建状态
         private FsmState CreateInitState()
         {
-            return new FsmState(controlFSM!.Fsm)
-            {
-                Name = "Init",
-                Description = "初始化状态"
-            };
+            return CreateState(controlFSM!.Fsm, "Init", "初始化状态");
         }
         private FsmState CreateIdleState()
         {
-            return new FsmState(controlFSM!.Fsm)
-            {
-                Name = "Idle",
-                Description = "静默状态，等待 PREPARE 事件"
-            };
+            return CreateState(controlFSM!.Fsm, "Idle", "静默状态，等待 PREPARE 事件");
         }
 
         private FsmState CreatePrepareState()
         {
-            return new FsmState(controlFSM!.Fsm)
-            {
-                Name = "Prepare",
-                Description = "准备状态，等待释放"
-            };
+            return CreateState(controlFSM!.Fsm, "Prepare", "准备状态，等待释放");
         }
 
         private FsmState CreateChaseHeroState()
         {
-            return new FsmState(controlFSM!.Fsm)
-            {
-                Name = "Chase Hero",
-                Description = "追逐玩家"
-            };
+            return CreateState(controlFSM!.Fsm, "Chase Hero", "追逐玩家");
         }
 
         private FsmState CreateDisperseState()
         {
-            return new FsmState(controlFSM!.Fsm)
-            {
-                Name = "Disperse",
-                Description = "快速消散（碰到墙壁）"
-            };
+            return CreateState(controlFSM!.Fsm, "Disperse", "快速消散（碰到墙壁）");
         }
 
         private FsmState CreateHitHeroDisperseState()
         {
-            return new FsmState(controlFSM!.Fsm)
-            {
-                Name = "Hit Hero Disperse",
-                Description = "碰到玩家消散（保持伤害启用）"
-            };
+            return CreateState(controlFSM!.Fsm, "Hit Hero Disperse", "碰到玩家消散（保持伤害启用）");
         }
 
         private FsmState CreateDisappearState()
         {
-            return new FsmState(controlFSM!.Fsm)
-            {
-                Name = "Disappear",
-                Description = "缓慢消失"
-            };
+            return CreateState(controlFSM!.Fsm, "Disappear", "缓慢消失");
         }
 
         private FsmState CreateRecycleState()
         {
-            return new FsmState(controlFSM!.Fsm)
-            {
-                Name = "Recycle",
-                Description = "回收到对象池"
-            };
+            return CreateState(controlFSM!.Fsm, "Recycle", "回收到对象池");
         }
 
         private FsmState CreateHasGravityState()
         {
-            return new FsmState(controlFSM!.Fsm)
-            {
-                Name = "Has Gravity",
-                Description = "有重力状态"
-            };
+            return CreateState(controlFSM!.Fsm, "Has Gravity", "有重力状态");
         }
         #endregion
 
@@ -897,7 +878,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             {
                 behaviour = new FsmObject { Value = this },
                 methodName = new FsmString("DelayDisableDamageAndVisual") { Value = "DelayDisableDamageAndVisual" },
-                parameters = new FsmVar[0]
+                parameters = null
             };
 
             // 停止追踪
@@ -905,7 +886,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             {
                 behaviour = new FsmObject { Value = this },
                 methodName = new FsmString("StopChase") { Value = "StopChase" },
-                parameters = new FsmVar[0]
+                parameters = null
             };
 
             // 速度衰减
@@ -913,7 +894,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             {
                 behaviour = new FsmObject { Value = this },
                 methodName = new FsmString("SlowDownToZero") { Value = "SlowDownToZero" },
-                parameters = new FsmVar[0]
+                parameters = null
             };
 
             // 播放消散粒子
@@ -921,7 +902,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             {
                 behaviour = new FsmObject { Value = this },
                 methodName = new FsmString("PlayCollectParticle") { Value = "PlayCollectParticle" },
-                parameters = new FsmVar[0]
+                parameters = null
             };
 
             // 等待粒子播放完毕
@@ -1082,130 +1063,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         }
         #endregion
 
-        #region 添加状态转换
-        private void AddInitTransitions(FsmState initState, FsmState idleState)
-        {
-            initState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Idle",
-                    toFsmState = idleState
-                }
-            };
-        }
-        private void AddIdleTransitions(FsmState idleState, FsmState prepareState)
-        {
-            idleState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = prepareEvent,
-                    toState = "Prepare",
-                    toFsmState = prepareState
-                }
-            };
-        }
-
-        private void AddPrepareTransitions(FsmState prepareState, FsmState chaseState)
-        {
-            // Prepare状态只监听SILK BALL RELEASE事件
-            // 准备完成后保持在此状态，等待外部发送RELEASE事件
-            prepareState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = releaseEvent,
-                    toState = "Chase Hero",
-                    toFsmState = chaseState
-                }
-            };
-        }
-
-        private void AddChaseHeroTransitions(FsmState chaseState, FsmState disperseState, FsmState hitHeroDisperseState, FsmState disappearState)
-        {
-            chaseState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Disappear",
-                    toFsmState = disappearState
-                },
-                new FsmTransition
-                {
-                    FsmEvent = hitWallEvent,
-                    toState = "Disperse",
-                    toFsmState = disperseState
-                },
-                new FsmTransition
-                {
-                    FsmEvent = hitHeroEvent,
-                    toState = "Hit Hero Disperse",
-                    toFsmState = hitHeroDisperseState
-                }
-            };
-        }
-
-        private void AddDisperseTransitions(FsmState disperseState, FsmState recycleState)
-        {
-            disperseState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Recycle",
-                    toFsmState = recycleState
-                }
-            };
-        }
-
-        private void AddHitHeroDisperseTransitions(FsmState hitHeroDisperseState, FsmState recycleState)
-        {
-            hitHeroDisperseState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Recycle",
-                    toFsmState = recycleState
-                }
-            };
-        }
-
-        private void AddDisappearTransitions(FsmState disappearState, FsmState recycleState)
-        {
-            disappearState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = FsmEvent.Finished,
-                    toState = "Recycle",
-                    toFsmState = recycleState
-                }
-            };
-        }
-
-        private void AddHasGravityTransitions(FsmState hasGravityState, FsmState disperseState, FsmState hitHeroDisperseState)
-        {
-            hasGravityState.Transitions = new FsmTransition[]
-            {
-                new FsmTransition
-                {
-                    FsmEvent = hitWallEvent,
-                    toState = "Disperse",
-                    toFsmState = disperseState
-                },
-                new FsmTransition
-                {
-                    FsmEvent = hitHeroEvent,
-                    toState = "Hit Hero Disperse",
-                    toFsmState = hitHeroDisperseState
-                }
-            };
-        }
-        #endregion
 
 
         #region 辅助方法（供FSM调用）
@@ -1258,7 +1115,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             {
                 mainCollider.enabled = false;
             }
-            Debug.Log("禁用伤害碰撞");
         }
 
         /// <summary>

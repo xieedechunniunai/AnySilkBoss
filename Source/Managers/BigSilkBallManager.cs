@@ -66,8 +66,8 @@ namespace AnySilkBoss.Source.Managers
         /// </summary>
         private void OnSceneChanged(Scene oldScene, Scene newScene)
         {
-            // 当离开 BOSS 场景时清理
-            if (oldScene.name == BossSceneName)
+            // 只有真正离开 BOSS 场景（到其他场景）时才清理，同场景重载（如死亡复活）不清理
+            if (oldScene.name == BossSceneName && newScene.name != BossSceneName)
             {
                 Log.Info($"离开 BOSS 场景 {oldScene.name}，清理 BigSilkBallManager 缓存");
                 CleanupPrefab();
@@ -82,6 +82,15 @@ namespace AnySilkBoss.Source.Managers
         private IEnumerator Initialize()
         {
             Log.Info("开始初始化 BigSilkBallManager...");
+
+            // 每次进入场景都需要重新创建预制体，因为组件引用会随场景切换失效
+            // 先销毁旧的预制体
+            if (_bigSilkBallPrefab != null)
+            {
+                Log.Info("销毁旧的大丝球预制体...");
+                Object.Destroy(_bigSilkBallPrefab);
+                _bigSilkBallPrefab = null;
+            }
 
             // 等待场景加载完成
             yield return new WaitForSeconds(0.5f);
@@ -114,9 +123,7 @@ namespace AnySilkBoss.Source.Managers
             // 复制整个对象
             _bigSilkBallPrefab = Object.Instantiate(originalCore);
             _bigSilkBallPrefab.name = "Big Silk Ball Prefab";
-
-            // 永久保存，不随场景销毁
-            DontDestroyOnLoad(_bigSilkBallPrefab);
+            _bigSilkBallPrefab.transform.SetParent(transform);
 
             Log.Info("大丝球对象复制完成，开始处理组件...");
 

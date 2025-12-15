@@ -93,11 +93,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         private FsmState CreateSilkBallPrepareState()
         {
-            var state = new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "Silk Ball Prepare",
-                Description = "丝球攻击准备（50%分支）"
-            };
+            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Prepare", "丝球攻击准备（50%分支）");
 
             var actions = new List<FsmStateAction>();
             actions.Add(new SendEventByName
@@ -250,11 +246,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
         private FsmState CreateSilkBallPrepareCastState()
         {
-            var state = new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "Silk Ball Prepare Cast",
-                Description = "丝球攻击Prepare Cast"
-            };
+            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Prepare Cast", "丝球攻击Prepare Cast");
 
             var actions = new List<FsmStateAction>();
             var stopStunControl = CloneAction<SendEventByName>("Web Lift");
@@ -281,11 +273,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         private FsmState CreateSilkBallCastState()
         {
-            var state = new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "Silk Ball Cast",
-                Description = "丝球攻击Cast动画，同时向上移动"
-            };
+            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Cast", "丝球攻击Cast动画，同时向上移动");
 
             var actions = new List<FsmStateAction>();
             var setVelocity = CloneAction<SetVelocity2d>("Web Cast");
@@ -312,11 +300,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         private FsmState CreateSilkBallLiftState()
         {
-            var state = new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "Silk Ball Lift",
-                Description = "向上移动到高点"
-            };
+            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Lift", "向上移动到高点");
 
             var actions = new List<FsmStateAction>();
 
@@ -369,11 +353,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         private FsmState CreateSilkBallAnticState()
         {
-            var state = new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "Silk Ball Antic",
-                Description = "在高点召唤8个丝球"
-            };
+            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Antic", "在高点召唤8个丝球");
 
             var actions = new List<FsmStateAction>();
 
@@ -401,11 +381,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         private FsmState CreateSilkBallReleaseState()
         {
-            var state = new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "Silk Ball Release",
-                Description = "释放所有丝球并触发冲击波"
-            };
+            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Release", "释放所有丝球并触发冲击波");
 
             var actions = new List<FsmStateAction>();
 
@@ -429,11 +405,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         private FsmState CreateSilkBallEndState()
         {
-            var state = new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "Silk Ball End",
-                Description = "丝球攻击结束"
-            };
+            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball End", "丝球攻击结束");
 
             var actions = new List<FsmStateAction>();
             actions.Add(new Tk2dWatchAnimationEvents
@@ -461,11 +433,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         private FsmState CreateSilkBallRecoverState()
         {
-            var state = new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "Silk Ball Recover",
-                Description = "丝球攻击结束，简单下降"
-            };
+            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Recover", "丝球攻击结束，简单下降");
 
             var actions = new List<FsmStateAction>();
 
