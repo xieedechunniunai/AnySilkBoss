@@ -51,7 +51,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         /// <summary>
         /// 创建 Hand Behavior（子类可覆盖以创建不同版本）
         /// </summary>
-        protected virtual HandControlBehavior CreateHandBehavior(GameObject handObj)
+        private HandControlBehavior CreateHandBehavior(GameObject handObj)
         {
             return handObj.AddComponent<HandControlBehavior>();
         }

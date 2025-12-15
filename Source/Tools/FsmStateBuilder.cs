@@ -254,14 +254,16 @@ namespace AnySilkBoss.Source.Tools
         /// <returns>FsmEvent</returns>
         public static FsmEvent GetOrCreateEvent(PlayMakerFSM pmFsm, string eventName)
         {
+            // ⚠️ 必须使用 FsmEvent.GetFsmEvent 获取全局事件实例
+            var fsmEvent = FsmEvent.GetFsmEvent(eventName);
+            
             var events = pmFsm.Fsm.Events.ToList();
-            var existing = events.FirstOrDefault(e => e.Name == eventName);
-            if (existing != null) return existing;
-
-            var newEvent = new FsmEvent(eventName);
-            events.Add(newEvent);
-            pmFsm.Fsm.Events = events.ToArray();
-            return newEvent;
+            if (!events.Contains(fsmEvent))
+            {
+                events.Add(fsmEvent);
+                pmFsm.Fsm.Events = events.ToArray();
+            }
+            return fsmEvent;
         }
 
         /// <summary>
@@ -277,14 +279,11 @@ namespace AnySilkBoss.Source.Tools
 
             for (int i = 0; i < eventNames.Length; i++)
             {
-                var existing = events.FirstOrDefault(e => e.Name == eventNames[i]);
-                if (existing != null)
+                // ⚠️ 必须使用 FsmEvent.GetFsmEvent 获取全局事件实例
+                // 不能使用 new FsmEvent()，否则 SendEvent 时事件匹配会失败
+                result[i] = FsmEvent.GetFsmEvent(eventNames[i]);
+                if (!events.Contains(result[i]))
                 {
-                    result[i] = existing;
-                }
-                else
-                {
-                    result[i] = new FsmEvent(eventNames[i]);
                     events.Add(result[i]);
                 }
             }

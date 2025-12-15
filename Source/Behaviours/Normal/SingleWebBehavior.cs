@@ -84,8 +84,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 return;
             }
 
-            Log.Info($"=== 初始化 SingleWebBehavior: {gameObject.name} ===");
-
             // 0. 保存池容器引用
             _poolContainer = poolContainer;
 
@@ -96,7 +94,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 Log.Error($"未找到 Control FSM，初始化失败: {gameObject.name}");
                 return;
             }
-            Log.Info("  找到 Control FSM");
 
             // 2. 查找 hero_catcher
             _heroCatcher = FindChildRecursive(transform, "hero_catcher");
@@ -105,8 +102,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 Log.Error($"未找到 hero_catcher，初始化失败: {gameObject.name}");
                 return;
             }
-            Log.Info("  找到 hero_catcher");
-
             // 3. 获取 DamageHero 组件并设置事件
             _damageHero = _heroCatcher.GetComponent<DamageHero>();
             if (_damageHero == null)
@@ -139,8 +134,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 return;
             }
 
-            Log.Info("--- 修改 Control FSM ---");
-
             // 找到 Catch Hero 状态
             var catchHeroState = _controlFsm.FsmStates.FirstOrDefault(s => s.Name == "Catch Hero");
             if (catchHeroState == null)
@@ -153,7 +146,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             var actions = catchHeroState.Actions.ToList();
             actions.Clear();
             catchHeroState.Actions = actions.ToArray();
-            Log.Info("  已清空 Catch Hero 状态的所有 Actions");
 
             // 修改跳转：简化为直接回到 Catch Cancel（保持原版流程）
             var inactiveState = _controlFsm.FsmStates.FirstOrDefault(s => s.Name == "Catch Cancel");
@@ -168,12 +160,10 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                         ToState = "Catch Cancel"
                     }
                 };
-                Log.Info("  已修改 Catch Hero 跳转：FINISHED -> Catch Cancel");
             }
 
             // 重新初始化 FSM
             _controlFsm.Fsm.InitData();
-            Log.Info("  Control FSM 修改完成并已重新初始化");
         }
 
         /// <summary>
@@ -185,7 +175,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             if (hornetCatchFsm != null)
             {
                 hornetCatchFsm.enabled = false;
-                Log.Info("  已禁用 Hornet Catch FSM");
             }
         }
         #endregion

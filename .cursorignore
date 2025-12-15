@@ -1,0 +1,9 @@
+# .cursorignore - Controls what Cursor ignores when searching/indexing
+# Note: bin/Debug/temp/ is explicitly allowed here for Cursor
+# However, bin/ is in .gitignore, so git will ignore it
+
+# Explicitly allow bin/Debug/temp/ folder for Cursor (negation patterns)
+# Need to un-ignore the parent directories first, then the target folder
+!bin/
+!bin/Debug/
+!bin/Debug/temp/

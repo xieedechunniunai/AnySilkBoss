@@ -234,7 +234,25 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             else
             {
                 Log.Info("成功获取 Boss Scene");
-
+                var BossTitle = _bossScene.transform.Find("Boss Title");
+                if (BossTitle != null)
+                {
+                    var TitleText = BossTitle.transform.Find("Title Text");
+                    if (TitleText != null)
+                    {
+                        var Silk_Title_Image = TitleText.transform.Find("Silk_Title_Image");
+                        var Silk_Title_Text = TitleText.transform.Find("Silk_Title_Text");
+                        if (Silk_Title_Image != null && Silk_Title_Text != null)
+                        {
+                            Silk_Title_Image.gameObject.SetActive(false);
+                            Silk_Title_Text.gameObject.SetActive(true);
+                        }
+                    }
+                }
+                else
+                {
+                    Log.Warn("未找到 Boss Title");
+                }
                 // 获取 Web Strand Catch Effect（替身）
                 var catchEffectTf = _bossScene.transform.Find("Web Strand Catch Effect");
                 if (catchEffectTf != null)
@@ -388,8 +406,99 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             // ⚠️ 修改Set P6状态，添加P6 Web Attack触发标记
             ModifySetP6State();
 
+            // ⚠️ 修改所有 Set P1-P6 状态，添加地刺触发逻辑
+            ModifyAllSetPStatesForSpike();
+
             Log.Info("阶段行为修改完成");
         }
+
+        /// <summary>
+        /// 修改所有 Set P1-P6 状态，添加地刺触发逻辑并移除原版地刺控制
+        /// 使用 FSM 变量传递模式：PhaseControl 设置 AttackControl 的变量
+        /// </summary>
+        private void ModifyAllSetPStatesForSpike()
+        {
+            if (_phaseControl == null) return;
+
+            for (int phase = 1; phase <= 6; phase++)
+            {
+                string stateName = $"Set P{phase}";
+                var setState = _phaseControl.FsmStates.FirstOrDefault(s => s.Name == stateName);
+                
+                if (setState == null)
+                {
+                    Log.Warn($"未找到 {stateName} 状态，跳过地刺触发设置");
+                    continue;
+                }
+
+                // 1. 先移除原版地刺相关 Actions（如 Can Spike Pull 设置）
+                var filteredActions = RemoveOriginalSpikeActions(setState.Actions.ToList());
+
+                // 2. 设置 AttackControl FSM 的 CurrentPhase 变量
+                filteredActions.Add(new SetFsmInt
+                {
+                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    fsmName = new FsmString("Attack Control") { Value = "Attack Control" },
+                    variableName = new FsmString("CurrentPhase") { Value = "CurrentPhase" },
+                    setValue = new FsmInt(phase),
+                    everyFrame = false
+                });
+
+                // 3. 设置 AttackControl FSM 的 SpikeAttackPending = true
+                filteredActions.Add(new SetFsmBool
+                {
+                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    fsmName = new FsmString("Attack Control") { Value = "Attack Control" },
+                    variableName = new FsmString("SpikeAttackPending") { Value = "SpikeAttackPending" },
+                    setValue = new FsmBool(true),
+                    everyFrame = false
+                });
+
+                setState.Actions = filteredActions.ToArray();
+                Log.Info($"{stateName} 状态已添加地刺触发逻辑（SetFsmBool）");
+            }
+        }
+
+        /// <summary>
+        /// 移除原版地刺相关 Actions（如设置 Can Spike Pull 的 SetFsmBool）
+        /// </summary>
+        private List<FsmStateAction> RemoveOriginalSpikeActions(List<FsmStateAction> actions)
+        {
+            var result = new List<FsmStateAction>();
+            int removedCount = 0;
+
+            foreach (var action in actions)
+            {
+                bool shouldRemove = false;
+
+                // 移除设置 Can Spike Pull 的 SetFsmBool
+                if (action is SetFsmBool setFsmBool)
+                {
+                    if (setFsmBool.variableName?.Value == "Can Spike Pull")
+                    {
+                        shouldRemove = true;
+                        Log.Debug($"[PhaseControl] 移除 SetFsmBool (Can Spike Pull)");
+                    }
+                }
+
+                if (shouldRemove)
+                {
+                    removedCount++;
+                }
+                else
+                {
+                    result.Add(action);
+                }
+            }
+
+            if (removedCount > 0)
+            {
+                Log.Info($"[PhaseControl] 移除了 {removedCount} 个原版地刺 Actions");
+            }
+
+            return result;
+        }
+
 
         /// <summary>
         /// 修改Set P4状态，在进入P4时启用Special Attack

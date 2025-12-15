@@ -34,7 +34,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         public MemoryHandControlBehavior? handRBehavior;
 
         // FSM引用
-        protected PlayMakerFSM? _attackControlFsm;
+        private PlayMakerFSM? _attackControlFsm;
 
         /// <summary>
         /// 公共属性：Attack Control FSM 是否已初始化
@@ -42,67 +42,66 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         public bool IsAttackControlFsmReady => _attackControlFsm != null;
 
         // 状态引用
-        protected FsmState? _handPtnChoiceState;
-        protected FsmState? _orbitAttackState;
-        protected FsmState? _waitForHandsReadyState;
-        protected string _secondHandName = "";
-        protected GameObject? _bossScene;
-        protected GameObject? _strandPatterns;
-        protected GameObject? _secondHandObject;
+        private FsmState? _handPtnChoiceState;
+        private FsmState? _orbitAttackState;
+        private FsmState? _waitForHandsReadyState;
+        private string _secondHandName = "";
+        private GameObject? _bossScene;
+        private GameObject? _strandPatterns;
+        private GameObject? _secondHandObject;
 
         // 事件引用缓存
-        protected FsmEvent? _orbitAttackEvent;
-        protected FsmEvent? _orbitStartHandLEvent;
-        protected FsmEvent? _orbitStartHandREvent;
-        protected FsmEvent? _nullEvent;
+        private FsmEvent? _orbitAttackEvent;
+        private FsmEvent? _orbitStartHandLEvent;
+        private FsmEvent? _orbitStartHandREvent;
+        private FsmEvent? _nullEvent;
 
         // 丝球环绕攻击相关
-        protected FsmEvent? _silkBallAttackEvent;
-        protected SilkBallManager? _silkBallManager;
-        protected List<GameObject> _activeSilkBalls = new List<GameObject>();
-        protected Coroutine? _silkBallSummonCoroutine;
+        private FsmEvent? _silkBallAttackEvent;
+        private SilkBallManager? _silkBallManager;
+        private List<GameObject> _activeSilkBalls = new List<GameObject>();
+        private Coroutine? _silkBallSummonCoroutine;
 
         // 丝球攻击状态引用
-        protected FsmState? _silkBallPrepareState;
-        protected FsmState? _silkBallPrepareCastState;
-        protected FsmState? _silkBallCastState;
-        protected FsmState? _silkBallLiftState;
-        protected FsmState? _silkBallAnticState;
-        protected FsmState? _silkBallReleaseState;
-        protected FsmState? _silkBallEndState;
-        protected FsmState? _silkBallRecoverState;
-
+        private FsmState? _silkBallPrepareState;
+        private FsmState? _silkBallPrepareCastState;
+        private FsmState? _silkBallCastState;
+        private FsmState? _silkBallLiftState;
+        private FsmState? _silkBallAnticState;
+        private FsmState? _silkBallReleaseState;
+        private FsmState? _silkBallEndState;
+        private FsmState? _silkBallRecoverState;
         // 移动丝球攻击状态引用
-        protected FsmState? _silkBallDashPrepareState;
-        protected FsmState? _silkBallDashEndState;
+        private FsmState? _silkBallDashPrepareState;
+        private FsmState? _silkBallDashEndState;
 
         // BossControl FSM引用（用于通信）
-        protected PlayMakerFSM? _bossControlFsm;
+        private PlayMakerFSM? _bossControlFsm;
 
         // 移动丝球相关变量（AttackControl中）
-        protected FsmBool? _isGeneratingSilkBall;  // 是否正在生成丝球
-        protected FsmFloat? _totalDistanceTraveled; // 累计移动距离
-        protected FsmVector2? _lastBallPosition;    // 上次生成丝球的位置
+        private FsmBool? _isGeneratingSilkBall;  // 是否正在生成丝球
+        private FsmFloat? _totalDistanceTraveled; // 累计移动距离
+        private FsmVector2? _lastBallPosition;    // 上次生成丝球的位置
 
-        protected FsmGameObject? _laceSlashObj;
-        protected FsmGameObject? _spikeFloorsX;
-        protected FsmEvent? _silkBallStaticEvent;
-        protected FsmEvent? _silkBallDashEvent;
-        protected FsmEvent? _silkBallDashStartEvent;
-        protected FsmEvent? _silkBallDashEndEvent;
+        private FsmGameObject? _laceSlashObj;
+        private FsmGameObject? _spikeFloorsX;
+        private FsmEvent? _silkBallStaticEvent;
+        private FsmEvent? _silkBallDashEvent;
+        private FsmEvent? _silkBallDashStartEvent;
+        private FsmEvent? _silkBallDashEndEvent;
 
         // P6 Web攻击相关事件与状态
-        protected FsmEvent? _p6WebAttackEvent;
-        protected FsmState? _p6WebPrepareState;
-        protected FsmState? _p6WebCastState;
-        protected FsmState? _p6WebAttack1State;
-        protected FsmState? _p6WebAttack2State;
-        protected FsmState? _p6WebAttack3State;
-        protected FsmState? _p6WebRecoverState;
+        private FsmEvent? _p6WebAttackEvent;
+        private FsmState? _p6WebPrepareState;
+        private FsmState? _p6WebCastState;
+        private FsmState? _p6WebAttack1State;
+        private FsmState? _p6WebAttack2State;
+        private FsmState? _p6WebAttack3State;
+        private FsmState? _p6WebRecoverState;
 
         // 丝球释放时的冲击波和音效动作缓存
-        protected StartRoarEmitter? _cachedRoarEmitter;
-        protected PlayAudioEventRandom? _cachedPlayRoarAudio;
+        private StartRoarEmitter? _cachedRoarEmitter;
+        private PlayAudioEventRandom? _cachedPlayRoarAudio;
 
         // 坐标常量
         private static readonly Vector3 POS_LEFT_DOWN = new Vector3(25f, 137f, 0f);
@@ -130,9 +129,20 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 LogAttackControlFSMInfo();
             }
 
-            if (_isGeneratingSilkBall != null && _isGeneratingSilkBall.Value)
+            // 检查是否应该停止生成丝球（如果不在移动丝球相关状态）
+            if (_isGeneratingSilkBall != null && _isGeneratingSilkBall.Value && _attackControlFsm != null)
             {
-                CheckAndSpawnSilkBall();
+                var currentStateName = _attackControlFsm.ActiveStateName;
+                // 如果不在移动丝球准备状态，立即停止生成（防止状态被意外打断后继续生成）
+                if (currentStateName != "Silk Ball Dash Prepare")
+                {
+                    Log.Info($"检测到不在移动丝球准备状态（当前状态：{currentStateName}），停止生成丝球");
+                    StopGeneratingSilkBall();
+                }
+                else
+                {
+                    CheckAndSpawnSilkBall();
+                }
             }
         }
 
@@ -204,7 +214,34 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 var assetManager = managerObj.GetComponent<AssetManager>();
                 if (assetManager != null)
                 {
-                    laceCircleSlash = assetManager.Get<GameObject>("lace_circle_slash");
+                                        var originalLaceCircleSlash = assetManager.Get<GameObject>("lace_circle_slash");
+                    if (originalLaceCircleSlash != null)
+                    {
+                        // 复制一份，不修改原始资源
+                        laceCircleSlash = GameObject.Instantiate(originalLaceCircleSlash);
+                        laceCircleSlash.name = "LaceCircleSlash_Copy";
+                        laceCircleSlash.SetActive(false);
+                        
+                        // 设置大小为两倍
+                        laceCircleSlash.transform.localScale = originalLaceCircleSlash.transform.localScale * 2f;
+                        
+                        // 添加或启用 AutoRecycleSelf 组件
+                        var autoRecycle = laceCircleSlash.GetComponent<AutoRecycleSelf>();
+                        if (autoRecycle == null)
+                        {
+                            autoRecycle = laceCircleSlash.AddComponent<AutoRecycleSelf>();
+                        }
+                        if (autoRecycle != null)
+                        {
+                            autoRecycle.enabled = true;
+                        }
+                        
+                        Log.Info("已创建 laceCircleSlash 副本，设置大小为两倍并启用 AutoRecycleSelf");
+                    }
+                    else
+                    {
+                        Log.Warn("从 AssetManager 获取的 lace_circle_slash 为 null");
+                    }
                     ModifyDashAttackState();
                 }
                 else
@@ -219,6 +256,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             InitializeHandBehaviors();
             InitializeSilkBallReleaseActions();
+            InitializeSpikeSystem();
         }
 
         /// <summary>
@@ -274,6 +312,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             CreateSilkBallAttackStates();
             CreateClimbPhaseAttackStates();
             CreateP6WebAttackStates();
+            InitializeBlastBurstAttacks();
             ModifyRubbleAttackForP6Web();
             ModifySendRandomEventAction();
             ModifyAttackChoiceForSilkBall();
@@ -329,7 +368,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         #endregion
 
         #region 辅助方法
-        protected T? CloneAction<T>(string sourceStateName, int matchIndex = 0, Func<T, bool>? predicate = null) where T : FsmStateAction
+        private T? CloneAction<T>(string sourceStateName, int matchIndex = 0, Func<T, bool>? predicate = null) where T : FsmStateAction
         {
             if (_attackControlFsm == null)
             {

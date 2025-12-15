@@ -51,7 +51,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// <summary>
         /// 创建 Hand Behavior（子类可覆盖以创建不同版本）
         /// </summary>
-        protected virtual MemoryHandControlBehavior CreateHandBehavior(GameObject handObj)
+        private MemoryHandControlBehavior CreateHandBehavior(GameObject handObj)
         {
             return handObj.AddComponent<MemoryHandControlBehavior>();
         }
@@ -232,7 +232,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             var finishAction = new Wait
             {
-                time = new FsmFloat(4f),
+                time = new FsmFloat(2f),
                 finishEvent = FsmEvent.Finished
             };
 

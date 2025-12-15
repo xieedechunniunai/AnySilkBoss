@@ -28,6 +28,7 @@ public class Plugin : BaseUnityPlugin
     public static string OriginalSaveBackupPath { get; set; } = null;
     public static bool IsInBossRoom { get; set; } = false;
     public static string CurrentSaveFileName { get; set; } = null;
+    public static string FSM_OUTPUT_PATH = "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\";
 
     private void Awake()
     {
@@ -91,7 +92,7 @@ public class Plugin : BaseUnityPlugin
             UnityEngine.Object.DontDestroyOnLoad(AnySilkBossManager);
 
             // 添加资源管理器组件
-            AnySilkBossManager.AddComponent<AssetManager>();
+            var assetManager = AnySilkBossManager.AddComponent<AssetManager>();
 
             // 添加 DamageHero 事件管理器组件
             AnySilkBossManager.AddComponent<DamageHeroEventManager>();
@@ -112,11 +113,19 @@ public class Plugin : BaseUnityPlugin
             // 添加单根丝线管理器组件
             AnySilkBossManager.AddComponent<SingleWebManager>();
 
-            // 添加 First Weaver 资源管理器组件（预加载 Slab_10b 场景资源）
-            AnySilkBossManager.AddComponent<FirstWeaverManager>();
+            // 添加 First Weaver Pin 管理器组件
+            AnySilkBossManager.AddComponent<FWPinManager>();
+
+            // 添加 First Weaver Blast 管理器组件
+            AnySilkBossManager.AddComponent<FWBlastManager>();
+
+            // 添加 LaceCircleSlash 管理器组件
+            AnySilkBossManager.AddComponent<LaceCircleSlashManager>();
 
             Log.Info("创建持久化管理器和所有组件");
-            // StartCoroutine(InitializeLaceBoss());
+
+            // 启动预加载所有外部资源的协程
+            StartCoroutine(assetManager.PreloadAllExternalAssets());
         }
         else
         {
@@ -148,35 +157,24 @@ public class Plugin : BaseUnityPlugin
                     if (crankHit != null)
                     {
                         crankHit.gameObject.SetActive(false);
-                        Log.Info($"已禁用 {plat.name} 的子物品 crank_hit");
                     }
-                    else
-                    {
-                        Log.Warn($"{plat.name} 没有找到子物品 crank_hit");
-                    }
-
                     // 重置特定平台的位置
                     switch (plat.name)
                     {
                         case "cradle_plat (6)":
                             plat.transform.position = new Vector3(39.81f, 58.35f, -0.2602f);
-                            Log.Info($"已将 {plat.name} 重置到位置: 39.81, 58.35, -0.2602");
                             break;
                         case "cradle_plat (1)":
                             plat.transform.position = new Vector3(49.01f, 64.94f, -0.2602f);
-                            Log.Info($"已将 {plat.name} 重置到位置: 49.01, 64.94, -0.2602");
                             break;
                         case "cradle_plat (7)":
                             plat.transform.position = new Vector3(31.81f, 80.87f, -0.2602f);
-                            Log.Info($"已将 {plat.name} 重置到位置: 31.81, 80.87, -0.2602");
                             break;
                         case "cradle_plat (8)":
                             plat.transform.position = new Vector3(48.9f, 93.74f, -0.2602f);
-                            Log.Info($"已将 {plat.name} 重置到位置: 48.9, 93.74, -0.2602");
                             break;
                         case "cradle_plat":
                             plat.transform.position = new Vector3(31.27f, 108.25f, -0.2602f);
-                            Log.Info($"已将 {plat.name} 重置到位置: 31.27, 108.25, -0.2602");
                             break;
                     }
                 }
@@ -192,11 +190,6 @@ public class Plugin : BaseUnityPlugin
                         {
                             damageHero.damageDealt = 2;
                             damageHero.hazardType = (int)GlobalEnums.HazardType.NON_HAZARD;
-                            Log.Info($"已修改 {spikePlat.name} 的 spikes hit - damageDealt=2, hazardType=NON_HAZARD");
-                        }
-                        else
-                        {
-                            Log.Warn($"{spikePlat.name} 的 spikes hit 没有 DamageHero 组件");
                         }
                     }
                     else
@@ -245,10 +238,8 @@ public class Plugin : BaseUnityPlugin
                 bool oldValue = platform.Value;
                 platform.Value = false;
                 resetCount++;
-                Log.Info($"平台 {platform.ID} - 原状态: {oldValue} → 新状态: False");
             }
 
-            Log.Info($"成功重置 {resetCount} 个平台");
         }
         catch (System.Exception ex)
         {

@@ -6,6 +6,7 @@ using AnySilkBoss.Source.Tools;
 using AnySilkBoss.Source.Managers;
 using AnySilkBoss.Source.Behaviours.Normal;
 using System.Linq;
+using static AnySilkBoss.Source.Tools.FsmStateBuilder;
 
 namespace AnySilkBoss.Source.Behaviours.Normal;
 
@@ -462,56 +463,32 @@ internal class BigSilkBallBehavior : MonoBehaviour
     #region 创建状态
     private FsmState CreateInitState()
     {
-        return new FsmState(controlFSM!.Fsm)
-        {
-            Name = "Init",
-            Description = "初始化状态"
-        };
+        return CreateState(controlFSM!.Fsm, "Init", "初始化状态");
     }
 
     private FsmState CreateFollowBossState()
     {
-        return new FsmState(controlFSM!.Fsm)
-        {
-            Name = "Follow Boss",
-            Description = "跟随Boss胸前"
-        };
+        return CreateState(controlFSM!.Fsm, "Follow Boss", "跟随Boss胸前");
     }
 
     private FsmState CreateAbsorbChargeState()
     {
-        return new FsmState(controlFSM!.Fsm)
-        {
-            Name = "Absorb Charge",
-            Description = "吸收蓄力"
-        };
+        return CreateState(controlFSM!.Fsm, "Absorb Charge", "吸收蓄力");
     }
 
     private FsmState CreateShootWavesState()
     {
-        return new FsmState(controlFSM!.Fsm)
-        {
-            Name = "Shoot Waves",
-            Description = "抛射波次"
-        };
+        return CreateState(controlFSM!.Fsm, "Shoot Waves", "抛射波次");
     }
 
     private FsmState CreateFinalBurstState()
     {
-        return new FsmState(controlFSM!.Fsm)
-        {
-            Name = "Final Burst",
-            Description = "最终爆炸"
-        };
+        return CreateState(controlFSM!.Fsm, "Final Burst", "最终爆炸");
     }
 
     private FsmState CreateDestroyState()
     {
-        return new FsmState(controlFSM!.Fsm)
-        {
-            Name = "Destroy",
-            Description = "销毁自身"
-        };
+        return CreateState(controlFSM!.Fsm, "Destroy", "销毁自身");
     }
     #endregion
 
@@ -1088,17 +1065,14 @@ internal class BigSilkBallBehavior : MonoBehaviour
     }
 
     /// <summary>
-    /// 设置抛射小丝球的速度（带PREPARE事件）
+    /// 设置抛射小丝球的速度（通过事件触发）
     /// </summary>
     private IEnumerator SetShootBallVelocityWithPrepare(PlayMakerFSM fsm, Rigidbody2D rb, Vector2 velocity)
     {
         // 等待PREPARE完成
         yield return new WaitForSeconds(0.1f);
-        // 发送RELEASE事件
-        fsm.SendEvent("SILK BALL RELEASE");
-        // 切换到重力状态
-        yield return new WaitForSeconds(0.05f);
-        fsm.Fsm.SetState("Has Gravity");
+        // 通过事件触发 Has Gravity 状态，而不是直接 SetState
+        fsm.SendEvent("HAS_GRAVITY");
         yield return null;
         if (rb != null)
         {
@@ -1215,14 +1189,15 @@ internal class BigSilkBallBehavior : MonoBehaviour
                 // 启动1秒保护时间（避免刚生成就碰到Terrain层的大丝球而消失）
                 behavior.StartProtectionTime(1f);
 
-                // 释放但保持静止
+                // 释放但保持静止，使用 Chase Hero 模式但 acceleration=0
                 var fsm = behavior.GetComponent<PlayMakerFSM>();
                 if (fsm != null)
                 {
                     // 先发送PREPARE事件
                     fsm.SendEvent("PREPARE");
-                    // 延迟后发送RELEASE事件
-                    StartCoroutine(SetToGravityStateStaticWithPrepare(fsm));
+                    // 延迟后发送 SILK BALL RELEASE 进入 Chase Hero 状态
+                    // 由于 acceleration=0，丝球会保持当前速度直线飞行
+                    StartCoroutine(ReleaseToChaseStateWithPrepare(fsm));
                 }
 
                 return behavior.gameObject;
@@ -1233,9 +1208,10 @@ internal class BigSilkBallBehavior : MonoBehaviour
     }
 
     /// <summary>
-    /// 设置小丝球到重力状态但保持静止（带PREPARE事件）
+    /// 释放小丝球进入 Chase Hero 状态（Final Burst 阶段使用）
+    /// 由于 acceleration=0，丝球会保持当前速度直线飞行
     /// </summary>
-    private IEnumerator SetToGravityStateStaticWithPrepare(PlayMakerFSM fsm)
+    private IEnumerator ReleaseToChaseStateWithPrepare(PlayMakerFSM fsm)
     {
         // 等待PREPARE完成
         yield return new WaitForSeconds(0.1f);
@@ -1243,7 +1219,9 @@ internal class BigSilkBallBehavior : MonoBehaviour
         // 检查FSM是否还存在（小丝球可能已被销毁）
         if (fsm != null && fsm.Fsm != null)
         {
-            fsm.Fsm.SetState("Has Gravity");
+            // 通过 SILK BALL RELEASE 进入 Chase Hero 状态
+            // 由于 acceleration=0，丝球不会追踪，而是保持当前速度直线飞行
+            fsm.SendEvent("SILK BALL RELEASE");
         }
     }
 
@@ -1325,100 +1303,6 @@ internal class BigSilkBallBehavior : MonoBehaviour
         {
             Log.Error("controlFSM 为 null，无法发送 START CHARGE 事件");
         }
-    }
-
-    /// <summary>
-    /// 分析 Animator 组件的所有信息
-    /// </summary>
-    private void AnalyzeAnimator()
-    {
-        if (animator == null)
-        {
-            Log.Warn("Animator 组件为 null，无法分析");
-            return;
-        }
-
-        Log.Info("=== Animator 组件分析 ===");
-        Log.Info($"GameObject: {gameObject.name}");
-        Log.Info($"Enabled: {animator.enabled}");
-        Log.Info($"RuntimeAnimatorController: {animator.runtimeAnimatorController?.name ?? "null"}");
-
-        // 分析参数
-        Log.Info("--- Animator 参数 ---");
-        if (animator.parameterCount > 0)
-        {
-            for (int i = 0; i < animator.parameterCount; i++)
-            {
-                var param = animator.GetParameter(i);
-                string valueStr = "";
-
-                switch (param.type)
-                {
-                    case UnityEngine.AnimatorControllerParameterType.Float:
-                        valueStr = $"Float = {animator.GetFloat(param.nameHash)}";
-                        break;
-                    case UnityEngine.AnimatorControllerParameterType.Int:
-                        valueStr = $"Int = {animator.GetInteger(param.nameHash)}";
-                        break;
-                    case UnityEngine.AnimatorControllerParameterType.Bool:
-                        valueStr = $"Bool = {animator.GetBool(param.nameHash)}";
-                        break;
-                    case UnityEngine.AnimatorControllerParameterType.Trigger:
-                        valueStr = "Trigger";
-                        break;
-                }
-
-                Log.Info($"  [{i}] {param.name} ({param.type}) - {valueStr}");
-            }
-        }
-        else
-        {
-            Log.Info("  无参数");
-        }
-
-        // 分析层
-        Log.Info("--- Animator 层 ---");
-        Log.Info($"LayerCount: {animator.layerCount}");
-        for (int i = 0; i < animator.layerCount; i++)
-        {
-            string layerName = animator.GetLayerName(i);
-            float layerWeight = animator.GetLayerWeight(i);
-            Log.Info($"  [{i}] {layerName} - Weight: {layerWeight}");
-
-            // 当前状态信息
-            var currentState = animator.GetCurrentAnimatorStateInfo(i);
-            Log.Info($"      当前状态: Hash={currentState.shortNameHash}, NormalizedTime={currentState.normalizedTime:F2}, Length={currentState.length:F2}s");
-        }
-
-        // 动画片段信息
-        Log.Info("--- 可用动画片段 ---");
-        if (animator.runtimeAnimatorController != null)
-        {
-            var clips = animator.runtimeAnimatorController.animationClips;
-            if (clips != null && clips.Length > 0)
-            {
-                Log.Info($"总动画片段数: {clips.Length}");
-                foreach (var clip in clips)
-                {
-                    Log.Info($"  - {clip.name} (Length: {clip.length:F2}s, FPS: {clip.frameRate})");
-
-                    // 检查是否是爆炸动画
-                    if (clip.name.Contains("Burst") || clip.name.Contains("burst") ||
-                        clip.name.Contains("Intro"))
-                    {
-                        Log.Info($"    ★ 可能的爆炸动画！");
-                    }
-                }
-            }
-            else
-            {
-                Log.Info("  无动画片段");
-            }
-        }
-
-        // 当前播放信息
-        Log.Info("--- 当前播放状态 ---");
-        Log.Info($"Speed: {animator.speed}");
     }
     /// <summary>
     /// 提取大丝球吸收小丝球时使用的音效资源

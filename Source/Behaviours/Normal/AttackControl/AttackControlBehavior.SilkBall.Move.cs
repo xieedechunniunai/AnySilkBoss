@@ -59,14 +59,14 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 bools.Add(p6WebAttack);
                 _attackControlFsm.FsmVariables.BoolVariables = bools.ToArray();
             }
-            _laceSlashObj = _attackControlFsm.FsmVariables.FindFsmGameObject("Lace Slash Obj");
-            if (_laceSlashObj == null || _laceSlashObj.Value == null)
-            {
-                _laceSlashObj = new FsmGameObject("Lace Slash Obj") { Value = laceCircleSlash };
-                var objects = _attackControlFsm.FsmVariables.GameObjectVariables.ToList();
-                objects.Add(_laceSlashObj);
-                _attackControlFsm.FsmVariables.GameObjectVariables = objects.ToArray();
-            }
+            // _laceSlashObj = _attackControlFsm.FsmVariables.FindFsmGameObject("Lace Slash Obj");
+            // if (_laceSlashObj == null || _laceSlashObj.Value == null)
+            // {
+            //     _laceSlashObj = new FsmGameObject("Lace Slash Obj") { Value = laceCircleSlash };
+            //     var objects = _attackControlFsm.FsmVariables.GameObjectVariables.ToList();
+            //     objects.Add(_laceSlashObj);
+            //     _attackControlFsm.FsmVariables.GameObjectVariables = objects.ToArray();
+            // }
             _spikeFloorsX = _attackControlFsm.FsmVariables.FindFsmGameObject("Spike Floors X");
             if (_spikeFloorsX == null || _spikeFloorsX.Value == null)
             {
@@ -80,11 +80,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
 
         private FsmState CreateSilkBallDashPrepareState()
         {
-            var state = new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "Silk Ball Dash Prepare",
-                Description = "移动丝球准备：计算路线并触发Boss移动"
-            };
+            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Dash Prepare", "移动丝球准备：计算路线并触发Boss移动");
 
             var actions = new List<FsmStateAction>();
 
@@ -125,14 +121,11 @@ namespace AnySilkBoss.Source.Behaviours.Normal
 
         private FsmState CreateSilkBallDashEndState()
         {
-            var state = new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "Silk Ball Dash End",
-                Description = "移动丝球结束：停止生成"
-            };
+            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Dash End", "移动丝球结束：停止生成");
 
             var actions = new List<FsmStateAction>();
 
+            // 立即停止生成丝球（在状态进入时立即执行）
             actions.Add(new CallMethod
             {
                 behaviour = new FsmObject { Value = this },

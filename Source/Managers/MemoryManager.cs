@@ -64,6 +64,14 @@ namespace AnySilkBoss.Source.Managers
         // 缓存被禁用的 TransitionPoint
         private List<TransitionPoint> _disabledTransitionPoints = new List<TransitionPoint>();
 
+        // 进入梦境前保存的玩家数据（退出时恢复）
+        private bool _savedAtBench;
+        private string _savedRespawnScene = "";
+        private string _savedRespawnMarkerName = "";
+        private int _savedRespawnType;
+        private HazardRespawnMarker.FacingDirection _savedHazardRespawnFacing;
+        private bool _hasSavedPlayerData = false;
+
         private void Awake()
         {
             if (Instance == null)
@@ -228,6 +236,9 @@ namespace AnySilkBoss.Source.Managers
         private IEnumerator EnterMemoryMode()
         {
             Log.Info("[MemoryManager] 开始进入梦境...");
+
+            // 保存进入梦境前的玩家数据
+            SavePlayerDataBeforeEnteringMemory();
 
             IsInMemoryMode = true;
 
@@ -519,6 +530,9 @@ namespace AnySilkBoss.Source.Managers
 
             yield return null;
             EnableAllTransitionPoints();
+
+            // 恢复进入梦境前保存的玩家数据
+            RestorePlayerDataAfterExitingMemory();
         }
 
         #endregion
@@ -686,6 +700,75 @@ namespace AnySilkBoss.Source.Managers
             }
             Log.Info($"[MemoryManager] 已启用 {_disabledTransitionPoints.Count} 个 TransitionPoint");
             _disabledTransitionPoints.Clear();
+        }
+
+        /// <summary>
+        /// 保存进入梦境前的玩家数据
+        /// </summary>
+        private void SavePlayerDataBeforeEnteringMemory()
+        {
+            try
+            {
+                PlayerData currentPlayerData = GameManager.instance.playerData;
+                if (currentPlayerData == null)
+                {
+                    Log.Error("[MemoryManager] 无法获取 PlayerData，保存失败");
+                    return;
+                }
+
+                _savedAtBench = currentPlayerData.atBench;
+                _savedRespawnScene = currentPlayerData.respawnScene ?? "";
+                _savedRespawnMarkerName = currentPlayerData.respawnMarkerName ?? "";
+                _savedRespawnType = currentPlayerData.respawnType;
+                _savedHazardRespawnFacing = currentPlayerData.hazardRespawnFacing;
+                _hasSavedPlayerData = true;
+
+                Log.Info($"[MemoryManager] 已保存玩家数据 - atBench: {_savedAtBench}, respawnScene: {_savedRespawnScene}, " +
+                         $"respawnMarkerName: {_savedRespawnMarkerName}, respawnType: {_savedRespawnType}, hazardRespawnFacing: {_savedHazardRespawnFacing}");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"[MemoryManager] 保存玩家数据失败: {ex.Message}");
+                _hasSavedPlayerData = false;
+            }
+        }
+
+        /// <summary>
+        /// 恢复退出梦境后的玩家数据
+        /// </summary>
+        private void RestorePlayerDataAfterExitingMemory()
+        {
+            if (!_hasSavedPlayerData)
+            {
+                Log.Warn("[MemoryManager] 没有保存的玩家数据，跳过恢复");
+                return;
+            }
+
+            try
+            {
+                PlayerData currentPlayerData = GameManager.instance.playerData;
+                if (currentPlayerData == null)
+                {
+                    Log.Error("[MemoryManager] 无法获取 PlayerData，恢复失败");
+                    return;
+                }
+
+                currentPlayerData.atBench = _savedAtBench;
+                currentPlayerData.respawnScene = _savedRespawnScene;
+                currentPlayerData.respawnMarkerName = _savedRespawnMarkerName;
+                currentPlayerData.respawnType = _savedRespawnType;
+                currentPlayerData.hazardRespawnFacing = _savedHazardRespawnFacing;
+
+                Log.Info($"[MemoryManager] 已恢复玩家数据 - atBench: {_savedAtBench}, respawnScene: {_savedRespawnScene}, " +
+                         $"respawnMarkerName: {_savedRespawnMarkerName}, respawnType: {_savedRespawnType}, hazardRespawnFacing: {_savedHazardRespawnFacing}");
+
+                // 清除保存标记
+                _hasSavedPlayerData = false;
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"[MemoryManager] 恢复玩家数据失败: {ex.Message}");
+            }
         }
 
         #endregion

@@ -265,46 +265,59 @@ internal static class BossPatches
     /// 修改Boss标题文本
     /// 用于自定义Boss名称显示
     /// </summary>
-    /*
     [HarmonyPostfix]
     [HarmonyPatch(typeof(Language), nameof(Language.Get), typeof(string), typeof(string))]
     private static void ChangeBossTitle(string key, string sheetTitle, ref string __result)
     {
         try
         {
-            // 检查语言系统是否已初始化
-            if (Language.CurrentLanguage == null)
+            // 检查语言系统是否已初始化,是否在BOSS场景
+            if (Language.CurrentLanguage == null || !Plugin.IsInBossRoom)
                 return;
-
-            // ========== 示例：机枢舞者标题修改 ==========
-            __result = key switch
+            if (MemoryManager.IsInMemoryMode)
             {
-                "COGWORK_DANCERS_SUPER" => Language.CurrentLanguage() switch
+                __result = key switch
                 {
-                    LanguageCode.EN => "Custom",
-                    LanguageCode.ZH => "自定义",
+                    "SILK_SUPER" => Language.CurrentLanguage() switch
+                    {
+                        LanguageCode.EN => "Empyrean Loom-God",
+                        LanguageCode.ZH => "穹极织神",
+                        _ => __result
+                    },
+                    "SILK_MAIN" => Language.CurrentLanguage() switch
+                    {
+                        LanguageCode.EN => "Primsilk",
+                        LanguageCode.ZH => "破晓",
+                        _ => __result
+                    },
                     _ => __result
-                },
-                "COGWORK_DANCERS_SUB" => Language.CurrentLanguage() switch
+                };
+            }
+            else
+            {
+                __result = key switch
                 {
-                    LanguageCode.ZH => "自定义副标题",
+                    "SILK_SUPER" => Language.CurrentLanguage() switch
+                    {
+                        LanguageCode.EN => "Loombinder Matriarch",
+                        LanguageCode.ZH => "织狱圣母",
+                        _ => __result
+                    },
+                    "SILK_MAIN" => Language.CurrentLanguage() switch
+                    {
+                        LanguageCode.EN => "Silk",
+                        LanguageCode.ZH => "灵丝",
+                        _ => __result
+                    },
                     _ => __result
-                },
-                "COGWORK_DANCERS_MAIN" => Language.CurrentLanguage() switch
-                {
-                    LanguageCode.EN => "Custom Boss Name",
-                    LanguageCode.ZH => "自定义Boss名称",
-                    _ => __result
-                },
-                _ => __result
-            };
+                };
+            }
         }
         catch (System.Exception ex)
         {
             Log.Error($"Language.Get补丁执行失败: {ex.Message}");
         }
     }
-    */
 
     // 梦境死亡处理已集成到 DeathManager 中
 

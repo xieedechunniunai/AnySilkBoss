@@ -92,26 +92,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         {
             StartCoroutine(DelayedSetup());
         }
-
-        private void Update()
-        {
-            if (Input.GetKeyDown(KeyCode.T))
-            {
-                LogPhaseControlFSMInfo();
-            }
-        }
-
-        private void LogPhaseControlFSMInfo()
-        {
-            if (_phaseControl != null)
-            {
-                Log.Info($"=== 阶段控制器 FSM 信息 ===");
-                Log.Info($"FSM名称: {_phaseControl.FsmName}");
-                Log.Info($"当前状态: {_phaseControl.ActiveStateName}");
-                FsmAnalyzer.WriteFsmReport(_phaseControl, "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\_phaseControlFsm.txt");
-            }
-        }
-
         /// <summary>
         /// 延迟初始化
         /// </summary>
@@ -220,11 +200,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             {
                 Log.Error("未找到 AttackControl FSM");
             }
-            else
-            {
-                Log.Info("成功获取 AttackControl FSM");
-            }
-
             // 获取 Boss Scene 引用
             _bossScene = GameObject.Find("Boss Scene");
             if (_bossScene == null)
@@ -234,14 +209,31 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             else
             {
                 Log.Info("成功获取 Boss Scene");
-
+                var BossTitle = _bossScene.transform.Find("Boss Title");
+                if (BossTitle != null)
+                {
+                    var TitleText = BossTitle.transform.Find("Title Text");
+                    if (TitleText != null)
+                    {
+                        var Silk_Title_Image = TitleText.transform.Find("Silk_Title_Image");
+                        var Silk_Title_Text = TitleText.transform.Find("Silk_Title_Text");
+                        if (Silk_Title_Image != null && Silk_Title_Text != null)
+                        {
+                            Silk_Title_Image.gameObject.SetActive(false);
+                            Silk_Title_Text.gameObject.SetActive(true);
+                        }
+                    }
+                }
+                else
+                {
+                    Log.Warn("未找到 Boss Title");
+                }
                 // 获取 Web Strand Catch Effect（替身）
                 var catchEffectTf = _bossScene.transform.Find("Web Strand Catch Effect");
                 if (catchEffectTf != null)
                 {
                     _webStrandCatchEffect = catchEffectTf.gameObject;
                     _fsmWebStrandCatchEffect = new FsmGameObject("WebStrandCatchEffect") { Value = _webStrandCatchEffect };
-                    Log.Info("成功获取 Web Strand Catch Effect");
                 }
                 else
                 {
@@ -290,8 +282,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 }
 
                 _silkYankPrefab = silkYankTransform.gameObject;
-                Log.Info($"成功找到 Silk_yank: {_silkYankPrefab.name}");
-
                 // 创建5个克隆体
                 for (int i = 0; i < 5; i++)
                 {
@@ -321,12 +311,9 @@ namespace AnySilkBoss.Source.Behaviours.Normal
 
                     clone.SetActive(false);  // 初始禁用
                     _silkYankClones[i] = clone;
-                    Log.Info($"创建丝线克隆体 {i}: {clone.name}");
                 }
 
                 _silkYankInitialized = true;
-                Log.Info("丝线缠绕动画初始化完成（5个克隆体）");
-
                 // 注册FSM变量
                 RegisterSilkYankFsmVariables();
             }
@@ -369,7 +356,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             _phaseControl.FsmVariables.GameObjectVariables = gameObjectVars.ToArray();
             _phaseControl.FsmVariables.FloatVariables = floatVars.ToArray();
 
-            Log.Info("丝线缠绕FSM变量注册完成");
         }
 
         /// <summary>
@@ -435,7 +421,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             });
 
             setP4State.Actions = actions.ToArray();
-            Log.Info("Set P4状态已修改：添加Special Attack设置（Phase Control、Attack Control、Control FSM）");
         }
 
         /// <summary>
@@ -463,7 +448,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             });
 
             setP6State.Actions = actions.ToArray();
-            Log.Info("Set P6状态已修改：添加P6 Web Attack触发标记（Attack Control FSM）");
         }
 
         /// <summary>
@@ -473,7 +457,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         {
             if (_phaseControl == null || _hpModified) return;
 
-            Log.Info("开始修改各阶段血量...");
             AddBossHealth(100);
             // P1 HP 到 P6 HP 全部翻2倍
             for (int i = 1; i <= 6; i++)
@@ -485,7 +468,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 {
                     int originalHP = hpVar.Value;
                     hpVar.Value = originalHP * 2;
-                    Log.Info($"{hpVarName}: {originalHP} -> {hpVar.Value} (翻2倍)");
                 }
                 else
                 {
@@ -494,7 +476,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             }
 
             _hpModified = true;
-            Log.Info("所有阶段血量修改完成！");
         }
 
 
@@ -511,7 +492,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             if (hpVar != null)
             {
                 hpVar.Value = hp;
-                Log.Info($"{hpVarName} 设置为: {hp}");
             }
         }
         /// <summary>
@@ -530,52 +510,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
 
             healthManager.AddHP(healAmount, 1000);
 
-            Log.Info($"Boss回血：{healAmount}");
-        }
-
-        /// <summary>
-        /// 手动触发阶段改变（用于测试）
-        /// </summary>
-        public void TriggerPhase(int phase)
-        {
-            if (_phaseControl == null || phase < 1 || phase > 6) return;
-
-            Log.Info($"手动触发P{phase}");
-
-            var phaseVar = _phaseControl.FsmVariables.GetFsmInt("Phase");
-            if (phaseVar != null)
-            {
-                phaseVar.Value = phase;
-            }
-        }
-
-        /// <summary>
-        /// 重置所有阶段标志
-        /// </summary>
-        public void ResetPhaseFlags()
-        {
-            for (int i = 1; i <= 6; i++)
-            {
-                string phaseFlagName = $"P{i}";
-                var phaseFlagVar = _phaseControl.FsmVariables.GetFsmBool(phaseFlagName);
-
-                if (phaseFlagVar != null)
-                {
-                    phaseFlagVar.Value = false;
-                }
-
-                _phaseFlags[i] = false;
-            }
-
-            Log.Info("所有阶段标志已重置");
-        }
-
-        /// <summary>
-        /// 获取当前Boss阶段索引（供其他组件使用）
-        /// </summary>
-        public int GetCurrentPhaseIndex()
-        {
-            return _bossPhaseIndex?.Value ?? 0;
         }
     }
 }

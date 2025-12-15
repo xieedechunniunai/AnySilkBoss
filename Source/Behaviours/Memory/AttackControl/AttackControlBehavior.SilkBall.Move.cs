@@ -80,11 +80,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
         private FsmState CreateSilkBallDashPrepareState()
         {
-            var state = new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "Silk Ball Dash Prepare",
-                Description = "移动丝球准备：计算路线并触发Boss移动"
-            };
+            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Dash Prepare", "移动丝球准备：计算路线并触发Boss移动");
 
             var actions = new List<FsmStateAction>();
 
@@ -125,11 +121,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
         private FsmState CreateSilkBallDashEndState()
         {
-            var state = new FsmState(_attackControlFsm!.Fsm)
-            {
-                Name = "Silk Ball Dash End",
-                Description = "移动丝球结束：停止生成"
-            };
+            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Dash End", "移动丝球结束：停止生成");
 
             var actions = new List<FsmStateAction>();
 
@@ -188,6 +180,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             if (behavior != null)
             {
+                // 设置为撞墙/撞人时触发 Blast
+                behavior.triggerBlastOnDestroy = true;
                 StartCoroutine(DelayedReleaseSilkBallForDash(behavior.gameObject));
             }
         }

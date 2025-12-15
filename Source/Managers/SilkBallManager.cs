@@ -134,8 +134,9 @@ namespace AnySilkBoss.Source.Managers
             _customSilkBallPrefab = Object.Instantiate(originalPrefab);
             _customSilkBallPrefab.name = "Custom Silk Ball Prefab";
 
-            // 永久保存，不随场景销毁
-            DontDestroyOnLoad(_customSilkBallPrefab);
+            // 不需要 DontDestroyOnLoad，因为 SilkBallManager 已经在 AnySilkBossManager 上，后者已设置 DontDestroyOnLoad
+            // 预制体作为 Manager 的子物体保存
+            _customSilkBallPrefab.transform.SetParent(transform);
 
             // 禁用该对象（作为预制体模板）
             _customSilkBallPrefab.SetActive(false);
