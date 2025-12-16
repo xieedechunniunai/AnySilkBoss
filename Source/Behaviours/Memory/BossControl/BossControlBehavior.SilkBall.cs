@@ -49,6 +49,9 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             // 添加爬升阶段修复
             InitializeClimbCastProtection();
 
+            // 添加 BlastBurst3 协作状态
+            CreateBlastBurst3BridgeStates();
+
             SetupControlIdlePendingTransitions();
 
             ReinitializeFsmVariables(_bossControlFsm);
@@ -607,6 +610,125 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             }
 
             Log.Info($"已更新目标点位置: P0={point0}, P1={point1}, P2={point2}");
+        }
+
+        #endregion
+
+        #region BlastBurst3 协作状态
+
+        /// <summary>
+        /// 创建 BlastBurst3 与 BossControl 协作的桥接状态
+        /// 模仿 CLIMB CAST BRIDGE 的变量控制模式
+        /// </summary>
+        private void CreateBlastBurst3BridgeStates()
+        {
+            if (_bossControlFsm == null) return;
+
+            Log.Info("=== 开始创建 BlastBurst3 协作状态 ===");
+
+            // 1. 创建 InBurst3 布尔变量
+            var inBurst3Var = EnsureBoolVariable(_bossControlFsm, "InBurst3");
+
+            // 2. 注册事件
+            var burst3BridgeEvent = FsmEvent.GetFsmEvent("BURST3 BRIDGE");
+            var endBurst3Event = FsmEvent.GetFsmEvent("END BURST3");
+
+            // 3. 创建状态
+            var startBlastBurst3State = CreateAndAddState(_bossControlFsm, "StartBlastBurst3", "BlastBurst3开始，播放Appear动画");
+            var endBlastBurst3State = CreateAndAddState(_bossControlFsm, "EndBlastBurst3", "BlastBurst3结束，播放TurnToIdle动画");
+
+            // 4. 添加 StartBlastBurst3 状态的动作
+            var startActions = new List<FsmStateAction>();
+
+            // 设置 InBurst3 为 false
+            startActions.Add(new SetBoolValue
+            {
+                boolVariable = inBurst3Var,
+                boolValue = new FsmBool(false)
+            });
+
+            // 播放 Appear 动画
+            startActions.Add(new Tk2dPlayAnimation
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                animLibName = new FsmString("") { Value = "" },
+                clipName = new FsmString("Appear") { Value = "Appear" }
+            });
+            startActions.Add(new SetVelocity2d
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                vector = new FsmVector2 { Value = Vector2.zero },
+                x = new FsmFloat { Value = 0f },
+                y = new FsmFloat { Value = 0f }
+            });
+            startBlastBurst3State.Actions = startActions.ToArray();
+
+            // 5. 添加 EndBlastBurst3 状态的动作
+            var endActions = new List<FsmStateAction>();
+
+            // 播放 TurnToIdle 动画，动画完成后触发 FINISHED
+            endActions.Add(new Tk2dPlayAnimationWithEvents
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                clipName = new FsmString("TurnToIdle") { Value = "TurnToIdle" },
+                animationCompleteEvent = FsmEvent.Finished
+            });
+            endActions.Add(new Wait { time = new FsmFloat(0.2f),finishEvent = FsmEvent.Finished });
+            endBlastBurst3State.Actions = endActions.ToArray();
+
+            // 6. 设置状态转换
+            // StartBlastBurst3 收到 END BURST3 事件后进入 EndBlastBurst3
+            startBlastBurst3State.Transitions = new FsmTransition[]
+            {
+                CreateTransition(endBurst3Event, endBlastBurst3State)
+            };
+
+            // EndBlastBurst3 的 FINISHED 跳转回 Idle
+            var idleState = FindState(_bossControlFsm, "Idle");
+            if (idleState != null)
+            {
+                SetFinishedTransition(endBlastBurst3State, idleState);
+            }
+
+            Log.Info("BlastBurst3 协作状态创建完成");
+        }
+
+        /// <summary>
+        /// 在 Idle 状态添加 InBurst3 的 BoolTest（在 SetupControlIdlePendingTransitions 中调用）
+        /// </summary>
+        private void AddBurst3BoolTestToIdle(FsmState idleState, List<FsmStateAction> actions)
+        {
+            var startBlastBurst3State = FindState(_bossControlFsm!, "StartBlastBurst3");
+            if (startBlastBurst3State == null)
+            {
+                Log.Warn("未找到 StartBlastBurst3 状态，跳过 InBurst3 BoolTest 添加");
+                return;
+            }
+
+            var inBurst3Var = EnsureBoolVariable(_bossControlFsm!, "InBurst3");
+            var burst3BridgeEvent = FsmEvent.GetFsmEvent("BURST3 BRIDGE");
+
+            // 在现有 BoolTest 后面插入 InBurst3 的检测
+            actions.Insert(2, new BoolTest
+            {
+                boolVariable = inBurst3Var,
+                isTrue = burst3BridgeEvent,
+                isFalse = FsmEvent.GetFsmEvent("NULL"),
+                everyFrame = true
+            });
+
+            // 添加转换
+            var transitions = idleState.Transitions?.ToList() ?? new List<FsmTransition>();
+            transitions.RemoveAll(t => t.FsmEvent == burst3BridgeEvent);
+            transitions.Add(new FsmTransition
+            {
+                FsmEvent = burst3BridgeEvent,
+                toState = startBlastBurst3State.Name,
+                toFsmState = startBlastBurst3State
+            });
+            idleState.Transitions = transitions.ToArray();
+
+            Log.Info("已在 Idle 状态添加 InBurst3 BoolTest 和转换");
         }
 
         #endregion

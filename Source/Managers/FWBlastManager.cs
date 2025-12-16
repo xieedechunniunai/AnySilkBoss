@@ -284,88 +284,6 @@ namespace AnySilkBoss.Source.Managers
         }
 
         /// <summary>
-        /// 补丁 Bomb Blast FSM
-        /// 1. 删除 End 状态的 RecycleSelf action
-        /// 2. 添加自定义回收逻辑（CallMethod 调用 RecycleBombBlastByFsm）
-        /// </summary>
-        private void PatchBombBlastFsm(GameObject bombBlastObj)
-        {
-            var fsm = bombBlastObj.LocateMyFSM("Control");
-            if (fsm == null)
-            {
-                Log.Warn("[FWBlastManager] Bomb Blast 未找到 Control FSM，无法补丁");
-                return;
-            }
-
-            // 找到 End 状态
-            var endState = fsm.FsmStates.FirstOrDefault(s => s.Name == "End");
-            if (endState == null)
-            {
-                Log.Warn("[FWBlastManager] Bomb Blast FSM 未找到 End 状态");
-                return;
-            }
-
-            // 获取当前 actions 列表
-            var actions = endState.Actions.ToList();
-
-            // 删除 RecycleSelf action
-            int removedCount = 0;
-            for (int i = actions.Count - 1; i >= 0; i--)
-            {
-                var action = actions[i];
-                string actionTypeName = action.GetType().Name;
-
-                // 检查是否是 RecycleSelf 或类似的回收 action
-                if (actionTypeName == "RecycleSelf" || 
-                    actionTypeName == "RecycleObject" ||
-                    actionTypeName == "DestroySelf" ||
-                    actionTypeName == "DestroyObject")
-                {
-                    Log.Debug($"[FWBlastManager] 删除 End 状态的 {actionTypeName} action");
-                    actions.RemoveAt(i);
-                    removedCount++;
-                }
-            }
-
-            if (removedCount > 0)
-            {
-                Log.Info($"[FWBlastManager] 已从 End 状态删除 {removedCount} 个回收/销毁 action");
-            }
-
-            // 检查是否已经添加了自定义回收动作
-            bool hasCustomRecycleAction = actions.Any(a => 
-                a is CallMethod cm && cm.methodName?.Value == "RecycleBombBlastByFsm");
-
-            if (!hasCustomRecycleAction)
-            {
-                // 添加自定义回收动作
-                var recycleAction = new CallMethod
-                {
-                    behaviour = this,
-                    methodName = new FsmString("RecycleBombBlastByFsm") { Value = "RecycleBombBlastByFsm" },
-                    parameters = new[]
-                    {
-                        new FsmVar
-                        {
-                            type = VariableType.GameObject,
-                            objectReference = bombBlastObj
-                        }
-                    },
-                    everyFrame = false
-                };
-                actions.Add(recycleAction);
-                Log.Debug("[FWBlastManager] 已添加自定义回收 action 到 End 状态");
-            }
-
-            // 更新 actions
-            endState.Actions = actions.ToArray();
-
-            // 重新初始化 FSM 数据
-            fsm.Fsm.InitData();
-            Log.Debug($"[FWBlastManager] Bomb Blast FSM 已补丁完成");
-        }
-
-        /// <summary>
         /// 修复 Blast 子物品的 Animator 控制器引用
         /// 由于 bundle 卸载后 RuntimeAnimatorController 引用丢失，需要重新赋值
         /// </summary>
@@ -394,16 +312,6 @@ namespace AnySilkBoss.Source.Managers
 
             animator.runtimeAnimatorController = _blastAnimatorController;
             Log.Debug("[FWBlastManager] 已修复 Blast 的 Animator 控制器引用");
-        }
-
-        /// <summary>
-        /// FSM 调用的回收方法（需要 public）
-        /// 当 FSM 执行到 End 状态时会调用此方法
-        /// </summary>
-        public void RecycleBombBlastByFsm(GameObject obj)
-        {
-            Log.Debug($"[FWBlastManager] FSM 触发回收: {obj?.name}");
-            RecycleBombBlast(obj);
         }
 
         /// <summary>
@@ -491,8 +399,138 @@ namespace AnySilkBoss.Source.Managers
             // 激活对象，FSM 会自动从 Start 状态开始运行
             obj.SetActive(true);
 
+            // 下一帧发送 START_NORMAL 事件（等待 FSM 进入 Mode Select 状态）
+            StartCoroutine(SendStartEventNextFrame(obj, "START_NORMAL"));
+
             Log.Debug($"[FWBlastManager] Bomb Blast 已生成 at {position}, burst={isBurstBlast}, ring={spawnSilkBallRing}, reverseAccel={useReverseAccelMode}");
             return obj;
+        }
+
+        /// <summary>
+        /// 在指定位置生成移动模式的 Bomb Blast（用于 BlastBurst3 汇聚爆炸）
+        /// 爆炸会追踪目标移动，到达后触发爆炸
+        /// </summary>
+        /// <param name="position">生成位置</param>
+        /// <param name="moveTarget">移动目标 Transform</param>
+        /// <param name="moveAcceleration">移动加速度</param>
+        /// <param name="moveMaxSpeed">移动最大速度</param>
+        /// <param name="reachDistance">到达距离阈值</param>
+        /// <param name="moveTimeout">移动超时时间</param>
+        /// <param name="isBurstBlast">是否为大尺寸爆炸</param>
+        /// <returns>Bomb Blast 实例</returns>
+        public GameObject? SpawnMovingBombBlast(
+            Vector3 position,
+            Transform moveTarget,
+            float moveAcceleration = 30f,
+            float moveMaxSpeed = 7f,
+            float reachDistance = 2f,
+            float moveTimeout = 5f,
+            bool isBurstBlast = true)
+        {
+            if (!_initialized)
+            {
+                Log.Warn("[FWBlastManager] 尚未初始化，无法生成移动模式 Bomb Blast");
+                return null;
+            }
+
+            var obj = GetAvailableBombBlast();
+            if (obj == null) return null;
+
+            obj.transform.SetParent(null);
+            obj.transform.position = position;
+
+            // 配置 BombBlastBehavior
+            var behavior = obj.GetComponent<BombBlastBehavior>();
+            if (behavior != null)
+            {
+                // 先配置基础参数
+                behavior.Configure(isBurstBlast, false);
+                // 再配置移动模式
+                behavior.ConfigureMoveMode(moveTarget, moveAcceleration, moveMaxSpeed, reachDistance, moveTimeout);
+            }
+
+            // 激活对象，FSM 会自动从 Start 状态开始运行
+            obj.SetActive(true);
+
+            // 下一帧发送 START_MOVE 事件（等待 FSM 进入 Mode Select 状态）
+            StartCoroutine(SendStartEventNextFrame(obj, "START_MOVE"));
+
+            Log.Debug($"[FWBlastManager] 移动模式 Bomb Blast 已生成 at {position}, 目标={moveTarget?.name}, 速度={moveMaxSpeed}");
+            return obj;
+        }
+
+        /// <summary>
+        /// 在指定位置生成自定义大小的 Bomb Blast
+        /// </summary>
+        /// <param name="position">生成位置</param>
+        /// <param name="size">直接使用的大小值（传入什么就是什么，不再随机）</param>
+        /// <returns>Bomb Blast 实例</returns>
+        public GameObject? SpawnBombBlastWithSize(Vector3 position, float size)
+        {
+            if (!_initialized)
+            {
+                Log.Warn("[FWBlastManager] 尚未初始化，无法生成 Bomb Blast");
+                return null;
+            }
+
+            var obj = GetAvailableBombBlast();
+            if (obj == null) return null;
+
+            obj.transform.SetParent(null);
+            obj.transform.position = position;
+
+            // 配置 BombBlastBehavior
+            var behavior = obj.GetComponent<BombBlastBehavior>();
+            if (behavior != null)
+            {
+                behavior.customSize = size;  // 直接设置大小，不随机
+            }
+
+            // 激活对象
+            obj.SetActive(true);
+
+            // 下一帧发送 START_NORMAL 事件（等待 FSM 进入 Mode Select 状态）
+            StartCoroutine(SendStartEventNextFrame(obj, "START_NORMAL"));
+
+            Log.Debug($"[FWBlastManager] 自定义大小 Bomb Blast 已生成 at {position}, 大小={size}");
+            return obj;
+        }
+
+        /// <summary>
+        /// 等待 FSM 进入 Mode Select 状态后发送启动事件
+        /// </summary>
+        private IEnumerator SendStartEventNextFrame(GameObject obj, string eventName)
+        {
+            if (obj == null) yield break;
+
+            var fsm = obj.LocateMyFSM("Control");
+            if (fsm == null) yield break;
+
+            // 等待 FSM 进入 Mode Select 状态（最多等待 10 帧）
+            int maxWaitFrames = 10;
+            int waitedFrames = 0;
+            while (waitedFrames < maxWaitFrames)
+            {
+                yield return null;
+                waitedFrames++;
+
+                if (obj == null || !obj.activeInHierarchy) yield break;
+
+                // 检查是否已进入 Mode Select 状态
+                if (fsm.ActiveStateName == "Mode Select")
+                {
+                    fsm.SendEvent(eventName);
+                    Log.Debug($"[FWBlastManager] FSM 已进入 Mode Select，发送事件: {eventName}");
+                    yield break;
+                }
+            }
+
+            // 超时后仍然尝试发送事件
+            if (obj != null && obj.activeInHierarchy)
+            {
+                fsm.SendEvent(eventName);
+                Log.Warn($"[FWBlastManager] 等待超时，强制发送事件: {eventName}, 当前状态: {fsm.ActiveStateName}");
+            }
         }
 
         /// <summary>

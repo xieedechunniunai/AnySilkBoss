@@ -104,6 +104,9 @@ namespace AnySilkBoss.Source.Managers
                 {
                     Log.Info($"[MemoryManager] ====== 进入梦境 {TARGET_SCENE} ======");
 
+                    // 加载梦境池子（会自动销毁普通池子）
+                    SwitchToMemoryPool();
+
                     // 禁用 TransitionPoint，防止自动切换场景
                     DisableAllTransitionPoints();
 
@@ -113,6 +116,12 @@ namespace AnySilkBoss.Source.Managers
                     // 启动弹琴检测（用于退出梦境）
                     _hasTriggeredThisSession = false;
                     StartCoroutine(SetupAudioDetection());
+                }
+                else
+                {
+                    // 进入普通 BOSS 房（非梦境模式）
+                    // 如果梦境池子已加载，切换回普通池子
+                    SwitchToNormalPoolIfNeeded();
                 }
 
                 _isInTriggerScene = false;
@@ -533,6 +542,45 @@ namespace AnySilkBoss.Source.Managers
 
             // 恢复进入梦境前保存的玩家数据
             RestorePlayerDataAfterExitingMemory();
+        }
+
+        #endregion
+
+        #region 池子切换
+
+        /// <summary>
+        /// 切换到梦境池子（加载梦境池，销毁普通池）
+        /// </summary>
+        private void SwitchToMemoryPool()
+        {
+            var silkBallManager = UnityEngine.Object.FindFirstObjectByType<SilkBallManager>();
+            if (silkBallManager == null)
+            {
+                Log.Error("[MemoryManager] 无法找到 SilkBallManager，无法切换池子");
+                return;
+            }
+
+            Log.Info("[MemoryManager] 切换到梦境池子");
+            silkBallManager.LoadMemoryPool();
+        }
+
+        /// <summary>
+        /// 如果梦境池已加载，切换回普通池子
+        /// </summary>
+        private void SwitchToNormalPoolIfNeeded()
+        {
+            var silkBallManager = UnityEngine.Object.FindFirstObjectByType<SilkBallManager>();
+            if (silkBallManager == null)
+            {
+                Log.Error("[MemoryManager] 无法找到 SilkBallManager，无法切换池子");
+                return;
+            }
+
+            if (silkBallManager.IsMemoryPoolLoaded)
+            {
+                Log.Info("[MemoryManager] 检测到梦境池子已加载，切换回普通池子");
+                silkBallManager.LoadNormalPool();
+            }
         }
 
         #endregion

@@ -43,10 +43,16 @@ namespace AnySilkBoss.Source.Managers
         private readonly List<MemorySilkBallBehavior> _memorySilkBallPool = new List<MemorySilkBallBehavior>();
         private GameObject? _memoryPoolContainer;
 
-        // 自动补充池机制（默认不启用）
-        private bool _enableAutoPooling = true;
-        private const int MIN_POOL_SIZE = 120;  // 从80扩大到120，预留大丝球爆炸产生的约80个丝球
+        // 自动补充池机制
+        private bool _enableNormalAutoPooling = false;  // 普通池自动补充
+        private bool _enableMemoryAutoPooling = false;  // 梦境池自动补充
+        private const int NORMAL_MIN_POOL_SIZE = 120;   // 普通池大小
+        private const int MEMORY_MIN_POOL_SIZE = 160;   // 梦境池大小（扩大到160）
         private const float POOL_GENERATION_INTERVAL = 0.1f;
+
+        // 池子加载状态
+        private bool _normalPoolLoaded = false;
+        private bool _memoryPoolLoaded = false;
         #endregion
 
         private void Start()
@@ -91,25 +97,21 @@ namespace AnySilkBoss.Source.Managers
             _initialized = true;
             Log.Info("SilkBallManager initialization completed.");
 
-            // 启动自动补充池机制
+            // 默认只加载普通池子
+            LoadNormalPool();
+
+            // 启动自动补充池机制（会根据各自的启用标记决定是否工作）
             StartCoroutine(AutoPoolGeneration());
             StartCoroutine(AutoMemoryPoolGeneration());
         }
 
         /// <summary>
-        /// 创建对象池容器
+        /// 创建对象池容器（只创建结构，不加载池子内容）
         /// </summary>
         private void CreatePoolContainer()
         {
-            _poolContainer = new GameObject("SilkBall Pool");
-            _poolContainer.transform.SetParent(transform);
-            // DontDestroyOnLoad(_poolContainer);
-            Log.Info("已创建丝球对象池容器（不随场景销毁）");
-
-            // 创建 Memory 版本的对象池容器
-            _memoryPoolContainer = new GameObject("Memory SilkBall Pool");
-            _memoryPoolContainer.transform.SetParent(transform);
-            Log.Info("已创建 Memory 丝球对象池容器");
+            // 容器在需要时按需创建，这里只做初始化准备
+            Log.Info("对象池容器初始化准备完成");
         }
 
 
@@ -584,7 +586,7 @@ namespace AnySilkBoss.Source.Managers
 
         /// <summary>
         /// 自动补充对象池机制（普通版本）
-        /// 如果池内数量小于 MIN_POOL_SIZE，则每 POOL_GENERATION_INTERVAL 秒生成一个到池子里
+        /// 如果池内数量小于 NORMAL_MIN_POOL_SIZE，则每 POOL_GENERATION_INTERVAL 秒生成一个到池子里
         /// </summary>
         private IEnumerator AutoPoolGeneration()
         {
@@ -593,8 +595,8 @@ namespace AnySilkBoss.Source.Managers
                 // 等待间隔时间
                 yield return new WaitForSeconds(POOL_GENERATION_INTERVAL);
 
-                // 如果未启用，跳过本次检查
-                if (!_enableAutoPooling)
+                // 如果未启用普通池自动补充，跳过本次检查
+                if (!_enableNormalAutoPooling)
                 {
                     continue;
                 }
@@ -607,7 +609,7 @@ namespace AnySilkBoss.Source.Managers
                 int currentPoolSize = _silkBallPool.Count(b => b != null);
 
                 // 如果池内数量小于最小值，生成一个新实例到池中
-                if (currentPoolSize < MIN_POOL_SIZE)
+                if (currentPoolSize < NORMAL_MIN_POOL_SIZE)
                 {
                     var newBall = CreateNewSilkBallInstance();
                     if (newBall != null)
@@ -621,7 +623,7 @@ namespace AnySilkBoss.Source.Managers
 
         /// <summary>
         /// 自动补充 Memory 对象池机制
-        /// 如果池内数量小于 MIN_POOL_SIZE，则每 POOL_GENERATION_INTERVAL 秒生成一个到池子里
+        /// 如果池内数量小于 MEMORY_MIN_POOL_SIZE，则每 POOL_GENERATION_INTERVAL 秒生成一个到池子里
         /// </summary>
         private IEnumerator AutoMemoryPoolGeneration()
         {
@@ -630,8 +632,8 @@ namespace AnySilkBoss.Source.Managers
                 // 等待间隔时间
                 yield return new WaitForSeconds(POOL_GENERATION_INTERVAL);
 
-                // 如果未启用，跳过本次检查
-                if (!_enableAutoPooling)
+                // 如果未启用梦境池自动补充，跳过本次检查
+                if (!_enableMemoryAutoPooling)
                 {
                     continue;
                 }
@@ -644,7 +646,7 @@ namespace AnySilkBoss.Source.Managers
                 int currentPoolSize = _memorySilkBallPool.Count(b => b != null);
 
                 // 如果池内数量小于最小值，生成一个新实例到池中
-                if (currentPoolSize < MIN_POOL_SIZE)
+                if (currentPoolSize < MEMORY_MIN_POOL_SIZE)
                 {
                     var newBall = CreateNewMemorySilkBallInstance();
                     if (newBall != null)
@@ -656,6 +658,146 @@ namespace AnySilkBoss.Source.Managers
             }
         }
 
+        #region 池子加载/销毁管理（公开方法）
+
+        /// <summary>
+        /// 加载普通池子（并销毁梦境池子，保证两个池子不共存）
+        /// </summary>
+        public void LoadNormalPool()
+        {
+            if (_normalPoolLoaded)
+            {
+                Log.Info("[SilkBallManager] 普通池子已加载，跳过");
+                return;
+            }
+
+            // 先销毁梦境池子
+            if (_memoryPoolLoaded)
+            {
+                DestroyMemoryPool();
+            }
+
+            Log.Info("[SilkBallManager] 开始加载普通池子...");
+
+            // 创建普通池容器
+            _poolContainer = new GameObject("SilkBall Pool");
+            _poolContainer.transform.SetParent(transform);
+
+            // 启用普通池自动补充
+            _enableNormalAutoPooling = true;
+            _normalPoolLoaded = true;
+
+            Log.Info($"[SilkBallManager] 普通池子已加载，目标大小: {NORMAL_MIN_POOL_SIZE}");
+        }
+
+        /// <summary>
+        /// 销毁普通池子
+        /// </summary>
+        public void DestroyNormalPool()
+        {
+            if (!_normalPoolLoaded)
+            {
+                Log.Info("[SilkBallManager] 普通池子未加载，跳过销毁");
+                return;
+            }
+
+            Log.Info("[SilkBallManager] 开始销毁普通池子...");
+
+            // 停止自动补充
+            _enableNormalAutoPooling = false;
+
+            // 回收所有活跃丝球
+            RecycleAllActiveSilkBalls();
+
+            // 清空池列表
+            _silkBallPool.Clear();
+
+            // 销毁容器
+            if (_poolContainer != null)
+            {
+                UnityEngine.Object.Destroy(_poolContainer);
+                _poolContainer = null;
+            }
+
+            _normalPoolLoaded = false;
+            Log.Info("[SilkBallManager] 普通池子已销毁");
+        }
+
+        /// <summary>
+        /// 加载梦境池子（并销毁普通池子，保证两个池子不共存）
+        /// </summary>
+        public void LoadMemoryPool()
+        {
+            if (_memoryPoolLoaded)
+            {
+                Log.Info("[SilkBallManager] 梦境池子已加载，跳过");
+                return;
+            }
+
+            // 先销毁普通池子
+            if (_normalPoolLoaded)
+            {
+                DestroyNormalPool();
+            }
+
+            Log.Info("[SilkBallManager] 开始加载梦境池子...");
+
+            // 创建梦境池容器
+            _memoryPoolContainer = new GameObject("Memory SilkBall Pool");
+            _memoryPoolContainer.transform.SetParent(transform);
+
+            // 启用梦境池自动补充
+            _enableMemoryAutoPooling = true;
+            _memoryPoolLoaded = true;
+
+            Log.Info($"[SilkBallManager] 梦境池子已加载，目标大小: {MEMORY_MIN_POOL_SIZE}");
+        }
+
+        /// <summary>
+        /// 销毁梦境池子
+        /// </summary>
+        public void DestroyMemoryPool()
+        {
+            if (!_memoryPoolLoaded)
+            {
+                Log.Info("[SilkBallManager] 梦境池子未加载，跳过销毁");
+                return;
+            }
+
+            Log.Info("[SilkBallManager] 开始销毁梦境池子...");
+
+            // 停止自动补充
+            _enableMemoryAutoPooling = false;
+
+            // 回收所有活跃丝球
+            RecycleAllActiveMemorySilkBalls();
+
+            // 清空池列表
+            _memorySilkBallPool.Clear();
+
+            // 销毁容器
+            if (_memoryPoolContainer != null)
+            {
+                UnityEngine.Object.Destroy(_memoryPoolContainer);
+                _memoryPoolContainer = null;
+            }
+
+            _memoryPoolLoaded = false;
+            Log.Info("[SilkBallManager] 梦境池子已销毁");
+        }
+
+        /// <summary>
+        /// 检查普通池子是否已加载
+        /// </summary>
+        public bool IsNormalPoolLoaded => _normalPoolLoaded;
+
+        /// <summary>
+        /// 检查梦境池子是否已加载
+        /// </summary>
+        public bool IsMemoryPoolLoaded => _memoryPoolLoaded;
+
+        #endregion
+
         /// <summary>
         /// 场景切换或销毁时的完全清理（更彻底）
         /// </summary>
@@ -665,6 +807,10 @@ namespace AnySilkBoss.Source.Managers
 
             // 停止所有协程
             StopAllCoroutines();
+
+            // 停止自动补充
+            _enableNormalAutoPooling = false;
+            _enableMemoryAutoPooling = false;
 
             // 回收所有活跃丝球（普通版本）
             RecycleAllActiveSilkBalls();
@@ -702,6 +848,9 @@ namespace AnySilkBoss.Source.Managers
                 Log.Info("已销毁 Memory 丝球对象池容器");
             }
 
+            // 重置加载状态
+            _normalPoolLoaded = false;
+            _memoryPoolLoaded = false;
             _initialized = false;
         }
     }

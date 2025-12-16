@@ -280,13 +280,13 @@ internal static class BossPatches
                 {
                     "SILK_SUPER" => Language.CurrentLanguage() switch
                     {
-                        LanguageCode.EN => "Empyrean Loom-God",
-                        LanguageCode.ZH => "穹极织神",
+                        LanguageCode.EN => "Astral Oblivion",
+                        LanguageCode.ZH => "苍耀归墟",
                         _ => __result
                     },
                     "SILK_MAIN" => Language.CurrentLanguage() switch
                     {
-                        LanguageCode.EN => "Primsilk",
+                        LanguageCode.EN => "Dawn",
                         LanguageCode.ZH => "破晓",
                         _ => __result
                     },

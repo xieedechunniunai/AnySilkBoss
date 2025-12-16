@@ -211,7 +211,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         private Vector3 GetBlastBurst1Position()
         {
             float x = Random.Range(20f, 57f);
-            float y = Random.Range(134f, 145f);
+            float y = Random.Range(134.5f, 144f);
             return new Vector3(x, y, 0f);
         }
         #endregion
@@ -465,7 +465,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
         /// <summary>
         /// BlastBurst3 攻击协程
-        /// 特点: 在Boss外围生成爆炸，爆炸会向Boss移动同时爆炸
+        /// 特点: 在Boss外围生成爆炸，爆炸会向Boss移动，到达后触发爆炸
+        /// 使用 FWBlastManager.SpawnMovingBombBlast 实现移动模式
         /// </summary>
         private IEnumerator BlastBurst3AttackCoroutine()
         {
@@ -476,33 +477,35 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             }
 
             // 获取 Boss Transform
-            Transform bossTransform = transform.parent ?? transform;
-            Vector3 bossPos = bossTransform.position;
+            Transform bossTransform = transform;
 
             // 配置参数
-            int blastCount = Random.Range(10, 14);
-            float outerRadius = 12f;   // 外围半径
-            float innerRadius = 8f;    // 内围半径
-            float moveSpeed = 6f;      // 移动速度
-
-            // 存储生成的爆炸和它们的移动协程
-            List<Coroutine> moveCoroutines = new List<Coroutine>();
+            int blastCount = Random.Range(7, 11);
+            float outerRadius = 18f;   // 外围半径
+            float innerRadius = 13f;    // 内围半径
+            float moveAcceleration = 30f;
+            float moveMaxSpeed = 7f;
+            float reachDistance = 0.2f;
+            float moveTimeout = 0.9f;
 
             Log.Info($"[BlastBurst3] 开始生成 {blastCount} 个汇聚爆炸");
 
+            // 记录生成开始时间
+            float spawnStartTime = Time.time;
+
             for (int i = 0; i < blastCount; i++)
             {
-                // 均匀分布在外围，主要在下半部分
+                // 均匀分布在外围，主要在下半部分（玩家活动区域）
                 float angle;
                 if (Random.value < 0.7f)
                 {
-                    // 下半部分: 200° - 340° (玩家所在区域)
-                    angle = Random.Range(200f, 340f);
+                    // 下半部分: 180° - 360°
+                    angle = Random.Range(180f, 360f);
                 }
                 else
                 {
-                    // 上半部分: 20° - 160°
-                    angle = Random.Range(20f, 160f);
+                    // 上半部分: 0° - 180°
+                    angle = Random.Range(0f, 180f);
                 }
 
                 // 在外围和内围之间随机半径
@@ -514,58 +517,32 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 Vector3 currentBossPos = bossTransform.position;
                 Vector3 spawnPos = currentBossPos + new Vector3(direction.x, direction.y, 0) * radius;
 
-                // 生成爆炸
-                var blast = _blastManagerRef.SpawnBombBlast(spawnPos, null, true, false);
-
-                if (blast != null)
-                {
-                    // 启动移动协程，让爆炸向 Boss 移动
-                    var moveCoroutine = StartCoroutine(MoveBlastTowardsBoss(blast, bossTransform, moveSpeed));
-                    moveCoroutines.Add(moveCoroutine);
-                }
+                // 使用移动模式生成爆炸
+                _blastManagerRef.SpawnMovingBombBlast(
+                    spawnPos,
+                    bossTransform,
+                    moveAcceleration,
+                    moveMaxSpeed,
+                    reachDistance,
+                    moveTimeout,
+                    isBurstBlast: true
+                );
 
                 // 生成间隔
-                yield return new WaitForSeconds(Random.Range(0.15f, 0.3f));
+                yield return new WaitForSeconds(Random.Range(0.10f, 0.16f));
             }
 
-            // 等待爆炸完成移动和爆炸
-            yield return new WaitForSeconds(2.5f);
+            // 计算生成耗时
+            float spawnDuration = Time.time - spawnStartTime;
+            // 等待最后一个爆炸完成追踪和爆炸动画
+            // moveTimeout(1.8s) + 爆炸动画时间(Appear Pause 0.3s + Blast 0.3s + Wait 0.8s) + 小余量
+            float waitAfterSpawn = moveTimeout + 0.05f;
+            yield return new WaitForSeconds(waitAfterSpawn);
 
-            // 最终在 Boss 位置生成一个结束爆炸
-            _blastManagerRef.SpawnBombBlast(bossTransform.position, null, true, false);
+            // 最终在 Boss 位置生成一个大型结束爆炸（原版爆发模式约0.9-1.2，这里用3倍=约3.0）
+            _blastManagerRef.SpawnBombBlastWithSize(bossTransform.position, size: 3f);
 
-            Log.Info($"[BlastBurst3] 汇聚爆炸攻击完成");
-        }
-
-        /// <summary>
-        /// 移动爆炸向 Boss 位置汇聚
-        /// </summary>
-        private IEnumerator MoveBlastTowardsBoss(GameObject blast, Transform bossTransform, float speed)
-        {
-            if (blast == null || bossTransform == null) yield break;
-
-            float moveTime = 3f;  // 最大移动时间
-            float elapsed = 0f;
-
-            while (elapsed < moveTime && blast != null && blast.activeInHierarchy)
-            {
-                // 计算向 Boss 的方向
-                Vector3 direction = (bossTransform.position - blast.transform.position).normalized;
-                
-                // 移动爆炸
-                blast.transform.position += direction * speed * Time.deltaTime;
-
-                // 检查是否接近 Boss
-                float distance = Vector3.Distance(blast.transform.position, bossTransform.position);
-                if (distance < 2f)
-                {
-                    // 已经足够接近，停止移动
-                    yield break;
-                }
-
-                elapsed += Time.deltaTime;
-                yield return null;
-            }
+            Log.Info($"[BlastBurst3] 汇聚爆炸攻击完成，最终爆炸大小: 3倍");
         }
         #endregion
 
@@ -860,6 +837,15 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             var actions = new List<FsmStateAction>
             {
+                // 设置 BossControl 的 InBurst3 变量为 true，触发 Boss 动画协作
+                new SetFsmBool
+                {
+                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    fsmName = new FsmString("Control") { Value = "Control" },
+                    variableName = new FsmString("InBurst3") { Value = "InBurst3" },
+                    setValue = new FsmBool(true),
+                    everyFrame = false
+                },
                 new Wait { time = 0.2f, finishEvent = FsmEvent.Finished }
             };
             state.Actions = actions.ToArray();
@@ -882,8 +868,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                     parameters = new FsmVar[0],
                     storeResult = new FsmVar()
                 },
-                // 等待攻击完成
-                new Wait { time = 3f, finishEvent = FsmEvent.Finished }
+                // 等待攻击完成：生成时间(~2.7s) + moveTimeout(1.8s) + 爆炸动画(1.5s) = ~6s
+                new Wait { time = 3.2f, finishEvent = FsmEvent.Finished }
             };
             state.Actions = actions.ToArray();
         }
@@ -897,7 +883,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             var actions = new List<FsmStateAction>
             {
-                new Wait { time = 0.1f, finishEvent = FsmEvent.Finished }
+                new Wait { time = 0.05f, finishEvent = FsmEvent.Finished }
             };
             state.Actions = actions.ToArray();
         }
@@ -911,7 +897,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             var actions = new List<FsmStateAction>
             {
-                new Wait { time = 0.1f, finishEvent = FsmEvent.Finished }
+                new Wait { time = 0.05f, finishEvent = FsmEvent.Finished }
             };
             state.Actions = actions.ToArray();
         }
@@ -925,7 +911,21 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             var actions = new List<FsmStateAction>
             {
-                new Wait { time = 0.3f, finishEvent = FsmEvent.Finished }
+                // 发送 END BURST3 事件给 BossControl，通知 Boss 结束动画
+                new SendEventByName
+                {
+                    eventTarget = new FsmEventTarget
+                    {
+                        target = FsmEventTarget.EventTarget.GameObjectFSM,
+                        excludeSelf = new FsmBool(false),
+                        gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                        fsmName = new FsmString("Control") { Value = "Control" }
+                    },
+                    sendEvent = new FsmString("END BURST3") { Value = "END BURST3" },
+                    delay = new FsmFloat(0f),
+                    everyFrame = false
+                },
+                new Wait { time = 0.1f, finishEvent = FsmEvent.Finished }
             };
             state.Actions = actions.ToArray();
         }

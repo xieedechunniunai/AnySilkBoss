@@ -631,7 +631,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             prepareState.Transitions = new FsmTransition[]
             {
                 FsmStateBuilder.CreateTransition(releaseEvent!, chaseState),
-                FsmStateBuilder.CreateTransition(hasGravityEvent!, hasGravityState)
+                FsmStateBuilder.CreateTransition(hasGravityEvent!, hasGravityState),
+                FsmStateBuilder.CreateTransition(reverseAccelEvent!, reverseAccelState)
             };
             // Prepare 状态转换已在上面设置
 
