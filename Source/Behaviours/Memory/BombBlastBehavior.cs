@@ -4,6 +4,7 @@ using System.Linq;
 using UnityEngine;
 using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
+using AnySilkBoss.Source.Actions;
 using AnySilkBoss.Source.Managers;
 using AnySilkBoss.Source.Tools;
 
@@ -26,6 +27,9 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// <summary>爆炸连段的尺寸倍数</summary>
         public float burstSizeMultiplier = 1.5f;
 
+        /// <summary>自定义大小（>0 时直接使用该值，不再随机）</summary>
+        public float customSize = 0f;
+
         /// <summary>是否生成丝球环</summary>
         public bool spawnSilkBallRing = false;
 
@@ -39,7 +43,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         public float reverseAcceleration = 25f;
 
         /// <summary>最大向内速度</summary>
-        public float maxInwardSpeed = 30f;
+        public float maxInwardSpeed = 50f;
 
         /// <summary>反向加速度持续时间</summary>
         public float reverseAccelDuration = 5f;
@@ -52,6 +56,28 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
         /// <summary>释放前的等待时间</summary>
         public float releaseDelay = 0.3f;
+
+        // ===== 移动模式配置（用于 BlastBurst3 汇聚爆炸） =====
+        /// <summary>是否启用移动模式</summary>
+        public bool enableMoveMode = false;
+
+        /// <summary>移动目标 Transform</summary>
+        public Transform? moveTarget;
+
+        /// <summary>移动加速度</summary>
+        public float moveAcceleration = 30f;
+
+        /// <summary>移动最大速度</summary>
+        public float moveMaxSpeed = 8f;
+
+        /// <summary>到达目标的距离阈值</summary>
+        public float reachDistance = 2f;
+
+        /// <summary>移动超时时间（秒）</summary>
+        public float moveTimeout = 5f;
+
+        /// <summary>移动过程中是否显示爆炸特效（小型预览爆炸）</summary>
+        public bool showTrailEffect = false;
         #endregion
 
         #region 内部引用
@@ -72,6 +98,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
         private void Start()
         {
+            // 如果还没补丁过（正常激活流程），在这里补丁
+            // 注意：ConfigureMoveMode 可能已经提前调用了 EnsureFsmPatched
             if (_controlFsm != null && !_fsmPatched)
             {
                 // 输出补丁前的 FSM 报告
@@ -95,6 +123,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         private void OnEnable()
         {
             _isActive = true;
+            // 移动模式的参数更新在 ConfigureMoveMode 中完成
+            // FSM 结构已经在 PatchForMoveMode 中一次性创建好，不需要每次激活都修改
         }
 
         private void OnDisable()
@@ -121,11 +151,101 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             useReverseAccelMode = useReverseAccel;
             radialBurstSpeed = radialSpeed;
             releaseDelay = delay;
+            // 注意：大小设置已迁移到 SetBlastSize()，在 FSM Blast 状态时调用
+        }
 
-            // 调整爆炸大小
-            if (isBurstBlast && _sizeVar != null)
+        /// <summary>
+        /// 配置移动模式参数（由 FWBlastManager.SpawnMovingBombBlast 调用）
+        /// 注意：必须在 SetActive(true) 之前调用
+        /// </summary>
+        public void ConfigureMoveMode(Transform target, float accel = 30f, float maxSpeed = 8f,
+            float reach = 2f, float timeout = 5f, bool trailEffect = false)
+        {
+            enableMoveMode = true;
+            moveTarget = target;
+            moveAcceleration = accel;
+            moveMaxSpeed = maxSpeed;
+            reachDistance = reach;
+            moveTimeout = timeout;
+            showTrailEffect = trailEffect;
+
+            // 移动模式下添加 Rigidbody2D（如果没有的话）
+            var rb = GetComponent<Rigidbody2D>();
+            if (rb == null)
             {
-                _sizeVar.Value *= burstSizeMultiplier;
+                rb = gameObject.AddComponent<Rigidbody2D>();
+                rb.gravityScale = 0f;
+                rb.linearDamping = 0f;
+                rb.linearVelocity = Vector2.zero;
+                rb.angularVelocity = 0f;
+            }
+            else
+            {
+                rb.gravityScale = 0f;
+                rb.linearDamping = 0f;
+                rb.linearVelocity = Vector2.zero;
+                rb.angularVelocity = 0f;
+            }
+
+            // 确保 FSM 已被补丁（对象可能是新创建的，Start 还没调用）
+            EnsureFsmPatched();
+
+            // 更新 ChaseTargetAction 参数（Move To Target 和 Moving 状态）
+            UpdateMoveTargetParams();
+        }
+
+        public void StopMove()
+        {
+            var rb = GetComponent<Rigidbody2D>();
+            if (rb != null)
+            {
+                rb.linearVelocity = Vector2.zero;
+            }
+        }
+
+        /// <summary>
+        /// 确保 FSM 已被补丁（供外部调用，如 ConfigureMoveMode）
+        /// </summary>
+        private void EnsureFsmPatched()
+        {
+            if (_fsmPatched) return;
+            if (_controlFsm == null)
+            {
+                _controlFsm = GetComponent<PlayMakerFSM>();
+            }
+            if (_controlFsm != null)
+            {
+                PatchFsm();
+                _fsmPatched = true;
+                Log.Debug("[BombBlastBehavior] FSM 已在 ConfigureMoveMode 中提前补丁");
+            }
+        }
+
+        /// <summary>
+        /// 设置爆炸大小（由 FSM 的 Blast/Moving 状态调用，替代原 RandomFloat）
+        /// customSize > 0 时直接使用该值，否则根据 isBurstBlast 随机
+        /// </summary>
+        public void SetBlastSize()
+        {
+            if (_sizeVar == null) return;
+
+            // 如果设置了自定义大小，直接使用（传入什么就是什么）
+            if (customSize > 0f)
+            {
+                _sizeVar.Value = customSize;
+                return;
+            }
+
+            // 否则使用随机大小
+            if (isBurstBlast)
+            {
+                // 爆发模式：更大的尺寸范围 (0.9 - 1.2)
+                _sizeVar.Value = Random.Range(0.9f, 1.2f);
+            }
+            else
+            {
+                // 普通模式：原版尺寸范围 (0.6 - 0.8)
+                _sizeVar.Value = Random.Range(0.6f, 0.8f);
             }
         }
 
@@ -170,12 +290,34 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             useReverseAccelMode = true;
             radialBurstSpeed = 18f;
             releaseDelay = 0.3f;
+
+            // 重置自定义大小
+            customSize = 0f;
+
+            // 重置移动模式配置
+            enableMoveMode = false;
+            moveTarget = null;
+            moveAcceleration = 30f;
+            moveMaxSpeed = 8f;
+            reachDistance = 2f;
+            moveTimeout = 5f;
+            showTrailEffect = false;
+
+            // 重置刚体速度
+            var rb = GetComponent<Rigidbody2D>();
+            if (rb != null)
+            {
+                rb.linearVelocity = Vector2.zero;
+            }
+
+            // 重置 FSM Start 状态的跳转
+            ResetStartTransition();
         }
         #endregion
 
         #region FSM 补丁
         /// <summary>
-        /// 补丁 FSM：移除 RecycleSelf，添加 CallMethod 回收
+        /// 补丁 FSM：移除 RecycleSelf，添加 CallMethod 回收，支持移动模式
         /// </summary>
         private void PatchFsm()
         {
@@ -184,48 +326,327 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             // 缓存 Size 变量引用
             _sizeVar = _controlFsm.FsmVariables.GetFsmFloat("Size");
 
+            // 修改 Blast 状态：替换 RandomFloat 为自定义大小设置
+            PatchBlastState();
+
             // 修改 End 状态：移除 RecycleSelf，添加 CallMethod
-            var endState = _controlFsm.FsmStates.FirstOrDefault(s => s.Name == "End");
-            if (endState != null)
+            PatchEndState();
+
+            // 修改 Wait 状态：添加 OnBlastTriggered 调用
+            PatchWaitState();
+
+            // 添加移动模式支持
+            PatchForMoveMode();
+        }
+
+        /// <summary>
+        /// 补丁 Blast 状态：替换 RandomFloat 为 CallMethod(SetBlastSize)
+        /// 这样可以根据 isBurstBlast 设置不同的大小
+        /// </summary>
+        private void PatchBlastState()
+        {
+            var blastState = _controlFsm!.FsmStates.FirstOrDefault(s => s.Name == "Blast");
+            if (blastState == null) return;
+
+            var actions = blastState.Actions.ToList();
+
+            // 检查是否已经补丁过
+            bool alreadyPatched = actions.Any(a => a is CallMethod cm &&
+                cm.methodName?.Value == "SetBlastSize");
+            if (alreadyPatched) return;
+
+            // 找到并移除 RandomFloat action（索引0）
+            int randomFloatIndex = -1;
+            for (int i = 0; i < actions.Count; i++)
             {
-                var actions = endState.Actions.ToList();
+                if (actions[i] is RandomFloat)
+                {
+                    randomFloatIndex = i;
+                    break;
+                }
+            }
 
-                // 移除 RecycleSelf
-                actions.RemoveAll(a => a is RecycleSelf);
+            if (randomFloatIndex >= 0)
+            {
+                actions.RemoveAt(randomFloatIndex);
 
-                // 添加 CallMethod 调用 RecycleBlast
+                // 在同一位置插入 CallMethod(SetBlastSize)
                 var callMethod = new CallMethod
                 {
                     behaviour = new FsmObject { Value = this },
-                    methodName = new FsmString("RecycleBlast") { Value = "RecycleBlast" },
+                    methodName = new FsmString("SetBlastSize") { Value = "SetBlastSize" },
                     parameters = new FsmVar[0],
                     storeResult = new FsmVar()
                 };
-                actions.Add(callMethod);
+                actions.Insert(randomFloatIndex, callMethod);
 
-                endState.Actions = actions.ToArray();
-                Log.Debug("[BombBlastBehavior] FSM End 状态已补丁：RecycleSelf -> CallMethod(RecycleBlast)");
+                blastState.Actions = actions.ToArray();
+                Log.Debug("[BombBlastBehavior] FSM Blast 状态已补丁：RandomFloat -> CallMethod(SetBlastSize)");
             }
+        }
 
-            // 修改 Wait 状态：在等待结束后调用 OnBlastTriggered（丝球环在爆炸动画完成后生成）
-            var waitState = _controlFsm.FsmStates.FirstOrDefault(s => s.Name == "Wait");
-            if (waitState != null)
+        /// <summary>
+        /// 补丁 End 状态：移除 RecycleSelf，添加 CallMethod 回收
+        /// </summary>
+        private void PatchEndState()
+        {
+            var endState = _controlFsm!.FsmStates.FirstOrDefault(s => s.Name == "End");
+            if (endState == null) return;
+
+            var actions = endState.Actions.ToList();
+
+            // 移除 RecycleSelf
+            actions.RemoveAll(a => a is RecycleSelf);
+
+            // 添加 CallMethod 调用 RecycleBlast
+            var callMethod = new CallMethod
             {
-                var actions = waitState.Actions.ToList();
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("RecycleBlast") { Value = "RecycleBlast" },
+                parameters = new FsmVar[0],
+                storeResult = new FsmVar()
+            };
+            actions.Add(callMethod);
 
-                // 在开头添加 CallMethod 调用 OnBlastTriggered（Wait 状态开始时爆炸动画已完成）
-                var callMethod = new CallMethod
-                {
-                    behaviour = new FsmObject { Value = this },
-                    methodName = new FsmString("OnBlastTriggered") { Value = "OnBlastTriggered" },
-                    parameters = new FsmVar[0],
-                    storeResult = new FsmVar()
-                };
-                actions.Insert(0, callMethod);
+            endState.Actions = actions.ToArray();
+            Log.Debug("[BombBlastBehavior] FSM End 状态已补丁：RecycleSelf -> CallMethod(RecycleBlast)");
+        }
 
-                waitState.Actions = actions.ToArray();
-                Log.Debug("[BombBlastBehavior] FSM Wait 状态已补丁：添加 CallMethod(OnBlastTriggered)");
+        /// <summary>
+        /// 补丁 Wait 状态：添加 OnBlastTriggered 调用
+        /// </summary>
+        private void PatchWaitState()
+        {
+            var waitState = _controlFsm!.FsmStates.FirstOrDefault(s => s.Name == "Wait");
+            if (waitState == null) return;
+
+            var actions = waitState.Actions.ToList();
+
+            // 检查是否已经补丁过
+            bool alreadyPatched = actions.Any(a => a is CallMethod cm &&
+                cm.methodName?.Value == "OnBlastTriggered");
+            if (alreadyPatched) return;
+
+            // 在开头添加 CallMethod 调用 OnBlastTriggered
+            var callMethod = new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("OnBlastTriggered") { Value = "OnBlastTriggered" },
+                parameters = new FsmVar[0],
+                storeResult = new FsmVar()
+            };
+            actions.Insert(0, callMethod);
+
+            waitState.Actions = actions.ToArray();
+            Log.Debug("[BombBlastBehavior] FSM Wait 状态已补丁：添加 CallMethod(OnBlastTriggered)");
+        }
+
+        /// <summary>
+        /// 补丁 FSM 以支持移动模式（一次性补丁，事件驱动分支）
+        /// 
+        /// FSM 结构：
+        /// Start -> FINISHED -> Mode Select
+        /// Mode Select:
+        ///   - START_NORMAL -> Appear Pause (正常流程)
+        ///   - START_MOVE -> Move To Target
+        /// Move To Target:
+        ///   - ChaseTargetAction + WaitRandom(0.2-0.4s)
+        ///   - FINISHED -> Moving
+        /// Moving:
+        ///   - ChaseTargetAction + SetBlastSize + ActivateGameObject
+        ///   - Wait 2s -> FINISHED -> Wait
+        /// </summary>
+        private void PatchForMoveMode()
+        {
+            // 创建事件
+            var startNormalEvent = FsmEvent.GetFsmEvent("START_NORMAL");
+            var startMoveEvent = FsmEvent.GetFsmEvent("START_MOVE");
+
+            // ===== 2. 获取现有状态 =====
+            var startState = FsmStateBuilder.FindState(_controlFsm!, "Start");
+            var appearPauseState = FsmStateBuilder.FindState(_controlFsm!, "Appear Pause");
+            var waitState = FsmStateBuilder.FindState(_controlFsm!, "Wait");
+            if (startState == null || appearPauseState == null || waitState == null)
+            {
+                Log.Warn("[BombBlastBehavior] 找不到必要的 FSM 状态");
+                return;
             }
+
+            // ===== 3. 创建 Moving 状态（先创建，因为 Move To Target 需要引用它） =====
+            var movingState = FsmStateBuilder.GetOrCreateState(_controlFsm!, "Moving", "继续移动 + 爆炸效果");
+            if (movingState.Actions == null || movingState.Actions.Length == 0)
+            {
+                movingState.Actions = new FsmStateAction[]
+                {
+                    new ChaseTargetAction
+                    {
+                        targetTransform = null,
+                        acceleration = new FsmFloat { Value = 30f },
+                        maxSpeed = new FsmFloat { Value = 8f },
+                        useRigidbody = new FsmBool { Value = true },
+                        chaseTime = new FsmFloat { Value = 10f },
+                        reachDistance = new FsmFloat { Value = 0.5f },
+                        onReachTarget = null,
+                        onTimeout = null
+                    },
+                    new CallMethod
+                    {
+                        behaviour = new FsmObject { Value = this },
+                        methodName = new FsmString("SetBlastSize") { Value = "SetBlastSize" },
+                        parameters = new FsmVar[0],
+                        storeResult = new FsmVar()
+                    },
+                    new SetScale
+                    {
+                        gameObject = new FsmOwnerDefault
+                        {
+                            OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                            GameObject = _controlFsm!.Fsm.GetFsmGameObject("Blast")
+                        },
+                        vector = new FsmVector3(),
+                        x = _sizeVar,
+                        y = _sizeVar,
+                        z = new FsmFloat { Value = 0f },
+                        everyFrame = false
+                    },
+                    new ActivateGameObject
+                    {
+                        gameObject = new FsmOwnerDefault
+                        {
+                            OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                            GameObject = _controlFsm!.Fsm.GetFsmGameObject("Blast")
+                        },
+                        activate = new FsmBool { Value = true },
+                        recursive = new FsmBool { Value = false },
+                        resetOnExit = false,
+                        everyFrame = false
+                    },
+                    new Wait
+                    {
+                        time = new FsmFloat { Value = 2f },
+                        finishEvent = FsmEvent.Finished,
+                        realTime = false
+                    }
+                };
+                FsmStateBuilder.SetFinishedTransition(movingState, waitState);
+            }
+
+            // ===== 4. 创建 Move To Target 状态 =====
+            var moveToTargetState = FsmStateBuilder.GetOrCreateState(_controlFsm!, "Move To Target", "追踪目标");
+            if (moveToTargetState.Actions == null || moveToTargetState.Actions.Length == 0)
+            {
+                moveToTargetState.Actions = new FsmStateAction[]
+                {
+                    new ChaseTargetAction
+                    {
+                        targetTransform = null,
+                        acceleration = new FsmFloat { Value = 30f },
+                        maxSpeed = new FsmFloat { Value = 8f },
+                        useRigidbody = new FsmBool { Value = true },
+                        chaseTime = new FsmFloat { Value = 5f },
+                        reachDistance = new FsmFloat { Value = 2f },
+                        onReachTarget = null,
+                        onTimeout = null
+                    },
+                    new WaitRandom
+                    {
+                        timeMin = new FsmFloat { Value = 0.2f },
+                        timeMax = new FsmFloat { Value = 0.4f },
+                        finishEvent = FsmEvent.Finished,
+                        realTime = false
+                    }
+                };
+                FsmStateBuilder.SetFinishedTransition(moveToTargetState, movingState);
+            }
+
+            // ===== 5. 创建 Mode Select 状态 =====
+            var modeSelectState = FsmStateBuilder.GetOrCreateState(_controlFsm!, "Mode Select", "模式选择");
+            if (modeSelectState.Actions == null || modeSelectState.Actions.Length == 0)
+            {
+                modeSelectState.Actions = new FsmStateAction[0];  // 无动作，纯等待事件
+                modeSelectState.Transitions = new[]
+                {
+                    FsmStateBuilder.CreateTransition(startNormalEvent, appearPauseState),
+                    FsmStateBuilder.CreateTransition(startMoveEvent, moveToTargetState)
+                };
+            }
+
+            // ===== 6. 修改 Start 状态的跳转：FINISHED -> Mode Select =====
+            for (int i = 0; i < startState.Transitions.Length; i++)
+            {
+                if (startState.Transitions[i].EventName == "FINISHED")
+                {
+                    startState.Transitions[i].ToFsmState = modeSelectState;
+                    startState.Transitions[i].ToState = "Mode Select";
+                    break;
+                }
+            }
+
+            Log.Debug("[BombBlastBehavior] FSM 已补丁：Mode Select + Move To Target + Moving 状态已创建");
+        }
+
+        /// <summary>
+        /// 更新移动目标参数（由 ConfigureMoveMode 调用）
+        /// </summary>
+        private void UpdateMoveTargetParams()
+        {
+            if (moveTarget == null || _controlFsm == null) return;
+
+            // 更新 Move To Target 状态的 ChaseTargetAction
+            var moveToTargetState = _controlFsm.FsmStates.FirstOrDefault(s => s.Name == "Move To Target");
+            if (moveToTargetState != null)
+            {
+                var chaseAction = moveToTargetState.Actions?.OfType<ChaseTargetAction>().FirstOrDefault();
+                if (chaseAction != null)
+                {
+                    chaseAction.targetTransform = moveTarget;
+                    chaseAction.acceleration.Value = moveAcceleration;
+                    chaseAction.maxSpeed.Value = moveMaxSpeed;
+                    chaseAction.reachDistance.Value = reachDistance;
+                    chaseAction.chaseTime.Value = moveTimeout;
+                }
+            }
+
+            // 更新 Moving 状态的 ChaseTargetAction
+            var movingState = _controlFsm.FsmStates.FirstOrDefault(s => s.Name == "Moving");
+            if (movingState != null)
+            {
+                var chaseAction = movingState.Actions?.OfType<ChaseTargetAction>().FirstOrDefault();
+                if (chaseAction != null)
+                {
+                    chaseAction.targetTransform = moveTarget;
+                    chaseAction.acceleration.Value = moveAcceleration;
+                    chaseAction.maxSpeed.Value = moveMaxSpeed;
+                }
+
+                // 更新 SetScale 和 ActivateGameObject 的目标对象（Blast 子物体）
+                var blastChild = transform.Find("Blast");
+                if (blastChild != null)
+                {
+                    var setScaleAction = movingState.Actions?.OfType<SetScale>().FirstOrDefault();
+                    if (setScaleAction != null)
+                    {
+                        setScaleAction.gameObject.GameObject.Value = blastChild.gameObject;
+                    }
+
+                    var activateAction = movingState.Actions?.OfType<ActivateGameObject>().FirstOrDefault();
+                    if (activateAction != null)
+                    {
+                        activateAction.gameObject.GameObject.Value = blastChild.gameObject;
+                    }
+                }
+            }
+
+            Log.Debug($"[BombBlastBehavior] 移动参数已更新：目标={moveTarget.name}, 加速度={moveAcceleration}, 最大速度={moveMaxSpeed}");
+        }
+
+        /// <summary>
+        /// 重置 FSM 状态（回收时调用）
+        /// </summary>
+        private void ResetStartTransition()
+        {
+            // 新设计不需要修改 FSM 跳转，只需要重置参数
+            // FSM 结构是固定的，通过事件选择分支
         }
         #endregion
 
@@ -246,6 +667,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             Vector3 center = transform.position;
             float angleStep = 360f / silkBallCount;
             float startAngle = Random.Range(0f, 360f);
+            float spawnRadius = 1f;  // 丝球生成时距离圆心的距离
 
             // 保存生成的丝球和它们的方向
             var silkBalls = new List<(MemorySilkBallBehavior ball, Vector2 direction)>();
@@ -257,9 +679,10 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 float angleRad = angle * Mathf.Deg2Rad;
                 Vector2 direction = new Vector2(Mathf.Cos(angleRad), Mathf.Sin(angleRad));
 
-                // 在中心位置生成丝球
+                // 在圆周上生成丝球（距离中心 spawnRadius）
+                Vector3 spawnPos = center + new Vector3(direction.x, direction.y, 0) * spawnRadius;
                 var silkBall = _silkBallManager.SpawnMemorySilkBall(
-                    center,
+                    spawnPos,
                     acceleration: 0f,
                     maxSpeed: useReverseAccelMode ? maxInwardSpeed : radialBurstSpeed,
                     chaseTime: reverseAccelDuration,

@@ -1105,6 +1105,9 @@ internal partial class MemoryBossBehavior : MonoBehaviour
             });
         }
 
+        // 添加 InBurst3 的 BoolTest（BlastBurst3 协作）
+        AddBurst3BoolTestToIdle(idleState, actions);
+
         idleState.Actions = actions.ToArray();
 
         var transitions = idleState.Transitions?.ToList() ?? new List<FsmTransition>();

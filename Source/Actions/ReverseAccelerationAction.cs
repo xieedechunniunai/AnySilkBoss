@@ -1,5 +1,6 @@
 using UnityEngine;
 using HutongGames.PlayMaker;
+using AnySilkBoss.Source.Behaviours.Memory;
 
 namespace AnySilkBoss.Source.Actions
 {
@@ -52,6 +53,7 @@ namespace AnySilkBoss.Source.Actions
         private float elapsedTime;
         private bool hasReversed;  // 是否已经反转方向（速度从向外变为向内）
         private Vector2 initialDirection;  // 初始方向（从圆心指向物体的方向）
+        private Vector2 fixedAccelDirection;  // 固定的加速度方向（指向圆心，初始计算后不再变化）
         #endregion
 
         public override void Reset()
@@ -86,20 +88,46 @@ namespace AnySilkBoss.Source.Actions
                 return;
             }
 
+            // 重要：ReverseAccelerationAction 的参数对象是在 FSM 构建时创建的。
+            // 运行时 ConfigureReverseAcceleration() 修改的是 MemorySilkBallBehavior 的字段，
+            // 这里需要在进入状态时从 Owner 读取最新值，避免 centerPoint 仍为默认值导致方向异常。
+            var silkBallBehavior = Owner.GetComponent<MemorySilkBallBehavior>();
+            if (silkBallBehavior != null)
+            {
+                centerPoint.Value = silkBallBehavior.reverseAccelCenter;
+                initialOutwardSpeed.Value = silkBallBehavior.initialOutwardSpeed;
+                reverseAcceleration.Value = silkBallBehavior.reverseAccelValue;
+                maxInwardSpeed.Value = silkBallBehavior.maxInwardSpeed;
+                maxDuration.Value = silkBallBehavior.reverseAccelDuration;
+            }
+
             elapsedTime = 0f;
             hasReversed = false;
 
-            // 计算初始方向（从圆心指向物体）
-            Vector2 center = new Vector2(centerPoint.Value.x, centerPoint.Value.y);
-            Vector2 selfPos = new Vector2(selfTransform.position.x, selfTransform.position.y);
-            initialDirection = (selfPos - center).normalized;
-
-            // 如果物体就在圆心，随机一个方向
-            if (initialDirection.magnitude < 0.01f)
+            // 计算初始向外方向：优先使用外部已经设置好的初速度方向（例如 BlastBurst1 径向发射）
+            Vector2 outwardDirection;
+            if (rb2d.linearVelocity.sqrMagnitude > 0.0001f)
             {
-                float randomAngle = Random.Range(0f, 360f) * Mathf.Deg2Rad;
-                initialDirection = new Vector2(Mathf.Cos(randomAngle), Mathf.Sin(randomAngle));
+                outwardDirection = rb2d.linearVelocity.normalized;
             }
+            else
+            {
+                Vector2 center = new Vector2(centerPoint.Value.x, centerPoint.Value.y);
+                Vector2 selfPos = new Vector2(selfTransform.position.x, selfTransform.position.y);
+                outwardDirection = (selfPos - center).normalized;
+
+                // 如果物体就在圆心，随机一个方向
+                if (outwardDirection.sqrMagnitude < 0.0001f)
+                {
+                    float randomAngle = Random.Range(0f, 360f) * Mathf.Deg2Rad;
+                    outwardDirection = new Vector2(Mathf.Cos(randomAngle), Mathf.Sin(randomAngle));
+                }
+            }
+
+            initialDirection = outwardDirection;
+
+            // 固定加速度方向（指向圆心，之后不再变化）
+            fixedAccelDirection = -initialDirection;
 
             // 设置初始向外速度
             rb2d.gravityScale = 0f;  // 禁用重力
@@ -129,42 +157,39 @@ namespace AnySilkBoss.Source.Actions
                 }
             }
 
-            // 计算圆心方向
-            Vector2 center = new Vector2(centerPoint.Value.x, centerPoint.Value.y);
-            Vector2 selfPos = new Vector2(selfTransform.position.x, selfTransform.position.y);
-            Vector2 toCenter = (center - selfPos).normalized;
-            float distanceToCenter = Vector2.Distance(selfPos, center);
-
-            // 应用反向加速度（指向圆心）
-            Vector2 accel = toCenter * reverseAcceleration.Value;
+            // 应用固定方向的反向加速度（方向不随位置变化）
+            Vector2 accel = fixedAccelDirection * reverseAcceleration.Value;
             rb2d.linearVelocity += accel * Time.deltaTime;
 
-            // 限制最大向内速度
-            float velocityTowardCenter = Vector2.Dot(rb2d.linearVelocity, toCenter);
-            if (velocityTowardCenter > maxInwardSpeed.Value)
+            // 限制最大速度（沿加速度方向）
+            float velocityAlongAccel = Vector2.Dot(rb2d.linearVelocity, fixedAccelDirection);
+            if (velocityAlongAccel > maxInwardSpeed.Value)
             {
-                // 分解速度为平行和垂直于圆心方向的分量
-                Vector2 parallelVelocity = toCenter * maxInwardSpeed.Value;
-                Vector2 perpendicular = new Vector2(-toCenter.y, toCenter.x);
+                // 分解速度为平行和垂直于加速度方向的分量
+                Vector2 parallelVelocity = fixedAccelDirection * maxInwardSpeed.Value;
+                Vector2 perpendicular = new Vector2(-fixedAccelDirection.y, fixedAccelDirection.x);
                 float perpVelocity = Vector2.Dot(rb2d.linearVelocity, perpendicular);
                 rb2d.linearVelocity = parallelVelocity + perpendicular * perpVelocity;
             }
 
-            // 检测速度是否已反转（从向外变为向内）
-            if (!hasReversed && velocityTowardCenter > 0)
+            // 检测速度是否已反转（沿加速度方向的分量从负变为正）
+            if (!hasReversed && velocityAlongAccel > 0)
             {
                 hasReversed = true;
             }
 
-            // 检查是否返回到圆心
-            if (hasReversed && distanceToCenter <= returnThreshold.Value)
+            // 仅当外部配置了 onReturnToCenter 时，才启用“回到圆心结束”的逻辑
+            if (onReturnToCenter != null && returnThreshold.Value > 0f)
             {
-                if (onReturnToCenter != null)
+                Vector2 center = new Vector2(centerPoint.Value.x, centerPoint.Value.y);
+                Vector2 selfPos = new Vector2(selfTransform.position.x, selfTransform.position.y);
+                float distanceToCenter = Vector2.Distance(selfPos, center);
+                if (hasReversed && distanceToCenter <= returnThreshold.Value)
                 {
                     Fsm.Event(onReturnToCenter);
+                    Finish();
+                    return;
                 }
-                Finish();
-                return;
             }
         }
 

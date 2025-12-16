@@ -40,7 +40,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 _silkBallDashPrepareState, _silkBallDashEndState);
 
             // 查找状态用于链接
-            var moveRestartState = FindState(_attackControlFsm, "Move Restart");
+            var moveRestartState = FindState(_attackControlFsm!, "Move Restart");
 
             // 设置状态转换（使用 CreateTransition 辅助方法）
             _silkBallPrepareState.Transitions = new FsmTransition[]
@@ -81,7 +81,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             SetFinishedTransition(_silkBallEndState!, _silkBallRecoverState!);
             SetFinishedTransition(_silkBallRecoverState!, moveRestartState!);
 
-            var attackChoiceState = FindState(_attackControlFsm, "Attack Choice");
+            var attackChoiceState = FindState(_attackControlFsm!, "Attack Choice");
             if (attackChoiceState != null)
             {
                 AddTransition(attackChoiceState, CreateTransition(_silkBallAttackEvent!, _silkBallPrepareState));
