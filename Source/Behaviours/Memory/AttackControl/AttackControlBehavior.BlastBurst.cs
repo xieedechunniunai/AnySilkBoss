@@ -180,22 +180,20 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 // 随机选择模式：50% 反向加速度，50% 径向爆发
                 bool useReverseAccel = Random.value > 0.5f;
 
-                // 生成爆炸：更大尺寸 + 丝球环
-                // isBurstBlast=true: 更大尺寸
-                // spawnSilkBallRing=true: 生成丝球环
+                // 生成爆炸：较大尺寸(1.0) + 丝球环
                 _blastManagerRef.SpawnBombBlast(
                     blastPos,
                     parent: null,
-                    isBurstBlast: true,
+                    size: 1f,
                     spawnSilkBallRing: true,
                     silkBallCount: 8,
-                    initialOutwardSpeed: 20f,       // 初始向外速度
-                    reverseAcceleration: 20f,       // 反向加速度
-                    maxInwardSpeed: 50f,            // 最大向内速度
+                    initialOutwardSpeed: 20f,
+                    reverseAcceleration: 20f,
+                    maxInwardSpeed: 50f,
                     reverseAccelDuration: 5f,
-                    useReverseAccelMode: useReverseAccel,  // 随机模式
-                    radialBurstSpeed: 18f,          // 径向爆发速度
-                    releaseDelay: 0.3f              // 释放前等待时间
+                    useReverseAccelMode: useReverseAccel,
+                    radialBurstSpeed: 18f,
+                    releaseDelay: 0.3f
                 );
 
                 // 间隔延迟
@@ -306,17 +304,20 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
                 if (i < predictiveBlasts)
                 {
-                    // 预判攻击
-                    blastPos = PredictiveBlastAction.CalculatePrediction(0.8f, 2f);
+                    // 预判攻击（限制在场地范围 X:20-57, Y:134.5-144）
+                    blastPos = PredictiveBlastAction.CalculatePrediction(
+                        predictionTime: 0.8f, 
+                        randomOffset: 2f,
+                        minX: 20f, maxX: 57f,
+                        minY: 134.5f, maxY: 144f);
+                    _blastManagerRef.SpawnBombBlast(blastPos, size: 0.65f);
                 }
                 else
                 {
                     // 随机位置
-                    blastPos = GetBlastBurst1Position(); // 使用相同的场地范围
+                    blastPos = GetBlastBurst1Position();
+                    _blastManagerRef.SpawnBombBlast(blastPos, size: Random.Range(0.9f,1.2f));
                 }
-
-                _blastManagerRef.SpawnBombBlast(blastPos, null, true, false);
-
                 yield return new WaitForSeconds(Random.Range(0.08f, 0.2f));
             }
 
@@ -512,11 +513,11 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 float radius = Random.Range(innerRadius, outerRadius);
                 float angleRad = angle * Mathf.Deg2Rad;
                 Vector2 direction = new Vector2(Mathf.Cos(angleRad), Mathf.Sin(angleRad));
-                
+
                 // 获取当前 Boss 位置作为生成中心
                 Vector3 currentBossPos = bossTransform.position;
                 Vector3 spawnPos = currentBossPos + new Vector3(direction.x, direction.y, 0) * radius;
-
+                float size = Random.Range(0.8f, 1.3f);
                 // 使用移动模式生成爆炸
                 _blastManagerRef.SpawnMovingBombBlast(
                     spawnPos,
@@ -525,7 +526,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                     moveMaxSpeed,
                     reachDistance,
                     moveTimeout,
-                    isBurstBlast: true
+                    size: size
                 );
 
                 // 生成间隔
@@ -539,8 +540,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             float waitAfterSpawn = moveTimeout + 0.05f;
             yield return new WaitForSeconds(waitAfterSpawn);
 
-            // 最终在 Boss 位置生成一个大型结束爆炸（原版爆发模式约0.9-1.2，这里用3倍=约3.0）
-            _blastManagerRef.SpawnBombBlastWithSize(bossTransform.position, size: 3f);
+            // 最终在 Boss 位置生成一个大型结束爆炸
+            _blastManagerRef.SpawnBombBlast(bossTransform.position, size: 3f);
 
             Log.Info($"[BlastBurst3] 汇聚爆炸攻击完成，最终爆炸大小: 3倍");
         }
@@ -868,8 +869,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                     parameters = new FsmVar[0],
                     storeResult = new FsmVar()
                 },
-                // 等待攻击完成：生成时间(~2.7s) + moveTimeout(1.8s) + 爆炸动画(1.5s) = ~6s
-                new Wait { time = 3.2f, finishEvent = FsmEvent.Finished }
+                new Wait { time = 2f, finishEvent = FsmEvent.Finished }
             };
             state.Actions = actions.ToArray();
         }

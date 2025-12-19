@@ -53,6 +53,9 @@ namespace AnySilkBoss.Source.Managers
         // 池子加载状态
         private bool _normalPoolLoaded = false;
         private bool _memoryPoolLoaded = false;
+
+        private int _runtimeNormalInstantiateCount = 0;
+        private int _runtimeMemoryInstantiateCount = 0;
         #endregion
 
         private void Start()
@@ -373,7 +376,9 @@ namespace AnySilkBoss.Source.Managers
             int activeCount = _silkBallPool.Count(b => b != null && b.isActive);
             int availableCount = _silkBallPool.Count(b => b != null && b.IsAvailable);
             int enabledCount = _silkBallPool.Count(b => b != null && b.gameObject.activeSelf);
-            Log.Info($"  池统计 - 总数:{_silkBallPool.Count}, 激活:{activeCount}, 可用:{availableCount}, GameObject启用:{enabledCount}");
+
+            _runtimeNormalInstantiateCount++;
+            Log.Warn($"[SilkBallManager] 普通池可用对象不足，运行时创建新实例({_runtimeNormalInstantiateCount}) - 总数:{_silkBallPool.Count}, 激活:{activeCount}, 可用:{availableCount}, GameObject启用:{enabledCount}");
 
             return CreateNewSilkBallInstance();
         }
@@ -463,7 +468,9 @@ namespace AnySilkBoss.Source.Managers
             int activeCount = _memorySilkBallPool.Count(b => b != null && b.isActive);
             int availableCount = _memorySilkBallPool.Count(b => b != null && b.IsAvailable);
             int enabledCount = _memorySilkBallPool.Count(b => b != null && b.gameObject.activeSelf);
-            Log.Info($"  Memory池统计 - 总数:{_memorySilkBallPool.Count}, 激活:{activeCount}, 可用:{availableCount}, GameObject启用:{enabledCount}");
+
+            _runtimeMemoryInstantiateCount++;
+            Log.Warn($"[SilkBallManager] 梦境池可用对象不足，运行时创建新实例({_runtimeMemoryInstantiateCount}) - 总数:{_memorySilkBallPool.Count}, 激活:{activeCount}, 可用:{availableCount}, GameObject启用:{enabledCount}");
 
             return CreateNewMemorySilkBallInstance();
         }
@@ -577,11 +584,28 @@ namespace AnySilkBoss.Source.Managers
         {
             int available = _silkBallPool.Count(b => b != null && b.IsAvailable);
             int active = _silkBallPool.Count(b => b != null && b.isActive);
+            int enabled = _silkBallPool.Count(b => b != null && b.gameObject.activeSelf);
 
             Log.Info("=== 丝球对象池状态 ===");
             Log.Info($"  总数: {_silkBallPool.Count}");
             Log.Info($"  可用: {available}");
             Log.Info($"  活跃中: {active}");
+            Log.Info($"  GameObject启用: {enabled}");
+            Log.Info($"  运行时创建次数: {_runtimeNormalInstantiateCount}");
+        }
+
+        public void LogMemoryPoolStatus()
+        {
+            int available = _memorySilkBallPool.Count(b => b != null && b.IsAvailable);
+            int active = _memorySilkBallPool.Count(b => b != null && b.isActive);
+            int enabled = _memorySilkBallPool.Count(b => b != null && b.gameObject.activeSelf);
+
+            Log.Info("=== Memory 丝球对象池状态 ===");
+            Log.Info($"  总数: {_memorySilkBallPool.Count}");
+            Log.Info($"  可用: {available}");
+            Log.Info($"  活跃中: {active}");
+            Log.Info($"  GameObject启用: {enabled}");
+            Log.Info($"  运行时创建次数: {_runtimeMemoryInstantiateCount}");
         }
 
         /// <summary>

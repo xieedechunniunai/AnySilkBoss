@@ -138,6 +138,8 @@ internal class BigSilkBallBehavior : MonoBehaviour
     // 只覆盖heart的缩放（蓄力动画），位置（包括Z轴）保持原版
     private bool forceOverrideScale = false;            // 是否强制覆盖缩放
     private Vector3 targetHeartScale;                   // 目标缩放（本地缩放）
+
+    private Vector3 savedBurstCenter;
     #endregion
 
     /// <summary>
@@ -816,7 +818,6 @@ internal class BigSilkBallBehavior : MonoBehaviour
         // 检查小丝球是否可以被吸收
         if (silkBall == null || !silkBall.canBeAbsorbed)
         {
-            Log.Info($"小丝球不可被吸收 (canBeAbsorbed={silkBall?.canBeAbsorbed})");
             return;
         }
 
@@ -1086,9 +1087,30 @@ internal class BigSilkBallBehavior : MonoBehaviour
     public void StartFinalBurstCoroutine()
     {
         Log.Info("开始最终爆炸阶段");
+
+        if (silkBallManager != null)
+        {
+            Log.Info($"[BigSilkBall] FinalBurst需求数量: {finalBurstRings * ballsPerRing} (圈数:{finalBurstRings}, 每圈:{ballsPerRing})");
+            silkBallManager.LogPoolStatus();
+        }
         
         // 禁用碰撞箱位置更新，固定位置避免影响小丝球受力计算
         shouldUpdateCollisionBoxPosition = false;        
+
+        if (collisionBoxTransform != null)
+        {
+            savedBurstCenter = collisionBoxTransform.position;
+        }
+        else
+        {
+            savedBurstCenter = transform.position;
+        }
+
+        if (collisionBox != null)
+        {
+            collisionBox.SetActive(false);
+        }
+
         StartCoroutine(FinalBurstCoroutine());
     }
 
@@ -1114,6 +1136,11 @@ internal class BigSilkBallBehavior : MonoBehaviour
                 if (ball != null)
                 {
                     currentRingBalls.Add(ball);
+                }
+
+                if ((i + 1) % 2 == 0)
+                {
+                    yield return null;
                 }
             }
             Log.Info($"第 {ring + 1}/{finalBurstRings} 圈生成完成 - 半径: {radius}, 数量: {currentRingBalls.Count}");
@@ -1157,13 +1184,12 @@ internal class BigSilkBallBehavior : MonoBehaviour
     /// <returns>生成的小丝球GameObject</returns>
     private GameObject? SpawnRingBall(float radius, float angle, int ringIndex)
     {
-        if (silkBallManager == null || collisionBoxTransform == null) return null;
+        if (silkBallManager == null) return null;
 
         float angleRad = angle * Mathf.Deg2Rad;
         Vector2 direction = new Vector2(Mathf.Cos(angleRad), Mathf.Sin(angleRad));
 
-        // 从碰撞箱位置计算生成位置
-        Vector3 spawnPosition = collisionBoxTransform.position + new Vector3(direction.x, direction.y, 0f) * radius;
+        Vector3 spawnPosition = savedBurstCenter + new Vector3(direction.x, direction.y, 0f) * radius;
 
         // 直接从 SilkBallManager 的对象池生成小丝球
         var behavior = silkBallManager.SpawnSilkBall(
@@ -1230,18 +1256,17 @@ internal class BigSilkBallBehavior : MonoBehaviour
     /// </summary>
     private void BurstRingBall(GameObject ball, int index)
     {
-        if (ball == null || collisionBoxTransform == null) return;
+        if (ball == null) return;
 
         var rb = ball.GetComponent<Rigidbody2D>();
         var behavior = ball.GetComponent<SilkBallBehavior>();
         if (rb == null || behavior == null) return;
 
-        // 计算径向方向
-        Vector3 direction = (ball.transform.position - collisionBoxTransform.position).normalized;
+        Vector3 direction = (ball.transform.position - savedBurstCenter).normalized;
 
         // 根据球在哪一圈计算速度倍数
         // 简单估算：通过距离判断是哪一圈
-        float distance = Vector3.Distance(ball.transform.position, collisionBoxTransform.position);
+        float distance = Vector3.Distance(ball.transform.position, savedBurstCenter);
         float speedMultiplier = 1f;
 
         if (distance <= ringRadii[0] + 0.5f)

@@ -15,19 +15,13 @@ namespace AnySilkBoss.Source.Behaviours.Memory
     /// 
     /// 功能：
     /// - FSM 补丁：移除 RecycleSelf，添加 CallMethod 回收
-    /// - 大小调整：根据 isBurstBlast 设置更大的爆炸尺寸
+    /// - 大小调整：根据 customSize 设置爆炸尺寸（0=随机，>0直接使用）
     /// - 丝球环生成：在爆炸位置生成反向加速度丝球环
     /// </summary>
     public class BombBlastBehavior : MonoBehaviour
     {
         #region 配置参数
-        /// <summary>是否为爆炸连段（更大尺寸）</summary>
-        public bool isBurstBlast = false;
-
-        /// <summary>爆炸连段的尺寸倍数</summary>
-        public float burstSizeMultiplier = 1.5f;
-
-        /// <summary>自定义大小（>0 时直接使用该值，不再随机）</summary>
+        /// <summary>爆炸大小（默认随机0.6-0.8，>0时直接使用该值）</summary>
         public float customSize = 0f;
 
         /// <summary>是否生成丝球环</summary>
@@ -137,11 +131,10 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// <summary>
         /// 配置爆炸参数（由 FWBlastManager.SpawnBombBlast 调用）
         /// </summary>
-        public void Configure(bool burst, bool spawnRing, int ballCount = 8,
+        public void Configure(bool spawnRing, int ballCount = 8,
             float outSpeed = 12f, float reverseAccel = 25f, float maxInSpeed = 30f, float duration = 5f,
             bool useReverseAccel = true, float radialSpeed = 18f, float delay = 0.3f)
         {
-            isBurstBlast = burst;
             spawnSilkBallRing = spawnRing;
             silkBallCount = ballCount;
             initialOutwardSpeed = outSpeed;
@@ -206,7 +199,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// <summary>
         /// 确保 FSM 已被补丁（供外部调用，如 ConfigureMoveMode）
         /// </summary>
-        private void EnsureFsmPatched()
+        public void EnsureFsmPatched()
         {
             if (_fsmPatched) return;
             if (_controlFsm == null)
@@ -223,7 +216,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
         /// <summary>
         /// 设置爆炸大小（由 FSM 的 Blast/Moving 状态调用，替代原 RandomFloat）
-        /// customSize > 0 时直接使用该值，否则根据 isBurstBlast 随机
+        /// customSize > 0 时直接使用该值，否则使用默认随机范围
         /// </summary>
         public void SetBlastSize()
         {
@@ -236,17 +229,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 return;
             }
 
-            // 否则使用随机大小
-            if (isBurstBlast)
-            {
-                // 爆发模式：更大的尺寸范围 (0.9 - 1.2)
-                _sizeVar.Value = Random.Range(0.9f, 1.2f);
-            }
-            else
-            {
-                // 普通模式：原版尺寸范围 (0.6 - 0.8)
-                _sizeVar.Value = Random.Range(0.6f, 0.8f);
-            }
+            // 否则使用默认随机大小 (0.6 - 0.8)
+            _sizeVar.Value = Random.Range(0.6f, 0.8f);
         }
 
         /// <summary>
@@ -280,7 +264,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         public void ResetConfig()
         {
-            isBurstBlast = false;
+            customSize = 0f;
             spawnSilkBallRing = false;
             silkBallCount = 8;
             initialOutwardSpeed = 12f;
@@ -290,9 +274,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             useReverseAccelMode = true;
             radialBurstSpeed = 18f;
             releaseDelay = 0.3f;
-
-            // 重置自定义大小
-            customSize = 0f;
 
             // 重置移动模式配置
             enableMoveMode = false;
@@ -341,7 +322,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
         /// <summary>
         /// 补丁 Blast 状态：替换 RandomFloat 为 CallMethod(SetBlastSize)
-        /// 这样可以根据 isBurstBlast 设置不同的大小
+        /// 这样可以根据 customSize 设置自定义大小
         /// </summary>
         private void PatchBlastState()
         {
@@ -461,6 +442,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             // 创建事件
             var startNormalEvent = FsmEvent.GetFsmEvent("START_NORMAL");
             var startMoveEvent = FsmEvent.GetFsmEvent("START_MOVE");
+            var reachedBossEvent = FsmStateBuilder.GetOrCreateEvent(_controlFsm!, "REACHED_BOSS");
 
             // ===== 2. 获取现有状态 =====
             var startState = FsmStateBuilder.FindState(_controlFsm!, "Start");
@@ -486,7 +468,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                         useRigidbody = new FsmBool { Value = true },
                         chaseTime = new FsmFloat { Value = 10f },
                         reachDistance = new FsmFloat { Value = 0.5f },
-                        onReachTarget = null,
+                        onReachTarget = reachedBossEvent,
                         onTimeout = null
                     },
                     new CallMethod
@@ -528,8 +510,31 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                         realTime = false
                     }
                 };
-                FsmStateBuilder.SetFinishedTransition(movingState, waitState);
             }
+
+            var stopMoveState = FsmStateBuilder.GetOrCreateState(_controlFsm!, "Stop Move", "停止移动");
+            stopMoveState.Actions = new FsmStateAction[]
+            {
+                new CallMethod
+                {
+                    behaviour = new FsmObject { Value = this },
+                    methodName = new FsmString("StopMove") { Value = "StopMove" },
+                    parameters = new FsmVar[0],
+                    storeResult = new FsmVar()
+                },
+                new Wait
+                {
+                    time = new FsmFloat { Value = 2f },
+                    finishEvent = FsmEvent.Finished,
+                    realTime = false
+                }
+            };
+            FsmStateBuilder.SetFinishedTransition(stopMoveState, waitState);
+
+            movingState.Transitions = new[]
+            {
+                FsmStateBuilder.CreateTransition(reachedBossEvent, stopMoveState)
+            };
 
             // ===== 4. 创建 Move To Target 状态 =====
             var moveToTargetState = FsmStateBuilder.GetOrCreateState(_controlFsm!, "Move To Target", "追踪目标");
@@ -617,6 +622,10 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                     chaseAction.targetTransform = moveTarget;
                     chaseAction.acceleration.Value = moveAcceleration;
                     chaseAction.maxSpeed.Value = moveMaxSpeed;
+                    chaseAction.reachDistance.Value = reachDistance;
+                    chaseAction.chaseTime.Value = moveTimeout;
+                    chaseAction.onReachTarget = FsmEvent.GetFsmEvent("REACHED_BOSS");
+                    chaseAction.onTimeout = null;
                 }
 
                 // 更新 SetScale 和 ActivateGameObject 的目标对象（Blast 子物体）

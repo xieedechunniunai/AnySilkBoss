@@ -462,3 +462,56 @@ internal static class MemorySceneTransitionPatch
         return false;
     }
 }
+
+/// <summary>
+/// 拦截玩家受伤方法，实现丝球/地刺伤害累积机制
+/// 10秒内再次受到同类型伤害则翻倍
+/// 仅在梦境模式(Memory)下生效
+/// </summary>
+[HarmonyPatch(typeof(HeroController), nameof(HeroController.TakeDamage),
+    new System.Type[]
+    {
+        typeof(GameObject),
+        typeof(GlobalEnums.CollisionSide),
+        typeof(int),
+        typeof(GlobalEnums.HazardType),
+        typeof(GlobalEnums.DamagePropertyFlags)
+    })]
+internal static class HeroDamageStackPatch
+{
+    [HarmonyPrefix]
+    private static void Prefix(
+        GameObject go,
+        GlobalEnums.CollisionSide damageSide,
+        ref int damageAmount,
+        GlobalEnums.HazardType hazardType,
+        GlobalEnums.DamagePropertyFlags damagePropertyFlags)
+    {
+        // 仅梦境模式生效
+        if (!MemoryManager.IsInMemoryMode)
+        {
+            return;
+        }
+
+        // 只处理敌人类型伤害
+        if (hazardType != GlobalEnums.HazardType.ENEMY)
+        {
+            return;
+        }
+        if (go == null)
+        {
+            return;
+        }
+        // 识别伤害来源
+        var sourceType = DamageStackManager.IdentifyDamageSource(go);
+        if (sourceType == DamageStackManager.DamageSourceType.None)
+        {
+            return;
+        }
+        int multiplier = DamageStackManager.GetDamageMultiplier(sourceType);
+        int newDamage = damageAmount * multiplier;
+        // 记录本次伤害时间
+        DamageStackManager.RecordDamage(sourceType);
+        damageAmount = newDamage;
+    }
+}

@@ -257,6 +257,58 @@ namespace AnySilkBoss.Source.Managers
         #endregion
 
         #region 对象池操作
+        private void SetBombBlastPooled(GameObject obj)
+        {
+            if (obj == null) return;
+
+            var fsm = obj.LocateMyFSM("Control");
+            if (fsm != null)
+            {
+                fsm.enabled = false;
+            }
+
+            var rb = obj.GetComponent<Rigidbody2D>();
+            if (rb != null)
+            {
+                rb.linearVelocity = Vector2.zero;
+                rb.angularVelocity = 0f;
+                rb.simulated = false;
+            }
+
+            var blastChild = obj.transform.Find("Blast");
+            if (blastChild != null)
+            {
+                blastChild.gameObject.SetActive(false);
+            }
+
+            obj.tag = "Untagged";
+        }
+
+        private void ActivateBombBlast(GameObject obj)
+        {
+            if (obj == null) return;
+
+            var rb = obj.GetComponent<Rigidbody2D>();
+            if (rb != null)
+            {
+                rb.simulated = true;
+                rb.linearVelocity = Vector2.zero;
+                rb.angularVelocity = 0f;
+            }
+
+            var fsm = obj.LocateMyFSM("Control");
+            if (fsm != null)
+            {
+                fsm.enabled = true;
+                fsm.Fsm.SetState("Start");
+            }
+
+            if (!obj.activeSelf)
+            {
+                obj.SetActive(true);
+            }
+        }
+
         /// <summary>
         /// 创建 Bomb Blast 实例
         /// 实例化后需要补丁 FSM，删除 RecycleSelf 并添加自定义回收逻辑
@@ -279,6 +331,15 @@ namespace AnySilkBoss.Source.Managers
 
             // 添加 BombBlastBehavior 组件（FSM补丁逻辑已迁移到该组件）
             var behavior = obj.AddComponent<BombBlastBehavior>();
+
+            behavior.EnsureFsmPatched();
+
+            SetBombBlastPooled(obj);
+
+            if (!obj.activeSelf)
+            {
+                obj.SetActive(true);
+            }
 
             return obj;
         }
@@ -343,22 +404,10 @@ namespace AnySilkBoss.Source.Managers
 
         /// <summary>
         /// 在指定位置生成并触发 Bomb Blast 攻击
-        /// 激活对象后 FSM 会自动从 Start 状态开始运行
         /// </summary>
         /// <param name="position">生成位置</param>
         /// <param name="parent">父对象（可选）</param>
-        /// <returns>Bomb Blast 实例</returns>
-        public GameObject? SpawnBombBlast(Vector3 position, Transform? parent = null)
-        {
-            return SpawnBombBlast(position, parent, false, false);
-        }
-
-        /// <summary>
-        /// 在指定位置生成并触发 Bomb Blast 攻击（带配置参数）
-        /// </summary>
-        /// <param name="position">生成位置</param>
-        /// <param name="parent">父对象（可选）</param>
-        /// <param name="isBurstBlast">是否为爆炸连段（更大尺寸）</param>
+        /// <param name="size">爆炸大小（0=随机0.6-0.8，>0直接使用该值）</param>
         /// <param name="spawnSilkBallRing">是否生成丝球环</param>
         /// <param name="silkBallCount">丝球数量</param>
         /// <param name="initialOutwardSpeed">丝球初始向外速度</param>
@@ -369,8 +418,8 @@ namespace AnySilkBoss.Source.Managers
         /// <param name="radialBurstSpeed">径向爆发速度</param>
         /// <param name="releaseDelay">释放前等待时间</param>
         /// <returns>Bomb Blast 实例</returns>
-        public GameObject? SpawnBombBlast(Vector3 position, Transform? parent,
-            bool isBurstBlast, bool spawnSilkBallRing,
+        public GameObject? SpawnBombBlast(Vector3 position, Transform? parent = null,
+            float size = 0f, bool spawnSilkBallRing = false,
             int silkBallCount = 8, float initialOutwardSpeed = 12f,
             float reverseAcceleration = 25f, float maxInwardSpeed = 30f, float reverseAccelDuration = 5f,
             bool useReverseAccelMode = true, float radialBurstSpeed = 18f, float releaseDelay = 0.3f)
@@ -391,18 +440,18 @@ namespace AnySilkBoss.Source.Managers
             var behavior = obj.GetComponent<BombBlastBehavior>();
             if (behavior != null)
             {
-                behavior.Configure(isBurstBlast, spawnSilkBallRing, silkBallCount,
+                behavior.customSize = size;
+                behavior.Configure(spawnSilkBallRing, silkBallCount,
                     initialOutwardSpeed, reverseAcceleration, maxInwardSpeed, reverseAccelDuration,
                     useReverseAccelMode, radialBurstSpeed, releaseDelay);
             }
 
-            // 激活对象，FSM 会自动从 Start 状态开始运行
-            obj.SetActive(true);
+            ActivateBombBlast(obj);
 
             // 下一帧发送 START_NORMAL 事件（等待 FSM 进入 Mode Select 状态）
             StartCoroutine(SendStartEventNextFrame(obj, "START_NORMAL"));
 
-            Log.Debug($"[FWBlastManager] Bomb Blast 已生成 at {position}, burst={isBurstBlast}, ring={spawnSilkBallRing}, reverseAccel={useReverseAccelMode}");
+            Log.Debug($"[FWBlastManager] Bomb Blast 已生成 at {position}, size={size}, ring={spawnSilkBallRing}, reverseAccel={useReverseAccelMode}");
             return obj;
         }
 
@@ -416,7 +465,7 @@ namespace AnySilkBoss.Source.Managers
         /// <param name="moveMaxSpeed">移动最大速度</param>
         /// <param name="reachDistance">到达距离阈值</param>
         /// <param name="moveTimeout">移动超时时间</param>
-        /// <param name="isBurstBlast">是否为大尺寸爆炸</param>
+        /// <param name="size">爆炸大小（0=随机，>0直接使用）</param>
         /// <returns>Bomb Blast 实例</returns>
         public GameObject? SpawnMovingBombBlast(
             Vector3 position,
@@ -425,7 +474,7 @@ namespace AnySilkBoss.Source.Managers
             float moveMaxSpeed = 7f,
             float reachDistance = 2f,
             float moveTimeout = 5f,
-            bool isBurstBlast = true)
+            float size = 1f)
         {
             if (!_initialized)
             {
@@ -443,56 +492,19 @@ namespace AnySilkBoss.Source.Managers
             var behavior = obj.GetComponent<BombBlastBehavior>();
             if (behavior != null)
             {
-                // 先配置基础参数
-                behavior.Configure(isBurstBlast, false);
-                // 再配置移动模式
+                // 设置大小和基础参数
+                behavior.customSize = size;
+                behavior.Configure(false);
+                // 配置移动模式
                 behavior.ConfigureMoveMode(moveTarget, moveAcceleration, moveMaxSpeed, reachDistance, moveTimeout);
             }
 
-            // 激活对象，FSM 会自动从 Start 状态开始运行
-            obj.SetActive(true);
+            ActivateBombBlast(obj);
 
             // 下一帧发送 START_MOVE 事件（等待 FSM 进入 Mode Select 状态）
             StartCoroutine(SendStartEventNextFrame(obj, "START_MOVE"));
 
             Log.Debug($"[FWBlastManager] 移动模式 Bomb Blast 已生成 at {position}, 目标={moveTarget?.name}, 速度={moveMaxSpeed}");
-            return obj;
-        }
-
-        /// <summary>
-        /// 在指定位置生成自定义大小的 Bomb Blast
-        /// </summary>
-        /// <param name="position">生成位置</param>
-        /// <param name="size">直接使用的大小值（传入什么就是什么，不再随机）</param>
-        /// <returns>Bomb Blast 实例</returns>
-        public GameObject? SpawnBombBlastWithSize(Vector3 position, float size)
-        {
-            if (!_initialized)
-            {
-                Log.Warn("[FWBlastManager] 尚未初始化，无法生成 Bomb Blast");
-                return null;
-            }
-
-            var obj = GetAvailableBombBlast();
-            if (obj == null) return null;
-
-            obj.transform.SetParent(null);
-            obj.transform.position = position;
-
-            // 配置 BombBlastBehavior
-            var behavior = obj.GetComponent<BombBlastBehavior>();
-            if (behavior != null)
-            {
-                behavior.customSize = size;  // 直接设置大小，不随机
-            }
-
-            // 激活对象
-            obj.SetActive(true);
-
-            // 下一帧发送 START_NORMAL 事件（等待 FSM 进入 Mode Select 状态）
-            StartCoroutine(SendStartEventNextFrame(obj, "START_NORMAL"));
-
-            Log.Debug($"[FWBlastManager] 自定义大小 Bomb Blast 已生成 at {position}, 大小={size}");
             return obj;
         }
 
@@ -543,21 +555,40 @@ namespace AnySilkBoss.Source.Managers
                 return;
             }
 
-            // 禁用对象（停止 FSM 运行）
-            obj.SetActive(false);
+            var fsm = obj.LocateMyFSM("Control");
+            if (fsm != null)
+            {
+                fsm.enabled = false;
+            }
 
             // 重置 BombBlastBehavior 配置
             var behavior = obj.GetComponent<BombBlastBehavior>();
             if (behavior != null)
             {
+                behavior.StopAllCoroutines();
                 behavior.ResetConfig();
+            }
+
+            SetBombBlastPooled(obj);
+
+            if (!obj.activeSelf)
+            {
+                obj.SetActive(true);
             }
 
             // 移回对象池容器
             obj.transform.SetParent(_poolContainer.transform);
-            obj.LocateMyFSM("Control")?.Fsm.SetState("Start");
+
+            if (fsm != null)
+            {
+                fsm.Fsm.SetState("Start");
+            }
+
             // 添加回池
-            _bombBlastPool.Add(obj);
+            if (!_bombBlastPool.Contains(obj))
+            {
+                _bombBlastPool.Add(obj);
+            }
             Log.Debug($"[FWBlastManager] Bomb Blast 已回收，池中数量: {_bombBlastPool.Count}");
         }
 

@@ -84,7 +84,7 @@ namespace AnySilkBoss.Source.Actions
                 GetManagerReferences();
                 if (blastManager != null)
                 {
-                    blastManager.SpawnBombBlast(predictedPos);
+                    blastManager.SpawnBombBlast(predictedPos,null,0.65f);
                     
                     if (onBlastSpawned != null)
                     {
@@ -143,7 +143,19 @@ namespace AnySilkBoss.Source.Actions
         /// <summary>
         /// 静态方法：直接计算预测位置（供其他代码调用）
         /// </summary>
-        public static Vector3 CalculatePrediction(float predictionTime, float randomOffset = 0f)
+        /// <param name="predictionTime">预测时间</param>
+        /// <param name="randomOffset">随机偏移</param>
+        /// <param name="minX">场地最小X（可选）</param>
+        /// <param name="maxX">场地最大X（可选）</param>
+        /// <param name="minY">场地最小Y（可选）</param>
+        /// <param name="maxY">场地最大Y（可选）</param>
+        public static Vector3 CalculatePrediction(
+            float predictionTime, 
+            float randomOffset = 0f,
+            float? minX = null,
+            float? maxX = null,
+            float? minY = null,
+            float? maxY = null)
         {
             var hero = HeroController.instance;
             if (hero == null) return Vector3.zero;
@@ -163,6 +175,16 @@ namespace AnySilkBoss.Source.Actions
             {
                 predicted.x += Random.Range(-randomOffset, randomOffset);
                 predicted.y += Random.Range(-randomOffset, randomOffset);
+            }
+
+            // 限制在场地边界内
+            if (minX.HasValue && maxX.HasValue)
+            {
+                predicted.x = Mathf.Clamp(predicted.x, minX.Value, maxX.Value);
+            }
+            if (minY.HasValue && maxY.HasValue)
+            {
+                predicted.y = Mathf.Clamp(predicted.y, minY.Value, maxY.Value);
             }
 
             return predicted;

@@ -878,7 +878,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             {
                 behaviour = new FsmObject { Value = this },
                 methodName = new FsmString("DelayDisableDamageAndVisual") { Value = "DelayDisableDamageAndVisual" },
-                parameters = null
+                parameters = new FsmVar[0]
             };
 
             // 停止追踪
@@ -886,7 +886,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             {
                 behaviour = new FsmObject { Value = this },
                 methodName = new FsmString("StopChase") { Value = "StopChase" },
-                parameters = null
+                parameters = new FsmVar[0]
             };
 
             // 速度衰减
@@ -894,7 +894,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             {
                 behaviour = new FsmObject { Value = this },
                 methodName = new FsmString("SlowDownToZero") { Value = "SlowDownToZero" },
-                parameters = null
+                parameters = new FsmVar[0]
             };
 
             // 播放消散粒子
@@ -902,7 +902,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             {
                 behaviour = new FsmObject { Value = this },
                 methodName = new FsmString("PlayCollectParticle") { Value = "PlayCollectParticle" },
-                parameters = null
+                parameters = new FsmVar[0]
             };
 
             // 等待粒子播放完毕
@@ -1072,7 +1072,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         public void StopChase()
         {
             isChasing = false;
-            Debug.Log("停止追踪");
         }
 
         /// <summary>
