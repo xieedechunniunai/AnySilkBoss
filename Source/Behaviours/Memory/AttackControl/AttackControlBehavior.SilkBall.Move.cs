@@ -108,10 +108,11 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 everyFrame = false
             });
 
+            // 等待 BossControl 发送 SILK BALL DASH END（不使用 FINISHED 超时）
             actions.Add(new Wait
             {
-                time = new FsmFloat(10f),
-                finishEvent = FsmEvent.Finished,
+                time = new FsmFloat(15f),  // 足够长的等待时间，实际由 SILK BALL DASH END 事件打断
+                finishEvent = _silkBallDashEndEvent,
                 realTime = false
             });
 

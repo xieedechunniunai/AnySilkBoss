@@ -62,22 +62,23 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     public float lowerHalfProbability = 0.7f;    // 下半部分生成概率
     public float absorbAudioVolumeMultiplier = 3f;
     [Header("抛射波次参数")]
-    public float shootSpeed = 23f;           // 抛射基础速度
-    public float shootSpeedRandomRange = 8f; // 速度随机范围（±单位/秒）
+    public float shootSpeed = 13f;           // 抛射基础速度
+    public float shootSpeedRandomRange = 5f; // 速度随机范围（±单位/秒）
     public float shootAngleRandomRange = 15f; // 角度随机范围（±度）
-    public float shootGravityScale = 0.35f;   // 抛射重力缩放
+    public float shootGravityScale = 0.0005f;   // 抛射重力缩放（轻微下坠）
+    public float shootAcceleration = 15f;     // 抛射追踪加速度（转向能力，正常追踪为30）
 
     // 7波抛射配置：(生成角度, 生成半径倍数, 抛射角度, 球数量, 波间隔)
     // 半径基于碰撞箱radius=5
     private readonly (float spawnAngle, float radiusMult, float shootAngle, int ballCount, float interval)[] _shootWaveConfigs = new[]
     {
-            (352.5f, 0.5f, 45f, 7, 0.7f),    // 第1波：3.15位置，半径一半，向1.30（密度提升）
-            (0f, 0f, 35f, 6, 0.35f),         // 第2波：中心，向1.50（密度提升）
-            (45f, 0.125f, 40f, 6, 0.35f),    // 第3波：1.30方向，半径1/8，向1.40（密度提升）
-            (130f, 0.5f, 115f, 10, 0.5f),    // 第4波：10.40位置，半径一半，向11.10（密度提升）
-            (0f, 0f, 60f, 6, 0.35f),         // 第5波：中心，向1.00（密度提升）
-            (0f, 0f, 145f, 10, 1.0f),        // 第6波：中心，向10.10（密度提升）
-            (0f, 0f, 90f, 10, 0.5f)          // 第7波：中心，向正上方（密度提升）
+            (352.5f, 0.5f, 65f, 7, 0.7f),    // 第1波：3.15位置，半径一半，更朝上
+            (0f, 0f, 60f, 6, 0.35f),         // 第2波：中心，更朝上
+            (45f, 0.125f, 65f, 6, 0.35f),    // 第3波：1.30方向，半径1/8，更朝上
+            (130f, 0.5f, 105f, 10, 0.5f),    // 第4波：10.40位置，半径一半，更朝上
+            (0f, 0f, 80f, 6, 0.35f),         // 第5波：中心，更朝上
+            (0f, 0f, 120f, 10, 1.0f),        // 第6波：中心，更朝上
+            (0f, 0f, 90f, 10, 0.5f)          // 第7波：中心，向正上方
         };
 
     [Header("最终爆炸参数")]
@@ -519,10 +520,16 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
 
     private void AddFollowBossActions(FsmState followBossState)
     {
-        // 自定义跟随动作
-        var followAction = new MemoryBigSilkBallFollowAction
+        // 使用通用跟随 Action
+        var followAction = new Actions.FollowTargetAction
         {
-            bigSilkBallBehavior = this
+            targetTransform = bossObject?.transform,
+            positionOffset = new FsmVector3 { Value = chestOffset },
+            followX = new FsmBool { Value = true },
+            followY = new FsmBool { Value = true },
+            followZ = new FsmBool { Value = false },
+            followRotation = new FsmBool { Value = false },
+            forceDirectSet = new FsmBool { Value = true }
         };
 
         followBossState.Actions = new FsmStateAction[] { followAction };
@@ -539,9 +546,15 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
         };
 
         // 2. 跟随BOSS动作（持续性，每帧更新）
-        var followAction = new MemoryBigSilkBallFollowAction
+        var followAction = new Actions.FollowTargetAction
         {
-            bigSilkBallBehavior = this
+            targetTransform = bossObject?.transform,
+            positionOffset = new FsmVector3 { Value = chestOffset },
+            followX = new FsmBool { Value = true },
+            followY = new FsmBool { Value = true },
+            followZ = new FsmBool { Value = false },
+            followRotation = new FsmBool { Value = false },
+            forceDirectSet = new FsmBool { Value = true }
         };
 
         // 同时执行：吸收蓄力 + 跟随BOSS
@@ -820,7 +833,6 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
         // 检查小丝球是否可以被吸收
         if (silkBall == null || !silkBall.canBeAbsorbed)
         {
-            Log.Info($"小丝球不可被吸收 (canBeAbsorbed={silkBall?.canBeAbsorbed})");
             return;
         }
 
@@ -984,10 +996,10 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
             // 生成这一波的所有小丝球
             for (int i = 0; i < config.ballCount; i++)
             {
-                SpawnShootBall(config.spawnAngle, config.radiusMult, config.shootAngle);
+                // 延迟从0.4s开始，每个顺延0.1s
+                float boostDelay = 0.4f + i * 0.1f;
+                SpawnShootBall(config.spawnAngle, config.radiusMult, config.shootAngle, boostDelay);
             }
-
-            Log.Info($"第 {wave + 1}/{_shootWaveConfigs.Length} 波抛射完成 - 生成{config.ballCount}个球");
 
             // 等待间隔
             yield return new WaitForSeconds(config.interval);
@@ -1007,11 +1019,13 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
 
     /// <summary>
     /// 生成定向抛射的小丝球（带随机偏移）
+    /// 使用 Has Gravity 状态：先抛射，延迟后施加指向玩家的加速度
     /// </summary>
     /// <param name="spawnAngle">生成位置角度（度，Unity系统：0°=右，90°=上）</param>
     /// <param name="radiusMult">生成半径倍数（0=中心，1=完整半径5）</param>
     /// <param name="shootAngle">抛射方向角度（度）</param>
-    private void SpawnShootBall(float spawnAngle, float radiusMult, float shootAngle)
+    /// <param name="boostDelay">加速度延迟时间（秒）</param>
+    private void SpawnShootBall(float spawnAngle, float radiusMult, float shootAngle, float boostDelay)
     {
         if (silkBallManager == null || collisionBoxTransform == null) return;
 
@@ -1032,58 +1046,51 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
         float speedOffset = Random.Range(-shootSpeedRandomRange, shootSpeedRandomRange);
         float finalShootSpeed = shootSpeed + speedOffset;
 
-        // 使用 Memory 版本的丝球
+        // 使用 Memory 版本的丝球（Has Gravity 状态，不持续追踪）
         var behavior = silkBallManager.SpawnMemorySilkBall(
             spawnPosition,
-            acceleration: 0f,     // 不追踪
-            maxSpeed: finalShootSpeed,
+            acceleration: 0f,  // 加速度为0，不持续追踪
+            maxSpeed: 25f,     // 稍高的最大速度
             chaseTime: 10f,
-            scale: 1f,
+            scale: 1.33f,
             enableRotation: true
         );
 
         if (behavior != null)
         {
-            var rb = behavior.GetComponent<Rigidbody2D>();
-
-            if (rb != null)
-            {
-                // 设置重力（抛射阶段使用shootGravityScale）
-                rb.gravityScale = shootGravityScale + Random.Range(-0.1f, 0.1f);
-                rb.bodyType = RigidbodyType2D.Dynamic;
-
-                // 启动1秒保护时间（避免刚生成就碰到Terrain层的大丝球而消失）
-                behavior.StartProtectionTime(1f);
-
-                // 切换到重力状态并设置初始速度
-                var fsm = behavior.GetComponent<PlayMakerFSM>();
-                if (fsm != null)
-                {
-                    // 先发送PREPARE事件
-                    fsm.SendEvent("PREPARE");
-                    // 延迟后发送RELEASE事件并设置速度
-                    StartCoroutine(SetShootBallVelocityWithPrepare(fsm, rb, shootDirection * finalShootSpeed));
-                }
-            }
+            behavior.StartProtectionTime(1f);
+            // 设置初始抛射速度和重力
+            behavior.SetPhysics(shootDirection * finalShootSpeed, shootGravityScale);
+            behavior.SetGravityScale(shootGravityScale);
+            // 进入 Has Gravity 状态（不追踪，只受重力影响）
+            behavior.SendFsmEvent("PREPARE");
+            StartCoroutine(DelayedSendHasGravityEvent(behavior));
+            // 延迟后施加指向玩家的加速度
+            behavior.ApplyDelayedBoostTowardsHero(boostDelay, 45f);
         }
     }
 
     /// <summary>
-    /// 设置抛射小丝球的速度（带PREPARE事件）
+    /// 延迟发送 HAS_GRAVITY 事件
     /// </summary>
-    private IEnumerator SetShootBallVelocityWithPrepare(PlayMakerFSM fsm, Rigidbody2D rb, Vector2 velocity)
+    private IEnumerator DelayedSendHasGravityEvent(MemorySilkBallBehavior behavior)
     {
-        // 等待PREPARE完成
-        yield return new WaitForSeconds(0.1f);
-        // 发送RELEASE事件
-        fsm.SendEvent("SILK BALL RELEASE");
-        // 切换到重力状态
-        yield return new WaitForSeconds(0.05f);
-        fsm.Fsm.SetState("Has Gravity");
-        yield return null;
-        if (rb != null)
+        yield return new WaitForSeconds(0.01f);
+        if (behavior != null)
         {
-            rb.linearVelocity = velocity;
+            behavior.SendFsmEvent("HAS_GRAVITY");
+        }
+    }
+
+    /// <summary>
+    /// 延迟发送FSM事件
+    /// </summary>
+    private IEnumerator DelayedSendEvent(MemorySilkBallBehavior behavior, string eventName, float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        if (behavior != null)
+        {
+            behavior.SendFsmEvent(eventName);
         }
     }
 
@@ -1093,9 +1100,30 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     public void StartFinalBurstCoroutine()
     {
         Log.Info("开始最终爆炸阶段");
+
+        if (silkBallManager != null)
+        {
+            Log.Info($"[MemoryBigSilkBall] FinalBurst需求数量: {finalBurstRings * ballsPerRing} (圈数:{finalBurstRings}, 每圈:{ballsPerRing})");
+            silkBallManager.LogMemoryPoolStatus();
+        }
         
         // 禁用碰撞箱位置更新，固定位置避免影响小丝球受力计算
         shouldUpdateCollisionBoxPosition = false;        
+
+        if (collisionBoxTransform != null)
+        {
+            savedBurstCenter = collisionBoxTransform.position;
+        }
+        else
+        {
+            savedBurstCenter = transform.position;
+        }
+
+        if (collisionBox != null)
+        {
+            collisionBox.SetActive(false);
+        }
+
         StartCoroutine(FinalBurstCoroutine());
     }
 
@@ -1105,54 +1133,45 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     private IEnumerator FinalBurstCoroutine()
     {
         Log.Info($"最终爆炸开始 - 圈数: {finalBurstRings}, 每圈数量: {ballsPerRing}");
-        
-        // ⚠️ 保存碰撞箱位置作为旋转圆心（大丝球销毁后小丝球仍需使用）
-        if (collisionBoxTransform != null)
-        {
-            savedBurstCenter = collisionBoxTransform.position;
-            Log.Info($"保存爆发圆心位置: {savedBurstCenter}");
-        }
-        
+
         yield return new WaitForSeconds(2f);
         // 1. 先全部生成所有圈的小丝球，保存每一圈
-        var allRingsBalls = new System.Collections.Generic.List<System.Collections.Generic.List<GameObject>>();
+        var allRingsBalls = new System.Collections.Generic.List<System.Collections.Generic.List<MemorySilkBallBehavior>>();
         for (int ring = 0; ring < finalBurstRings && ring < ringRadii.Length; ring++)
         {
             float radius = ringRadii[ring];
             float angleStep = 360f / ballsPerRing;
             float angleOffset = (ring % 2 == 1) ? (angleStep / 2f) : 0f;
-            var currentRingBalls = new System.Collections.Generic.List<GameObject>();
+            var currentRingBalls = new System.Collections.Generic.List<MemorySilkBallBehavior>();
             for (int i = 0; i < ballsPerRing; i++)
             {
                 float angle = i * angleStep + angleOffset;
-                var ball = SpawnRingBall(radius, angle, ring);
-                if (ball != null)
+                var behavior = SpawnRingBall(radius, angle, ring);
+                if (behavior != null)
                 {
-                    currentRingBalls.Add(ball);
+                    currentRingBalls.Add(behavior);
+                }
+
+                if ((i + 1) % 2 == 0)
+                {
+                    yield return null;
                 }
             }
-            Log.Info($"第 {ring + 1}/{finalBurstRings} 圈生成完成 - 半径: {radius}, 数量: {currentRingBalls.Count}");
             allRingsBalls.Add(currentRingBalls);
             yield return new WaitForSeconds(0.1f);
         }
-
-        Log.Info($"所有圈静止生成完毕，开始依次爆发");
         yield return new WaitForSeconds(ringBurstDelay); // 爆发前的统一延迟，可根据需求加/删
                                                          // 2. 依次爆发每一圈
         for (int ring = 0; ring < allRingsBalls.Count; ring++)
         {
             var currentRingBalls = allRingsBalls[ring];
-            int ballIndex = 0;
-            foreach (var ball in currentRingBalls)
+            foreach (var behavior in currentRingBalls)
             {
-                if (ball != null)
+                if (behavior != null)
                 {
-                    // 传递圈索引用于确定旋转方向：奇数圈(0,2,4)顺时针，偶数圈(1,3)逆时针
-                    BurstRingBall(ball, ring);
-                    ballIndex++;
+                    BurstRingBall(behavior, ring);
                 }
             }
-            Log.Info($"第 {ring + 1}/{finalBurstRings} 圈已爆发");
             if (ring < allRingsBalls.Count - 1)
             {
                 yield return new WaitForSeconds(ringSpawnInterval); // 按原始设定间隔爆发
@@ -1170,16 +1189,15 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     /// <summary>
     /// 在圆环上生成小丝球（静止状态）
     /// </summary>
-    /// <returns>生成的小丝球GameObject</returns>
-    private GameObject? SpawnRingBall(float radius, float angle, int ringIndex)
+    /// <returns>生成的小丝球Behavior</returns>
+    private MemorySilkBallBehavior? SpawnRingBall(float radius, float angle, int ringIndex)
     {
-        if (silkBallManager == null || collisionBoxTransform == null) return null;
+        if (silkBallManager == null) return null;
 
         float angleRad = angle * Mathf.Deg2Rad;
         Vector2 direction = new Vector2(Mathf.Cos(angleRad), Mathf.Sin(angleRad));
 
-        // 从碰撞箱位置计算生成位置
-        Vector3 spawnPosition = collisionBoxTransform.position + new Vector3(direction.x, direction.y, 0f) * radius;
+        Vector3 spawnPosition = savedBurstCenter + new Vector3(direction.x, direction.y, 0f) * radius;
 
         // 使用 Memory 版本的丝球
         var behavior = silkBallManager.SpawnMemorySilkBall(
@@ -1193,92 +1211,45 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
 
         if (behavior != null)
         {
-            var rb = behavior.GetComponent<Rigidbody2D>();
-
-            if (rb != null)
-            {
-                // 设置重力为0（最终爆炸只需径向速度）
-                rb.gravityScale = finalBurstGravityScale;
-                rb.bodyType = RigidbodyType2D.Dynamic;
-                rb.linearVelocity = Vector2.zero;  // 初始静止
-
-                // 启动1秒保护时间（避免刚生成就碰到Terrain层的大丝球而消失）
-                behavior.StartProtectionTime(1f);
-
-                // 释放但保持静止
-                var fsm = behavior.GetComponent<PlayMakerFSM>();
-                if (fsm != null)
-                {
-                    // 先发送PREPARE事件
-                    fsm.SendEvent("PREPARE");
-                    // 延迟后发送 SILK BALL RELEASE 进入 Chase Hero 状态
-                    // 由于 acceleration=0，丝球会保持当前速度直线飞行
-                    StartCoroutine(ReleaseToChaseStateWithPrepare(fsm));
-                }
-
-                return behavior.gameObject;
-            }
+            behavior.StartProtectionTime(1f);
+            behavior.SetPhysics(Vector2.zero, finalBurstGravityScale);
+            StartCoroutine(DelayedSendEvent(behavior, "SILK BALL RELEASE", 0.1f));
+            return behavior;
         }
 
         return null;
     }
 
     /// <summary>
-    /// 释放小丝球进入 Chase Hero 状态（Final Burst 阶段使用）
-    /// 由于 acceleration=0，丝球会保持当前速度直线飞行
-    /// </summary>
-    private IEnumerator ReleaseToChaseStateWithPrepare(PlayMakerFSM fsm)
-    {
-        // 等待PREPARE完成
-        yield return new WaitForSeconds(0.1f);
-
-        // 检查FSM是否还存在（小丝球可能已被销毁）
-        if (fsm != null && fsm.Fsm != null)
-        {
-            // 通过 SILK BALL RELEASE 进入 Chase Hero 状态
-            // 由于 acceleration=0，丝球不会追踪，而是保持当前速度直线飞行
-            fsm.SendEvent("SILK BALL RELEASE");
-        }
-    }
-
-    /// <summary>
     /// 给圆环小丝球施加径向速度并启动保护时间，同时设置公转参数
     /// </summary>
-    /// <param name="ball">小丝球GameObject</param>
+    /// <param name="behavior">小丝球Behavior</param>
     /// <param name="ringIndex">圈索引（0=第一圈，1=第二圈...）</param>
-    private void BurstRingBall(GameObject ball, int ringIndex)
+    private void BurstRingBall(MemorySilkBallBehavior behavior, int ringIndex)
     {
-        if (ball == null) return;
-
-        var rb = ball.GetComponent<Rigidbody2D>();
-        var behavior = ball.GetComponent<MemorySilkBallBehavior>();
-        if (rb == null || behavior == null) return;
+        if (behavior == null) return;
 
         // 计算径向方向（使用保存的圆心位置）
-        Vector3 direction = (ball.transform.position - savedBurstCenter).normalized;
+        Vector3 direction = (behavior.transform.position - savedBurstCenter).normalized;
 
         // 根据圈索引计算速度倍数
         float speedMultiplier = 1f;
         if (ringIndex == 0)
         {
-            // 最内圈
             speedMultiplier = innerRingSpeedMultiplier;
         }
         else if (ringIndex >= finalBurstRings - 1)
         {
-            // 最外圈
             speedMultiplier = outerRingSpeedMultiplier;
         }
 
         // 设置初始径向速度
         Vector2 radialVelocity = new Vector2(direction.x, direction.y) * burstSpeed * speedMultiplier;
-        rb.linearVelocity = radialVelocity;
-
-        // 启动1秒保护时间（在此期间不会因碰到英雄或墙壁消失）
+        behavior.SetPhysics(radialVelocity, finalBurstGravityScale);
         behavior.StartProtectionTime(1f);
 
-        // ⚠️ 设置公转参数：奇数圈(0,2,4)顺时针（负角速度），偶数圈(1,3)逆时针（正角速度）
-        bool isClockwise = (ringIndex % 2 == 0);  // 第1、3、5圈顺时针
+        // 设置公转参数
+        bool isClockwise = (ringIndex % 2 == 0);
         float angularSpeed = isClockwise ? -orbitalAngularSpeed : orbitalAngularSpeed;
         behavior.StartOrbitalMotion(savedBurstCenter, angularSpeed, burstSpeed * speedMultiplier);
     }
@@ -1573,49 +1544,5 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     #endregion
 }
 
-#region 自定义 FSM Action
-/// <summary>
-/// 大丝球跟随Boss的自定义Action
-/// </summary>
-internal class MemoryBigSilkBallFollowAction : FsmStateAction
-{
-    public MemoryBigSilkBallBehavior? bigSilkBallBehavior;
-
-    public override void Reset()
-    {
-        bigSilkBallBehavior = null;
-    }
-
-    public override void OnEnter()
-    {
-        if (bigSilkBallBehavior == null)
-        {
-            Debug.LogError("MemoryBigSilkBallFollowAction: bigSilkBallBehavior 为 null");
-            Finish();
-            return;
-        }
-    }
-
-    public override void OnUpdate()
-    {
-        if (bigSilkBallBehavior == null || bigSilkBallBehavior.bossObject == null)
-        {
-            return;
-        }
-
-        // 移动根物品的XY轴到BOSS胸前，Z轴保持原版（57.4491）
-        Vector3 bossPosition = bigSilkBallBehavior.bossObject.transform.position;
-        Vector3 targetPosition = bossPosition + bigSilkBallBehavior.chestOffset;
-
-        // 根物品XY轴跟随BOSS，Z轴保持原版
-        Vector3 rootPosition = bigSilkBallBehavior.transform.position;
-        rootPosition.x = targetPosition.x;
-        rootPosition.y = targetPosition.y;
-        // Z轴保持原版值（应该已经是57.4491，不需要修改）
-
-        bigSilkBallBehavior.transform.position = rootPosition;
-    }
-}
-#endregion
 
 

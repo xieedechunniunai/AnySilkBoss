@@ -30,10 +30,16 @@ public class Plugin : BaseUnityPlugin
     public static string CurrentSaveFileName { get; set; } = null;
     public static string FSM_OUTPUT_PATH = "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\";
 
+    /// <summary>
+    /// Boulder 贴图（从嵌入资源加载）
+    /// </summary>
+    public static Texture2D? BoulderTexture { get; private set; }
+
     private void Awake()
     {
         Log.Init(Logger);
         Plugin.Instance = this;
+        LoadEmbeddedTextures();
 
         SceneManager.activeSceneChanged += OnSceneChange;
 
@@ -53,6 +59,7 @@ public class Plugin : BaseUnityPlugin
             _harmony = new Harmony(MyPluginInfo.PLUGIN_GUID);
             _harmony.PatchAll(typeof(BossPatches));
             _harmony.PatchAll(typeof(MemorySceneTransitionPatch));
+            _harmony.PatchAll(typeof(HeroDamageStackPatch));
             Log.Info("Harmony patches applied successfully");
         }
         catch (System.Exception ex)
@@ -70,13 +77,13 @@ public class Plugin : BaseUnityPlugin
         if (newScene.name == "Cradle_03")
         {
             // 重置所有平台状态
-            ResetBossPlatforms();
+            StartCoroutine(ResetBossPlatformsDelay());
+            DamageStackManager.Reset();
         }
 
         // 当从主菜单加载存档时创建管理器
         if (oldScene.name == "Menu_Title")
         {
-            ResetBossPlatforms();
             CreateManager();
             return;
         }
@@ -133,6 +140,11 @@ public class Plugin : BaseUnityPlugin
         }
     }
 
+    private IEnumerator ResetBossPlatformsDelay()
+    {
+        yield return new WaitForSeconds(2.5f);
+        ResetBossPlatforms();
+    }
     /// <summary>
     /// 重置 Boss 房间的所有平台状态（将倒塌的平台恢复）
     /// </summary>
@@ -146,10 +158,6 @@ public class Plugin : BaseUnityPlugin
                 var allObjects = Resources.FindObjectsOfTypeAll<GameObject>();
                 var cradlePlats = allObjects.Where(x => x.name.Contains("cradle_plat") && !x.name.Contains("spike")).ToList();
                 var cradleSpikePlats = allObjects.Where(x => x.name.Contains("cradle_spike_plat")).ToList();
-
-                Log.Info($"找到 {cradlePlats.Count} 个 cradle_plat 物品");
-                Log.Info($"找到 {cradleSpikePlats.Count} 个 cradle_spike_plat 物品");
-
                 // 处理 cradle_plat：禁用子物品 crank_hit 并重置位置
                 foreach (var plat in cradlePlats)
                 {
@@ -163,18 +171,23 @@ public class Plugin : BaseUnityPlugin
                     {
                         case "cradle_plat (6)":
                             plat.transform.position = new Vector3(39.81f, 58.35f, -0.2602f);
+                            Log.Info($"重置 {plat.name} 的位置");
                             break;
                         case "cradle_plat (1)":
                             plat.transform.position = new Vector3(49.01f, 64.94f, -0.2602f);
+                            Log.Info($"重置 {plat.name} 的位置");
                             break;
                         case "cradle_plat (7)":
                             plat.transform.position = new Vector3(31.81f, 80.87f, -0.2602f);
+                            Log.Info($"重置 {plat.name} 的位置");
                             break;
                         case "cradle_plat (8)":
                             plat.transform.position = new Vector3(48.9f, 93.74f, -0.2602f);
+                            Log.Info($"重置 {plat.name} 的位置");
                             break;
                         case "cradle_plat":
                             plat.transform.position = new Vector3(31.27f, 108.25f, -0.2602f);
+                            Log.Info($"重置 {plat.name} 的位置");
                             break;
                     }
                 }
@@ -247,6 +260,31 @@ public class Plugin : BaseUnityPlugin
             Log.Error($"堆栈跟踪: {ex.StackTrace}");
         }
     }
+
+    /// <summary>
+    /// 加载嵌入在程序集中的贴图资源
+    /// </summary>
+    private void LoadEmbeddedTextures()
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        foreach (string resourceName in assembly.GetManifestResourceNames())
+        {
+            using Stream? stream = assembly.GetManifestResourceStream(resourceName);
+            if (stream == null) continue;
+
+            if (resourceName.Contains("SLIK"))
+            {
+                var buffer = new byte[stream.Length];
+                stream.Read(buffer, 0, buffer.Length);
+                BoulderTexture = new Texture2D(2, 2);
+                BoulderTexture.LoadImage(buffer);
+                BoulderTexture.filterMode = FilterMode.Point;
+                BoulderTexture.wrapMode = TextureWrapMode.Clamp;
+                Log.Info($"成功加载 Boulder 贴图: {resourceName}");
+            }
+        }
+    }
+
     private void OnDestroy()
     {
         _harmony.UnpatchSelf();

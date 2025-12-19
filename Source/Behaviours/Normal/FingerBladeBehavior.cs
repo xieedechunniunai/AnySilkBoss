@@ -6,6 +6,7 @@ using HutongGames.PlayMaker.Actions;
 using System.Linq;
 using System;
 using AnySilkBoss.Source.Tools;
+using AnySilkBoss.Source.Actions;
 using GenericVariableExtension;
 using static AnySilkBoss.Source.Tools.FsmStateBuilder;
 
@@ -350,11 +351,21 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         {
             // 动作1：开始环绕（持续环绕，直到收到SHOOT事件）
             // 使用变量引用，这样可以在运行时动态获取最新值
-            var orbitAction = new FingerBladeOrbitAction
+            var orbitAction = new OrbitAroundTargetAction
             {
                 orbitRadius = _orbitRadiusVar ?? controlFSM!.FsmVariables.GetFsmFloat("OrbitRadius"),
                 orbitSpeed = _orbitSpeedVar ?? controlFSM!.FsmVariables.GetFsmFloat("OrbitSpeed"),
-                orbitOffset = _orbitOffsetVar ?? controlFSM!.FsmVariables.GetFsmFloat("OrbitOffset")
+                orbitAngleOffset = _orbitOffsetVar ?? controlFSM!.FsmVariables.GetFsmFloat("OrbitOffset"),
+                followTarget = true,
+                positionLerpSpeed = 30f,
+                rotateToFaceCenter = true,
+                pointOutward = true,
+                rotationOffset = 0f,
+                applyDirectionalRotationOffset = true,
+                directionalRotationOffset = 10f,
+                rotationLerpSpeed = 30f,
+                zeroVelocityOnEnter = true,
+                zeroVelocityOnExit = true
             };
 
             // 动作2：等待SHOOT事件（不设置超时，持续环绕）
@@ -757,7 +768,12 @@ namespace AnySilkBoss.Source.Behaviours.Normal
 
             // 全局转换指向参数设置状态
             var globalTrans = controlFSM.FsmGlobalTransitions.ToList();
-            globalTrans.Add(new FsmTransition { FsmEvent = customEvent, toState = paramsStateName, toFsmState = setParamsState });
+            globalTrans.Add(new FsmTransition
+            {
+                FsmEvent = customEvent,
+                toState = paramsStateName,
+                toFsmState = setParamsState
+            });
             controlFSM.Fsm.GlobalTransitions = globalTrans.ToArray();
         }
 
@@ -909,14 +925,19 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             var actions = new List<FsmStateAction>();
 
             // 追踪玩家
-            var trackAction = new FingerBladeTrackAction
+            var trackAction = new SoftLockTrackAction
             {
-                targetX = null,
-                targetY = null,
-                attackRotation = controlFSM.FsmVariables.GetFsmFloat("Attack Rotation"),
-                trackHeroX = false,
-                trackHeroY = true,
-                trackSpeed = 3f
+                followX = false,
+                followY = true,
+                followZ = false,
+                maintainInitialOffset = true,
+                positionLerpSpeed = 3f,
+                useMinY = true,
+                minY = 132f,
+                rotationZ = controlFSM.FsmVariables.GetFsmFloat("Attack Rotation"),
+                rotationLerpSpeed = 20f,
+                zeroVelocityOnEnter = true,
+                zeroVelocityOnExit = true
             };
             actions.Add(trackAction);
 
@@ -1014,270 +1035,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 toFsmState = trackState
             });
             anticPauseState.Transitions = transitions.ToArray();
-        }
-    }
-
-    /// <summary>
-    /// Finger Blade 环绕攻击自定义Action
-    /// </summary>
-    public class FingerBladeOrbitAction : FsmStateAction
-    {
-        [Header("环绕参数")]
-        public FsmFloat orbitRadius = 7f;
-        public FsmFloat orbitSpeed = 200;
-        public FsmFloat orbitOffset = 0f;
-
-        private GameObject? _hero;
-        private Transform? _ownerTransform;
-        private Vector3 _originalPosition;
-        private Quaternion _originalRotation;
-        private float _orbitTimer = 0f;
-        private bool _isOrbiting = false;
-
-        public override void Reset()
-        {
-            orbitRadius = 7f;
-            orbitSpeed = 200;
-            orbitOffset = 0f;
-            _hero = null;
-            _ownerTransform = null;
-            _orbitTimer = 0f;
-            _isOrbiting = false;
-        }
-
-        public override void OnEnter()
-        {
-            _hero = HeroController.instance?.gameObject;
-            if (_hero == null)
-            {
-                Debug.LogWarning("FingerBladeOrbitAction: 未找到HeroController");
-                Finish();
-                return;
-            }
-
-            _ownerTransform = Owner.transform;
-            _originalPosition = _ownerTransform.position;
-            _originalRotation = _ownerTransform.rotation;
-
-            // 获取当前环绕参数值（直接使用传入的变量引用）
-            float currentOffset = orbitOffset != null ? orbitOffset.Value : 0f;
-            float currentSpeed = orbitSpeed != null ? orbitSpeed.Value : 0f;
-            // 根据orbitOffset设置初始时间偏移，确保每个Finger Blade有不同的起始位置
-            _orbitTimer = currentOffset / currentSpeed;
-            _isOrbiting = true;
-
-            Debug.Log($"FingerBladeOrbitAction: 开始环绕攻击 - {Owner.name}，初始时间偏移: {_orbitTimer}，偏移角度: {currentOffset}°");
-        }
-
-        public override void OnUpdate()
-        {
-            if (_hero == null || _ownerTransform == null)
-            {
-                Finish();
-                return;
-            }
-
-            // 如果环绕已停止，立即停止移动并完成动作
-            if (!_isOrbiting)
-            {
-                Finish();
-                return;
-            }
-
-            try
-            {
-                // 获取当前环绕参数值（直接使用传入的变量引用）
-                float currentOffset = orbitOffset != null ? orbitOffset.Value : 0f;
-                float currentSpeed = orbitSpeed != null ? orbitSpeed.Value : 0f;
-                float currentRadius = orbitRadius != null ? orbitRadius.Value : 0f;
-                // 计算环绕角度
-                float orbitAngle = _orbitTimer * currentSpeed;
-                float radians = orbitAngle * Mathf.Deg2Rad;
-
-                // 计算环绕位置（在XY平面上做圆周运动）
-                Vector3 offset = new Vector3(
-                    Mathf.Cos(radians) * currentRadius,
-                    Mathf.Sin(radians) * currentRadius,
-                    0f
-                );
-
-                Vector3 targetPosition = _hero.transform.position + offset;
-
-                // 移动Finger Blade到目标位置（只调整X和Y坐标）
-                // 使用更高的插值速度（30f）确保快速跟随玩家移动
-                Vector3 currentPos = _ownerTransform.position;
-                Vector3 newPos = Vector3.Lerp(currentPos, targetPosition, Time.deltaTime * 30f);
-                _ownerTransform.position = new Vector3(newPos.x, newPos.y, currentPos.z); // 保持Z坐标不变
-
-                // 让Finger Blade朝向玩家（只调整Rotation的Z轴）
-                Vector3 direction = (_hero.transform.position - _ownerTransform.position).normalized;
-                if (direction != Vector3.zero)
-                {
-                    // 根据旋转方向调整10度偏移：顺时针+10°，逆时针-10°
-                    float rotationDirection = Mathf.Sign(currentSpeed); // +1=顺时针, -1=逆时针
-                    float angleOffset = 10f * rotationDirection;
-
-                    // 计算朝向玩家的角度（Z轴旋转），并添加方向性偏移
-                    float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg + 180f + angleOffset;
-                    Quaternion targetRotation = Quaternion.Euler(0f, 0f, angle);
-
-                    // 使用更高的插值速度（50f）确保旋转快速跟上位置变化
-                    _ownerTransform.rotation = Quaternion.Lerp(_ownerTransform.rotation, targetRotation, Time.deltaTime * 30f);
-                }
-
-                // 累积时间在计算和更新之后进行，保持初始相位
-                _orbitTimer += Time.deltaTime;
-            }
-            catch (System.Exception e)
-            {
-                Debug.LogError($"FingerBladeOrbitAction 更新过程中出错: {e}");
-                Finish();
-            }
-        }
-
-        public override void OnExit()
-        {
-            _isOrbiting = false;
-
-            // 立即停止移动，确保没有惯性
-            if (_ownerTransform != null)
-            {
-                // 获取Rigidbody2D组件并立即停止移动
-                var rb2d = _ownerTransform.GetComponent<Rigidbody2D>();
-                if (rb2d != null)
-                {
-                    rb2d.linearVelocity = Vector2.zero;
-                    rb2d.angularVelocity = 0f;
-                }
-            }
-
-            Debug.Log($"FingerBladeOrbitAction: 环绕攻击结束 - {Owner.name}，立即停止移动");
-        }
-
-        /// <summary>
-        /// 停止环绕（供外部调用）
-        /// </summary>
-        public void StopOrbit()
-        {
-            _isOrbiting = false;
-        }
-
-    }
-
-    /// <summary>
-    /// 自定义追踪Action - 支持水平/垂直独立追踪
-    /// </summary>
-    public class FingerBladeTrackAction : FsmStateAction
-    {
-        public FsmFloat? targetX;
-        public FsmFloat? targetY;
-        public FsmFloat? attackRotation;
-        public bool trackHeroX;
-        public bool trackHeroY;
-        public float trackSpeed = 15f;
-
-        private GameObject? _hero;
-        private Vector3 _offset;
-
-        // 新增：记录进入时的位置，用于锁定非追踪轴
-        private float _fixedX;
-        private float _fixedY;
-
-        public override void Reset()
-        {
-            targetX = null;
-            targetY = null;
-            attackRotation = null;
-            trackHeroX = false;
-            trackHeroY = false;
-            trackSpeed = 15f;
-        }
-
-        public override void OnEnter()
-        {
-            _hero = HeroController.instance?.gameObject;
-            if (_hero == null) { Finish(); return; }
-
-            // 1. 记录当前位置作为固定位置
-            _fixedX = Owner.transform.position.x;
-            _fixedY = Owner.transform.position.y;
-
-            float tx = targetX != null ? targetX.Value : _fixedX;
-            float ty = targetY != null ? targetY.Value : _fixedY;
-
-            // 计算相对于玩家的初始偏移量
-            _offset = new Vector3(tx - _hero.transform.position.x, ty - _hero.transform.position.y, 0f);
-
-            // 初始旋转设置
-            if (attackRotation != null)
-            {
-                Owner.transform.rotation = Quaternion.Euler(0f, 0f, attackRotation.Value);
-            }
-
-            // 2. 立即清零速度，防止惯性
-            ZeroVelocity();
-        }
-
-        public override void OnUpdate()
-        {
-            if (_hero == null) return;
-
-            // 3. 确定目标 X
-            float destX;
-            if (trackHeroX)
-            {
-                destX = _hero.transform.position.x + _offset.x;
-            }
-            else if (targetX != null)
-            {
-                destX = targetX.Value;
-            }
-            else
-            {
-                // 既不追踪也没有特定目标，锁定在进入时的位置，防止漂移
-                destX = _fixedX;
-            }
-
-            // 确定目标 Y
-            float destY;
-            if (trackHeroY)
-            {
-                // 特殊处理：如果启用Y轴追踪（主要用于Swipe），将targetY视为相对Hero的Offset
-                float offsetVal = (targetY != null) ? targetY.Value : _offset.y;
-                destY = _hero.transform.position.y + offsetVal;
-            }
-            else if (targetY != null)
-            {
-                destY = targetY.Value;
-            }
-            else
-            {
-                destY = _fixedY;
-            }
-
-            // 限制 Y 轴最低高度
-            if (destY < 132f) destY = 132f;
-            Vector3 dest = new Vector3(destX, destY, Owner.transform.position.z);
-            Owner.transform.position = Vector3.Lerp(Owner.transform.position, dest, Time.deltaTime * trackSpeed);
-
-            // 持续更新旋转以确保正确
-            if (attackRotation != null)
-            {
-                Owner.transform.rotation = Quaternion.Lerp(Owner.transform.rotation, Quaternion.Euler(0f, 0f, attackRotation.Value), Time.deltaTime * 20f);
-            }
-        }
-
-        private void ZeroVelocity()
-        {
-            if (Owner != null)
-            {
-                var rb2d = Owner.GetComponent<Rigidbody2D>();
-                if (rb2d != null)
-                {
-                    rb2d.linearVelocity = Vector2.zero;
-                    rb2d.angularVelocity = 0f;
-                }
-            }
         }
     }
 }

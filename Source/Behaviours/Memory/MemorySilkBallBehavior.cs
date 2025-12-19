@@ -374,7 +374,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             // 这样可以确保池内的丝球不会被意外释放
             var existingRegisters = gameObject.GetComponents<EventRegister>();
             EventRegister? releaseRegister = null;
-            
+
             // 查找是否已有 SILK BALL RELEASE 的注册器
             foreach (var reg in existingRegisters)
             {
@@ -384,13 +384,13 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                     break;
                 }
             }
-            
+
             // 如果没有，创建新的
             if (releaseRegister == null)
             {
                 releaseRegister = gameObject.AddComponent<EventRegister>();
             }
-            
+
             // 通过反射设置私有字段
             SetEventRegisterFields(releaseRegister, "SILK BALL RELEASE", controlFSM);
         }
@@ -457,11 +457,35 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 {
                     controlFSM.Fsm.SetState("Idle");
                 }
-
-                // 发送 PREPARE 事件
                 controlFSM.SendEvent("PREPARE");
             }
         }
+
+        #region 外部调用基元接口
+        /// <summary>
+        /// 设置物理参数（重力、速度）
+        /// </summary>
+        public void SetPhysics(Vector2 velocity, float gravityScale = 0f)
+        {
+            if (rb2d != null)
+            {
+                rb2d.gravityScale = gravityScale;
+                rb2d.bodyType = RigidbodyType2D.Dynamic;
+                rb2d.linearVelocity = velocity;
+            }
+        }
+
+        /// <summary>
+        /// 发送FSM事件
+        /// </summary>
+        public void SendFsmEvent(string eventName)
+        {
+            if (controlFSM != null)
+            {
+                controlFSM.SendEvent(eventName);
+            }
+        }
+        #endregion
 
         /// <summary>
         /// 重置状态
@@ -538,13 +562,14 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         private void ApplyScale()
         {
-            // 缩放根物体
+            // 缩放根物体（Unity会自动缩放子物体的碰撞箱世界大小）
             transform.localScale = Vector3.one * scale;
 
-            // 使用原始碰撞器半径乘以scale，避免累积乘法
+            // 碰撞箱本地半径保持不变，不需要手动乘以scale
+            // 因为Unity会根据父物体的scale自动调整碰撞箱的世界大小
             if (mainCollider != null && _originalColliderRadius > 0)
             {
-                mainCollider.radius = _originalColliderRadius * scale;
+                mainCollider.radius = _originalColliderRadius;
             }
         }
 
@@ -665,7 +690,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             // 初始化 FSM 数据
             controlFSM.Fsm.InitData();
-            
+
             // 确保 Started 标记为 true
             var fsmType = controlFSM.Fsm.GetType();
             var startedField = fsmType.GetField("started", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
@@ -673,7 +698,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             {
                 startedField.SetValue(controlFSM.Fsm, true);
             }
-            
+
             // 立即设置初始状态
             controlFSM.Fsm.SetState(initState.Name);
         }
@@ -1081,11 +1106,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
         private void AddHasGravityActions(FsmState hasGravityState)
         {
-            // 设置重力
-            var setGravityAction = new SetGravity2dScale
-            {
-                gravityScale = new FsmFloat(1f)
-            };
+            // 不强制设置重力，使用外部已设置的 rb2d.gravityScale
+            // 这样可以支持不同的重力值（如抛射阶段使用 0.0005f）
 
             // 停止追踪
             var stopChaseAction = new CallMethod
@@ -1095,14 +1117,14 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 parameters = new FsmVar[0]
             };
 
-            // 等待碰撞
+            // 等待碰撞（长时间等待，让丝球自然飞行）
             var waitAction = new Wait
             {
                 time = new FsmFloat(10f),
                 finishEvent = FsmEvent.Finished
             };
 
-            hasGravityState.Actions = new FsmStateAction[] { setGravityAction, stopChaseAction, waitAction };
+            hasGravityState.Actions = new FsmStateAction[] { stopChaseAction, waitAction };
         }
 
         private void AddReverseAccelerationActions(FsmState reverseAccelState)
@@ -1165,7 +1187,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         public void StartChase()
         {
             isChasing = true;
-            
+
             // 设置追踪目标：优先使用 customTarget，否则使用玩家
             GameObject? target = null;
             if (customTarget != null)
@@ -1180,7 +1202,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                     target = heroController.gameObject;
                 }
             }
-            
+
             // 更新 FSM 变量
             if (targetGameObjectVar != null && target != null)
             {
@@ -1402,6 +1424,74 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         }
 
         /// <summary>
+        /// 设置重力缩放（供Has Gravity状态使用）
+        /// </summary>
+        public void SetGravityScale(float gravityScale)
+        {
+            if (rb2d != null)
+            {
+                rb2d.gravityScale = gravityScale;
+            }
+        }
+
+        /// <summary>
+        /// 延迟后施加持续加速度（指向玩家）
+        /// </summary>
+        /// <param name="delay">延迟时间（秒）</param>
+        /// <param name="acceleration">加速度大小（单位/秒²）</param>
+        /// <param name="duration">加速度持续时间（秒），默认0.5秒</param>
+        public void ApplyDelayedBoostTowardsHero(float delay, float acceleration, float duration = 2f)
+        {
+            StartCoroutine(DelayedBoostCoroutine(delay, acceleration, duration));
+        }
+
+        /// <summary>
+        /// 延迟加速度协程 - 在延迟后持续施加固定方向的加速度（方向在开始时确定）
+        /// </summary>
+        private IEnumerator DelayedBoostCoroutine(float delay, float acceleration, float duration)
+        {
+            yield return new WaitForSeconds(delay);
+
+            if (!isActive || rb2d == null) yield break;
+
+            // 只在开始时获取一次玩家位置，确定加速度方向
+            Vector2 direction = Vector2.zero;
+            var heroController = FindFirstObjectByType<HeroController>();
+            if (heroController != null)
+            {
+                direction = ((Vector2)heroController.transform.position - (Vector2)transform.position).normalized;
+            }
+
+            if (direction == Vector2.zero) yield break;
+
+            // 逐渐减速到接近0，然后设置初始速度指向玩家
+            while (rb2d.linearVelocity.magnitude > 1f)
+            {
+                rb2d.linearVelocity *= 0.9f;
+                yield return new WaitForSeconds(0.018f);
+            }
+            // 设置初始速度指向玩家
+            rb2d.linearVelocity = direction * 8f;
+            // 使用固定方向持续施加加速度，限制最大速度为30
+            const float maxSpeed = 30f;
+            float elapsed = 0f;
+            while (elapsed < duration && isActive && rb2d != null)
+            {
+                // 施加加速度：velocity += acceleration * deltaTime
+                rb2d.linearVelocity += direction * acceleration * Time.deltaTime;
+
+                // 限制最大速度
+                if (rb2d.linearVelocity.magnitude > maxSpeed)
+                {
+                    rb2d.linearVelocity = rb2d.linearVelocity.normalized * maxSpeed;
+                }
+
+                elapsed += Time.deltaTime;
+                yield return null;
+            }
+        }
+
+        /// <summary>
         /// 设置自转开关
         /// </summary>
         public void SetRotation(bool enable)
@@ -1446,22 +1536,22 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             // 计算从圆心指向丝球的方向（径向）
             Vector2 radialDir = ((Vector2)transform.position - (Vector2)orbitalCenter).normalized;
-            
+
             // 计算切向方向（垂直于径向，根据角速度符号决定方向）
             // 正角速度 = 逆时针 = 切向向量为 (-radialDir.y, radialDir.x)
             // 负角速度 = 顺时针 = 切向向量为 (radialDir.y, -radialDir.x)
             Vector2 tangentDir = new Vector2(-radialDir.y, radialDir.x);
-            
+
             // 计算当前距离，用于调整切向速度（距离越远，切向线速度需要越大才能保持角速度）
             float distance = Vector2.Distance(transform.position, orbitalCenter);
-            
+
             // 切向线速度 = 角速度(rad/s) * 半径
             // 将角速度从度转换为弧度：angularSpeed * Mathf.Deg2Rad
             float tangentSpeed = orbitalAngularSpeed * Mathf.Deg2Rad * distance;
-            
+
             // 组合速度：径向向外 + 切向旋转
             Vector2 velocity = radialDir * orbitalOutwardSpeed + tangentDir * tangentSpeed;
-            
+
             rb2d.linearVelocity = velocity;
         }
 
@@ -1496,7 +1586,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             // 计算初始向外方向（从圆心指向当前位置）
             Vector2 outwardDirection = ((Vector2)transform.position - (Vector2)reverseAccelCenter).normalized;
-            
+
             if (rb2d != null)
             {
                 // 设置初始向外速度

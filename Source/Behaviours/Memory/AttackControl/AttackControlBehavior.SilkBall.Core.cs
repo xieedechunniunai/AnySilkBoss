@@ -51,8 +51,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             _silkBallDashPrepareState!.Transitions = new FsmTransition[]
             {
-                CreateTransition(_silkBallDashEndEvent!, _silkBallDashEndState!),
-                CreateFinishedTransition(moveRestartState!)  // 超时保护
+                CreateTransition(_silkBallDashEndEvent!, _silkBallDashEndState!)
             };
 
             SetFinishedTransition(_silkBallDashEndState!, _silkBallRecoverState!);

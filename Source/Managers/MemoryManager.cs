@@ -246,6 +246,8 @@ namespace AnySilkBoss.Source.Managers
         {
             Log.Info("[MemoryManager] 开始进入梦境...");
 
+            DamageStackManager.Reset();
+
             // 保存进入梦境前的玩家数据
             SavePlayerDataBeforeEnteringMemory();
 
@@ -390,6 +392,8 @@ namespace AnySilkBoss.Source.Managers
         private IEnumerator ExitMemoryByPlaying()
         {
             Log.Info("[MemoryManager] 开始退出梦境...");
+
+            DamageStackManager.Reset();
 
             var hero = HeroController.instance;
             if (hero == null)
