@@ -78,9 +78,9 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             _attackControlFsm.FsmVariables.Init();
         }
 
-        private FsmState CreateSilkBallDashPrepareState()
+        private FsmState CreateSilkBallMovePrepareState()
         {
-            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Dash Prepare", "移动丝球准备：计算路线并触发Boss移动");
+            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Move Prepare", "移动丝球准备：计算路线并触发Boss移动");
 
             var actions = new List<FsmStateAction>();
 
@@ -120,9 +120,9 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             return state;
         }
 
-        private FsmState CreateSilkBallDashEndState()
+        private FsmState CreateSilkBallMoveEndState()
         {
-            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Dash End", "移动丝球结束：停止生成");
+            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Move End", "移动丝球结束：停止生成");
 
             var actions = new List<FsmStateAction>();
 

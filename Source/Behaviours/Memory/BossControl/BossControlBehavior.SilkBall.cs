@@ -501,7 +501,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         private FsmState CreateSilkBallDashEndState()
         {
-            var state = CreateState(_bossControlFsm!.Fsm, "Silk Ball Dash End", "移动丝球结束，恢复硬直");
+            var state = CreateState(_bossControlFsm!.Fsm, "Silk Ball Move End", "移动丝球结束，恢复硬直");
 
             var actions = new List<FsmStateAction>();
 

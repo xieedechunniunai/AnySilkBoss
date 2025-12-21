@@ -20,24 +20,24 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         {
             // 创建所有状态（静态版本 + 移动版本）
             _silkBallPrepareState = CreateSilkBallPrepareState();
-            _silkBallPrepareCastState = CreateSilkBallPrepareCastState();
-            _silkBallCastState = CreateSilkBallCastState();
-            _silkBallLiftState = CreateSilkBallLiftState();
-            _silkBallAnticState = CreateSilkBallAnticState();
-            _silkBallReleaseState = CreateSilkBallReleaseState();
-            _silkBallEndState = CreateSilkBallEndState();
-            _silkBallRecoverState = CreateSilkBallRecoverState();
+            _silkBallRingPrepareState = CreateSilkBallRingPrepareState();
+            _silkBallRingCastState = CreateSilkBallRingCastState();
+            _silkBallRingLiftState = CreateSilkBallRingLiftState();
+            _silkBallRingAnticState = CreateSilkBallRingAnticState();
+            _silkBallRingReleaseState = CreateSilkBallRingReleaseState();
+            _silkBallRingEndState = CreateSilkBallRingEndState();
+            _silkBallRingRecoverState = CreateSilkBallRingRecoverState();
 
             // 创建移动版本的状态
-            _silkBallDashPrepareState = CreateSilkBallDashPrepareState();
-            _silkBallDashEndState = CreateSilkBallDashEndState();
+            _silkBallMovePrepareState = CreateSilkBallMovePrepareState();
+            _silkBallMoveEndState = CreateSilkBallMoveEndState();
 
             // 使用 FsmStateBuilder 批量添加状态
             AddStatesToFsm(_attackControlFsm!,
-                _silkBallPrepareState, _silkBallPrepareCastState, _silkBallCastState,
-                _silkBallLiftState, _silkBallAnticState, _silkBallReleaseState,
-                _silkBallEndState, _silkBallRecoverState,
-                _silkBallDashPrepareState, _silkBallDashEndState);
+                _silkBallRingPrepareState, _silkBallRingCastState,
+                _silkBallRingLiftState, _silkBallRingAnticState, _silkBallRingReleaseState,
+                _silkBallRingEndState, _silkBallRingRecoverState,
+                _silkBallMovePrepareState, _silkBallMoveEndState);
 
             // 查找状态用于链接
             var moveRestartState = FindState(_attackControlFsm, "Move Restart");
@@ -45,41 +45,41 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             // 设置状态转换（使用 CreateTransition 辅助方法）
             _silkBallPrepareState.Transitions = new FsmTransition[]
             {
-                CreateTransition(_silkBallStaticEvent!, _silkBallPrepareCastState!),
-                CreateTransition(_silkBallDashEvent!, _silkBallDashPrepareState!)
+                CreateTransition(_silkBallStaticEvent!, _silkBallRingPrepareState!),
+                CreateTransition(_silkBallDashEvent!, _silkBallMovePrepareState!)
             };
 
-            _silkBallDashPrepareState!.Transitions = new FsmTransition[]
+            _silkBallMovePrepareState!.Transitions = new FsmTransition[]
             {
-                CreateTransition(_silkBallDashEndEvent!, _silkBallDashEndState!),
+                CreateTransition(_silkBallDashEndEvent!, _silkBallMoveEndState!),
                 CreateFinishedTransition(moveRestartState!)  // 超时保护
             };
 
-            SetFinishedTransition(_silkBallDashEndState!, _silkBallRecoverState!);
-            SetFinishedTransition(_silkBallPrepareCastState!, _silkBallCastState!);
+            SetFinishedTransition(_silkBallMoveEndState!, _silkBallRingRecoverState!);
+            SetFinishedTransition(_silkBallRingPrepareState!, _silkBallRingCastState!);
 
-            _silkBallCastState!.Transitions = new FsmTransition[]
+            _silkBallRingCastState!.Transitions = new FsmTransition[]
             {
-                CreateFinishedTransition(_silkBallLiftState!),
+                CreateFinishedTransition(_silkBallRingLiftState!),
             };
 
-            _silkBallLiftState!.Transitions = new FsmTransition[]
+            _silkBallRingLiftState!.Transitions = new FsmTransition[]
             {
-                CreateFinishedTransition(_silkBallAnticState!),
+                CreateFinishedTransition(_silkBallRingAnticState!),
             };
 
-            _silkBallAnticState!.Transitions = new FsmTransition[]
+            _silkBallRingAnticState!.Transitions = new FsmTransition[]
             {
-                CreateFinishedTransition(_silkBallReleaseState!),
+                CreateFinishedTransition(_silkBallRingReleaseState!),
             };
 
-            _silkBallReleaseState!.Transitions = new FsmTransition[]
+            _silkBallRingReleaseState!.Transitions = new FsmTransition[]
             {
-                CreateFinishedTransition(_silkBallEndState!),
+                CreateFinishedTransition(_silkBallRingEndState!),
             };
 
-            SetFinishedTransition(_silkBallEndState!, _silkBallRecoverState!);
-            SetFinishedTransition(_silkBallRecoverState!, moveRestartState!);
+            SetFinishedTransition(_silkBallRingEndState!, _silkBallRingRecoverState!);
+            SetFinishedTransition(_silkBallRingRecoverState!, moveRestartState!);
 
             var attackChoiceState = FindState(_attackControlFsm, "Attack Choice");
             if (attackChoiceState != null)
@@ -93,7 +93,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         /// </summary>
         private FsmState CreateSilkBallPrepareState()
         {
-            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Prepare", "丝球攻击准备（50%分支）");
+            var state = GetOrCreateState(_attackControlFsm!, "Silk Ball Prepare", "丝球攻击准备（50%分支）");
 
             var actions = new List<FsmStateAction>();
             actions.Add(new SendEventByName
@@ -244,9 +244,9 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             }
         }
 
-        private FsmState CreateSilkBallPrepareCastState()
+        private FsmState CreateSilkBallRingPrepareState()
         {
-            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Prepare Cast", "丝球攻击Prepare Cast");
+            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Ring Prepare", "丝球攻击Prepare Cast");
 
             var actions = new List<FsmStateAction>();
             var stopStunControl = CloneAction<SendEventByName>("Web Lift");
@@ -271,9 +271,9 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         /// <summary>
         /// 创建Silk Ball Cast状态（播放Cast动画并向上移动）
         /// </summary>
-        private FsmState CreateSilkBallCastState()
+        private FsmState CreateSilkBallRingCastState()
         {
-            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Cast", "丝球攻击Cast动画，同时向上移动");
+            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Ring Cast", "丝球攻击Cast动画，同时向上移动");
 
             var actions = new List<FsmStateAction>();
             var setVelocity = CloneAction<SetVelocity2d>("Web Cast");
@@ -298,9 +298,9 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         /// <summary>
         /// 创建Silk Ball Lift状态（只负责向上移动到高点）
         /// </summary>
-        private FsmState CreateSilkBallLiftState()
+        private FsmState CreateSilkBallRingLiftState()
         {
-            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Lift", "向上移动到高点");
+            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Ring Lift", "向上移动到高点");
 
             var actions = new List<FsmStateAction>();
 
@@ -351,9 +351,9 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         /// <summary>
         /// 创建Silk Ball Antic状态（在高点召唤丝球）
         /// </summary>
-        private FsmState CreateSilkBallAnticState()
+        private FsmState CreateSilkBallRingAnticState()
         {
-            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Antic", "在高点召唤8个丝球");
+            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Ring Antic", "在高点召唤8个丝球");
 
             var actions = new List<FsmStateAction>();
 
@@ -379,9 +379,9 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         /// <summary>
         /// 创建Silk Ball Release状态（释放丝球 + 冲击波，无Roar动画）
         /// </summary>
-        private FsmState CreateSilkBallReleaseState()
+        private FsmState CreateSilkBallRingReleaseState()
         {
-            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Release", "释放所有丝球并触发冲击波");
+            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Ring Release", "释放所有丝球并触发冲击波");
 
             var actions = new List<FsmStateAction>();
 
@@ -403,9 +403,9 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         /// <summary>
         /// 创建Silk Ball End状态
         /// </summary>
-        private FsmState CreateSilkBallEndState()
+        private FsmState CreateSilkBallRingEndState()
         {
-            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball End", "丝球攻击结束");
+            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Ring End", "丝球攻击结束");
 
             var actions = new List<FsmStateAction>();
             actions.Add(new Tk2dWatchAnimationEvents
@@ -431,9 +431,9 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         /// <summary>
         /// 创建Silk Ball Recover状态（简单下降，然后交给Move Restart恢复）
         /// </summary>
-        private FsmState CreateSilkBallRecoverState()
+        private FsmState CreateSilkBallRingRecoverState()
         {
-            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Recover", "丝球攻击结束，简单下降");
+            var state = CreateState(_attackControlFsm!.Fsm, "Silk Ball Ring Recover", "丝球攻击结束，简单下降");
 
             var actions = new List<FsmStateAction>();
 

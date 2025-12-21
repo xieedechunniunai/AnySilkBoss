@@ -24,7 +24,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         {
             if (_attackControlFsm == null) return;
 
-            var rubbleAttackState = FindState(_attackControlFsm, "Rubble Attack?");
+            var rubbleAttackState = _rubbleAttackQuestionState;
             if (rubbleAttackState == null)
             {
                 Log.Warn("未找到Rubble Attack?状态，无法添加P6 Web Attack监听");
@@ -84,7 +84,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             SetP6WebRecoverActions(_p6WebRecoverState);
 
             // 查找Move Restart状态
-            var moveRestartState = FindState(_attackControlFsm, "Move Restart");
+            var moveRestartState = _moveRestartState;
 
             // 设置状态转换
             SetP6WebAttackTransitions(moveRestartState);
@@ -303,7 +303,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         }
 
         /// <summary>
-        /// 获取Pattern中所有WebStrand的碰撞体信息（基于web_strand_caught�?
+        /// 获取Pattern中所有WebStrand的碰撞体信息（基于web_strand_caught
         /// </summary>
         private List<WebStrandColliderInfo> GetWebStrandColliderInfo(GameObject pattern)
         {
@@ -320,11 +320,10 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 if (strandTransform.name.Contains("Silk Boss WebStrand"))
                 {
 
-                    // === 修改点：直接使用 strandTransform (父物�?视觉物体) ===
-                    // 只要父物体是你看到的那个丝线，就用它�?Position �?Up
+                    // === 修改点：直接使用 strandTransform (父物视觉物体) ===
 
-                    Vector3 center = strandTransform.position; // 使用父物体中�?
-                    Vector3 direction3D = strandTransform.right;  // 使用父物体朝�?(Unity自动处理旋转)
+                    Vector3 center = strandTransform.position; // 使用父物体中
+                    Vector3 direction3D = strandTransform.right;  // 使用父物体朝(Unity自动处理旋转)
                     // Vector2 direction = new Vector2(direction3D.x, direction3D.y);
                     Vector2 direction = new Vector2(direction3D.x, direction3D.y).normalized;
                     // 计算线段端点
@@ -335,7 +334,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                     {
                         name = strandTransform.name,
                         centerPosition = center,
-                        rotationZ = strandTransform.eulerAngles.z, // 记录父物体角�?
+                        rotationZ = strandTransform.eulerAngles.z, // 记录父物体角度
                         startPoint = startPoint,
                         endPoint = endPoint
                     };

@@ -376,7 +376,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 pointOutward = true,
                 rotationOffset = 0f,
                 applyDirectionalRotationOffset = true,
-                directionalRotationOffset = 10f,
+                directionalRotationOffset = 8f,
                 rotationLerpSpeed = 30f,
                 zeroVelocityOnEnter = true,
                 zeroVelocityOnExit = true

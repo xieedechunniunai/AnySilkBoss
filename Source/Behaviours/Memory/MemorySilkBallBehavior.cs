@@ -1689,6 +1689,13 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             if (otherObject.layer == heroBoxLayer)
             {
 
+                // 如果处于保护时间内，忽略玩家碰撞
+                if (isProtected)
+                {
+                    return;
+                }
+
+
                 // Debug.Log($"碰到玩家: {otherObject.name}, 发送 HIT HERO 事件");
                 controlFSM.SendEvent("HIT HERO");
                 return;

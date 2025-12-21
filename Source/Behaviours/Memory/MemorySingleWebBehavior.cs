@@ -32,6 +32,12 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         // 攻击参数
         private bool _isAttacking = false;
 
+        private Transform? _followTarget;
+        private Vector3 _followOffset = Vector3.zero;
+        private bool _enableFollowTarget = false;
+        private bool _enableContinuousRotation = false;
+        private float _continuousRotationSpeed = 0f;
+
         // 初始化标志
         private bool _initialized = false;
         #endregion
@@ -68,6 +74,25 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             // 禁用时停止所有协程
             StopAllCoroutines();
             _isAttacking = false;
+            ResetDynamicSettings();
+        }
+
+        private void LateUpdate()
+        {
+            if (!_isAttacking)
+            {
+                return;
+            }
+
+            if (_enableFollowTarget && _followTarget != null)
+            {
+                transform.position = _followTarget.position + _followOffset;
+            }
+
+            if (_enableContinuousRotation && Mathf.Abs(_continuousRotationSpeed) > 0.001f)
+            {
+                transform.Rotate(0f, 0f, _continuousRotationSpeed * Time.deltaTime);
+            }
         }
         #endregion
 
@@ -118,7 +143,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             DisableHornetCatchFsm();
 
             _initialized = true;
-            Log.Info($"=== MemorySingleWebBehavior 初始化完成: {gameObject.name} ===");
         }
 
         /// <summary>
@@ -173,7 +197,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             if (hornetCatchFsm != null)
             {
                 hornetCatchFsm.enabled = false;
-                Log.Info("  已禁用 Hornet Catch FSM");
             }
         }
         #endregion
@@ -199,6 +222,19 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             }
 
             StartCoroutine(AttackCoroutine(appearDelay, burstDelay));
+        }
+
+        public void ConfigureFollowTarget(Transform? target, Vector3? offset = null)
+        {
+            _followTarget = target;
+            _followOffset = offset ?? Vector3.zero;
+            _enableFollowTarget = target != null;
+        }
+
+        public void ConfigureContinuousRotation(bool enable, float rotationSpeed)
+        {
+            _enableContinuousRotation = enable;
+            _continuousRotationSpeed = enable ? rotationSpeed : 0f;
         }
 
         /// <summary>
@@ -268,6 +304,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             StopAllCoroutines();
             _isAttacking = false;
             DisableDamageHero();
+            ResetDynamicSettings();
             ResetToPoolContainer();
 
             // 注意：强制停止不会重置冷却，需要手动调用 ResetCooldown
@@ -286,6 +323,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         private void ResetToPoolContainer()
         {
+            ResetDynamicSettings();
             if (_controlFsm != null)
             {
                 // 发送 ATTACK CLEAR 全局事件（原版用于清理攻击）
@@ -301,6 +339,15 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             {
                 transform.SetParent(_poolContainer);
             }
+        }
+
+        private void ResetDynamicSettings()
+        {
+            _followTarget = null;
+            _followOffset = Vector3.zero;
+            _enableFollowTarget = false;
+            _enableContinuousRotation = false;
+            _continuousRotationSpeed = 0f;
         }
 
         /// <summary>
