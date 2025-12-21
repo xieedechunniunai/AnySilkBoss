@@ -66,17 +66,17 @@ namespace AnySilkBoss.Source.Behaviours.Normal
 
         // 丝球攻击状态引用
         private FsmState? _silkBallPrepareState;
-        private FsmState? _silkBallPrepareCastState;
-        private FsmState? _silkBallCastState;
-        private FsmState? _silkBallLiftState;
-        private FsmState? _silkBallAnticState;
-        private FsmState? _silkBallReleaseState;
-        private FsmState? _silkBallEndState;
-        private FsmState? _silkBallRecoverState;
+        private FsmState? _silkBallRingPrepareState;
+        private FsmState? _silkBallRingCastState;
+        private FsmState? _silkBallRingLiftState;
+        private FsmState? _silkBallRingAnticState;
+        private FsmState? _silkBallRingReleaseState;
+        private FsmState? _silkBallRingEndState;
+        private FsmState? _silkBallRingRecoverState;
 
         // 移动丝球攻击状态引用
-        private FsmState? _silkBallDashPrepareState;
-        private FsmState? _silkBallDashEndState;
+        private FsmState? _silkBallMovePrepareState;
+        private FsmState? _silkBallMoveEndState;
 
         // BossControl FSM引用（用于通信）
         private PlayMakerFSM? _bossControlFsm;
@@ -137,7 +137,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             {
                 var currentStateName = _attackControlFsm.ActiveStateName;
                 // 如果不在移动丝球准备状态，立即停止生成（防止状态被意外打断后继续生成）
-                if (currentStateName != "Silk Ball Dash Prepare")
+                if (currentStateName != "Silk Ball Move Prepare")
                 {
                     Log.Info($"检测到不在移动丝球准备状态（当前状态：{currentStateName}），停止生成丝球");
                     StopGeneratingSilkBall();

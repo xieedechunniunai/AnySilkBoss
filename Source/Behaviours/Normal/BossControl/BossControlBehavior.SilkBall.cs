@@ -494,11 +494,11 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         }
 
         /// <summary>
-        /// 创建Silk Ball Dash End状态（恢复硬直并通知AttackControl）
+        /// 创建Silk Ball Dash End Move状态（恢复硬直并通知AttackControl）
         /// </summary>
         private FsmState CreateSilkBallDashEndState()
         {
-            var state = CreateState(_bossControlFsm!.Fsm, "Silk Ball Dash End", "移动丝球结束，恢复硬直并通知AttackControl停止生成");
+            var state = CreateState(_bossControlFsm!.Fsm, "Silk Ball Move End", "移动丝球结束，恢复硬直并通知AttackControl停止生成");
 
             var actions = new List<FsmStateAction>();
 

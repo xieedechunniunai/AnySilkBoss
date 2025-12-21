@@ -33,7 +33,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             var climbSilkBallAttack = climbStates[3];
             var climbAttackCooldown = climbStates[4];
 
-            var idleState = FindState(_attackControlFsm, "Idle");
+            var idleState = _idleState;
 
             AddClimbAttackChoiceActions(climbAttackChoice);
             AddClimbNeedleAttackActions(climbNeedleAttack);

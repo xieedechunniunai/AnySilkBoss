@@ -147,7 +147,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         private void DisableOriginalSpikeLift()
         {
-            var rubbleAttackState = _attackControlFsm!.FsmStates.FirstOrDefault(s => s.Name == "Rubble Attack?");
+            var rubbleAttackState = _rubbleAttackQuestionState;
             if (rubbleAttackState == null)
             {
                 Log.Warn("[AttackControl] 未找到 Rubble Attack? 状态");
@@ -210,7 +210,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             _spikeTriggerState.Actions = actions.ToArray();
 
             // 设置跳转：FINISHED -> Attack Choice
-            var attackChoiceState = FindState(_attackControlFsm, "Attack Choice");
+            var attackChoiceState = _attackChoiceState;
             if (attackChoiceState != null)
             {
                 SetFinishedTransition(_spikeTriggerState, attackChoiceState);
@@ -229,7 +229,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         {
             if (_attackControlFsm == null || _spikeTriggerEvent == null) return;
 
-            var attackChoiceState = _attackControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Attack Choice");
+            var attackChoiceState = _attackChoiceState;
             if (attackChoiceState == null)
             {
                 Log.Warn("[AttackControl] 未找到 Attack Choice 状态");

@@ -41,9 +41,15 @@ namespace AnySilkBoss.Source.Managers
         private const string BossSceneName = "Cradle_03";
 
         // 自动补充池机制
-        private bool _enableAutoPooling = true;
-        private const int MIN_POOL_SIZE = 20;  // 丝线池最小数量
+        private bool _enableNormalAutoPooling = false;  // 普通池自动补充
+        private bool _enableMemoryAutoPooling = false;  // 梦境池自动补充
+        private const int NORMAL_MIN_POOL_SIZE = 20;   // 普通池最小数量
+        private const int MEMORY_MIN_POOL_SIZE = 40;   // 梦境池最小数量（提升到20）
         private const float POOL_GENERATION_INTERVAL = 0.2f;  // 生成间隔
+
+        // 池子加载状态
+        private bool _normalPoolLoaded = false;
+        private bool _memoryPoolLoaded = false;
         #endregion
 
         #region Unity Lifecycle
@@ -130,18 +136,24 @@ namespace AnySilkBoss.Source.Managers
             // 创建单根丝线预制体
             yield return CreateSingleWebStrandPrefab();
 
-            // 对象池可以复用，只在首次创建
-            if (_poolContainer == null)
-            {
-                CreatePoolContainer();
-            }
-
             _initialized = true;
             Log.Info("=== SingleWebManager 初始化完成 ===");
 
-            // 启动自动补充池机制
+            // 启动自动补充池机制（会根据各自的启用标记决定是否工作）
             StartCoroutine(AutoPoolGeneration());
             StartCoroutine(AutoMemoryPoolGeneration());
+
+            // 根据 MemoryManager 判断加载哪个池子
+            if (MemoryManager.IsInMemoryMode)
+            {
+                Log.Info("[SingleWebManager] 检测到 Memory 模式，加载梦境池子");
+                LoadMemoryPool();
+            }
+            else
+            {
+                Log.Info("[SingleWebManager] 普通模式，加载普通池子");
+                LoadNormalPool();
+            }
         }
 
         /// <summary>
@@ -180,69 +192,11 @@ namespace AnySilkBoss.Source.Managers
             {
                 _pattern1Template = pattern1Transform.gameObject;
                 Log.Info($"找到 Pattern 1 模板: {_pattern1Template.name}");
-                LogPattern1Structure();
             }
             else
             {
                 Log.Error("未找到 Pattern 1 GameObject！");
             }
-        }
-
-        /// <summary>
-        /// 记录 Pattern 1 的结构信息
-        /// </summary>
-        private void LogPattern1Structure()
-        {
-            if (_pattern1Template == null) return;
-
-            Log.Info("=== Pattern 1 结构分析 ===");
-
-            // 获取 FSM
-            var patternControlFsm = FSMUtility.LocateMyFSM(_pattern1Template, "silk_boss_pattern_control");
-            if (patternControlFsm != null)
-            {
-                Log.Info($"找到 silk_boss_pattern_control FSM");
-            }
-            else
-            {
-                Log.Warn("未找到 silk_boss_pattern_control FSM");
-            }
-
-            // 获取所有 Silk Boss WebStrand 子物品
-            int webStrandCount = 0;
-            foreach (Transform child in _pattern1Template.transform)
-            {
-                if (child.name.Contains("Silk Boss WebStrand"))
-                {
-                    webStrandCount++;
-
-                    // 只详细记录第一个 WebStrand
-                    if (webStrandCount == 1)
-                    {
-                        Log.Info($"--- 分析第一个 WebStrand: {child.name} ---");
-
-                        // 获取 FSM
-                        var controlFsm = FSMUtility.LocateMyFSM(child.gameObject, "Control");
-                        var hornetCatchFsm = FSMUtility.LocateMyFSM(child.gameObject, "Hornet Catch");
-
-                        if (controlFsm != null)
-                            Log.Info("  找到 Control FSM");
-                        if (hornetCatchFsm != null)
-                            Log.Info("  找到 Hornet Catch FSM");
-
-                        // 获取子物品
-                        var webStrandSingle = child.Find("web_strand_single");
-                        var webStrandCaught = child.Find("web_strand_caught");
-
-                        if (webStrandSingle != null)
-                            Log.Info($"  找到子物品: web_strand_single");
-                        if (webStrandCaught != null)
-                            Log.Info($"  找到子物品: web_strand_caught");
-                    }
-                }
-            }
-
-            Log.Info($"总共找到 {webStrandCount} 个 Silk Boss WebStrand 子物品");
         }
 
         /// <summary>
@@ -296,21 +250,177 @@ namespace AnySilkBoss.Source.Managers
             yield return null;
         }
 
+        #endregion
+
+        #region 池子加载/销毁管理（公开方法）
 
         /// <summary>
-        /// 创建对象池容器
+        /// 加载普通池子（并销毁梦境池子，保证两个池子不共存）
         /// </summary>
-        private void CreatePoolContainer()
+        public void LoadNormalPool()
         {
+            if (!_initialized)
+            {
+                Log.Warn("[SingleWebManager] 尚未初始化，无法加载普通池子");
+                return;
+            }
+
+            if (_normalPoolLoaded)
+            {
+                Log.Info("[SingleWebManager] 普通池子已加载，跳过");
+                return;
+            }
+
+            // 先销毁梦境池子
+            if (_memoryPoolLoaded)
+            {
+                DestroyMemoryPool();
+            }
+
+            Log.Info("[SingleWebManager] 开始加载普通池子...");
+
+            // 创建普通池容器
             _poolContainer = new GameObject("SingleWeb Pool");
             _poolContainer.transform.SetParent(transform);
-            Log.Info("已创建丝线对象池容器");
 
-            // 创建 Memory 版本的对象池容器
+            // 启用普通池自动补充
+            _enableNormalAutoPooling = true;
+            _normalPoolLoaded = true;
+
+            Log.Info($"[SingleWebManager] 普通池子已加载，目标大小: {NORMAL_MIN_POOL_SIZE}");
+        }
+
+        /// <summary>
+        /// 销毁普通池子
+        /// </summary>
+        public void DestroyNormalPool()
+        {
+            if (!_normalPoolLoaded)
+            {
+                Log.Info("[SingleWebManager] 普通池子未加载，跳过销毁");
+                return;
+            }
+
+            Log.Info("[SingleWebManager] 开始销毁普通池子...");
+
+            // 停止自动补充
+            _enableNormalAutoPooling = false;
+
+            // 销毁所有实例
+            if (_webPool != null)
+            {
+                int destroyedCount = 0;
+                foreach (var web in _webPool)
+                {
+                    if (web != null && web.gameObject != null)
+                    {
+                        Object.Destroy(web.gameObject);
+                        destroyedCount++;
+                    }
+                }
+                _webPool.Clear();
+                Log.Info($"已销毁普通对象池中的 {destroyedCount} 个丝线实例");
+            }
+
+            // 销毁容器
+            if (_poolContainer != null)
+            {
+                Object.Destroy(_poolContainer);
+                _poolContainer = null;
+            }
+
+            _normalPoolLoaded = false;
+            Log.Info("[SingleWebManager] 普通池子已销毁");
+        }
+
+        /// <summary>
+        /// 加载梦境池子（并销毁普通池子，保证两个池子不共存）
+        /// </summary>
+        public void LoadMemoryPool()
+        {
+            if (!_initialized)
+            {
+                Log.Warn("[SingleWebManager] 尚未初始化，无法加载梦境池子");
+                return;
+            }
+
+            if (_memoryPoolLoaded)
+            {
+                Log.Info("[SingleWebManager] 梦境池子已加载，跳过");
+                return;
+            }
+
+            // 先销毁普通池子
+            if (_normalPoolLoaded)
+            {
+                DestroyNormalPool();
+            }
+
+            Log.Info("[SingleWebManager] 开始加载梦境池子...");
+
+            // 创建梦境池容器
             _memoryPoolContainer = new GameObject("Memory SingleWeb Pool");
             _memoryPoolContainer.transform.SetParent(transform);
-            Log.Info("已创建 Memory 丝线对象池容器");
+
+            // 启用梦境池自动补充
+            _enableMemoryAutoPooling = true;
+            _memoryPoolLoaded = true;
+
+            Log.Info($"[SingleWebManager] 梦境池子已加载，目标大小: {MEMORY_MIN_POOL_SIZE}");
         }
+
+        /// <summary>
+        /// 销毁梦境池子
+        /// </summary>
+        public void DestroyMemoryPool()
+        {
+            if (!_memoryPoolLoaded)
+            {
+                Log.Info("[SingleWebManager] 梦境池子未加载，跳过销毁");
+                return;
+            }
+
+            Log.Info("[SingleWebManager] 开始销毁梦境池子...");
+
+            // 停止自动补充
+            _enableMemoryAutoPooling = false;
+
+            // 销毁所有实例
+            if (_memoryWebPool != null)
+            {
+                int destroyedCount = 0;
+                foreach (var web in _memoryWebPool)
+                {
+                    if (web != null && web.gameObject != null)
+                    {
+                        Object.Destroy(web.gameObject);
+                        destroyedCount++;
+                    }
+                }
+                _memoryWebPool.Clear();
+                Log.Info($"已销毁 Memory 对象池中的 {destroyedCount} 个丝线实例");
+            }
+
+            // 销毁容器
+            if (_memoryPoolContainer != null)
+            {
+                Object.Destroy(_memoryPoolContainer);
+                _memoryPoolContainer = null;
+            }
+
+            _memoryPoolLoaded = false;
+            Log.Info("[SingleWebManager] 梦境池子已销毁");
+        }
+
+        /// <summary>
+        /// 检查普通池子是否已加载
+        /// </summary>
+        public bool IsNormalPoolLoaded => _normalPoolLoaded;
+
+        /// <summary>
+        /// 检查梦境池子是否已加载
+        /// </summary>
+        public bool IsMemoryPoolLoaded => _memoryPoolLoaded;
 
         #endregion
 
@@ -560,7 +670,7 @@ namespace AnySilkBoss.Source.Managers
         #region Auto Pool Generation
         /// <summary>
         /// 自动补充普通对象池机制
-        /// 如果池内数量小于 MIN_POOL_SIZE，则每 POOL_GENERATION_INTERVAL 秒生成一个到池子里
+        /// 如果池内数量小于 NORMAL_MIN_POOL_SIZE，则每 POOL_GENERATION_INTERVAL 秒生成一个到池子里
         /// </summary>
         private IEnumerator AutoPoolGeneration()
         {
@@ -569,8 +679,8 @@ namespace AnySilkBoss.Source.Managers
                 // 等待间隔时间
                 yield return new WaitForSeconds(POOL_GENERATION_INTERVAL);
 
-                // 如果未启用，跳过本次检查
-                if (!_enableAutoPooling)
+                // 如果未启用普通池自动补充，跳过本次检查
+                if (!_enableNormalAutoPooling)
                 {
                     continue;
                 }
@@ -583,7 +693,7 @@ namespace AnySilkBoss.Source.Managers
                 int currentPoolSize = _webPool.Count(w => w != null);
 
                 // 如果池内数量小于最小值，生成一个新实例到池中
-                if (currentPoolSize < MIN_POOL_SIZE)
+                if (currentPoolSize < NORMAL_MIN_POOL_SIZE)
                 {
                     var newWeb = CreateNewWebInstance();
                     if (newWeb != null)
@@ -597,7 +707,7 @@ namespace AnySilkBoss.Source.Managers
 
         /// <summary>
         /// 自动补充 Memory 对象池机制
-        /// 如果池内数量小于 MIN_POOL_SIZE，则每 POOL_GENERATION_INTERVAL 秒生成一个到池子里
+        /// 如果池内数量小于 MEMORY_MIN_POOL_SIZE，则每 POOL_GENERATION_INTERVAL 秒生成一个到池子里
         /// </summary>
         private IEnumerator AutoMemoryPoolGeneration()
         {
@@ -606,8 +716,8 @@ namespace AnySilkBoss.Source.Managers
                 // 等待间隔时间
                 yield return new WaitForSeconds(POOL_GENERATION_INTERVAL);
 
-                // 如果未启用，跳过本次检查
-                if (!_enableAutoPooling)
+                // 如果未启用梦境池自动补充，跳过本次检查
+                if (!_enableMemoryAutoPooling)
                 {
                     continue;
                 }
@@ -620,7 +730,7 @@ namespace AnySilkBoss.Source.Managers
                 int currentPoolSize = _memoryWebPool.Count(w => w != null);
 
                 // 如果池内数量小于最小值，生成一个新实例到池中
-                if (currentPoolSize < MIN_POOL_SIZE)
+                if (currentPoolSize < MEMORY_MIN_POOL_SIZE)
                 {
                     var newWeb = CreateNewMemoryWebInstance();
                     if (newWeb != null)
@@ -717,8 +827,6 @@ namespace AnySilkBoss.Source.Managers
                 return;
             }
 
-            Log.Info("=== 配置单根丝线预制体 ===");
-
             // 1. 找到 hero_catcher
             Transform? heroCatcherTransform = FindChildRecursive(_singleWebStrandPrefab.transform, "hero_catcher");
             if (heroCatcherTransform == null)
@@ -764,7 +872,6 @@ namespace AnySilkBoss.Source.Managers
                     if (originalDamageHero != null && originalDamageHero.OnDamagedHero != null)
                     {
                         damageHero.OnDamagedHero = originalDamageHero.OnDamagedHero;
-                        Log.Info("已从 DamageHeroEventManager 设置预制体 DamageHero 事件");
                     }
                     else
                     {
@@ -857,52 +964,66 @@ namespace AnySilkBoss.Source.Managers
             // 停止所有协程
             StopAllCoroutines();
 
-            // 清理普通对象池：销毁所有实例
-            if (_webPool != null)
+            // 停止自动补充
+            _enableNormalAutoPooling = false;
+            _enableMemoryAutoPooling = false;
+
+            // 销毁普通池子（如果已加载）
+            if (_normalPoolLoaded)
             {
-                int destroyedCount = 0;
-                foreach (var web in _webPool)
+                // 清理普通对象池：销毁所有实例
+                if (_webPool != null)
                 {
-                    if (web != null && web.gameObject != null)
+                    int destroyedCount = 0;
+                    foreach (var web in _webPool)
                     {
-                        Object.Destroy(web.gameObject);
-                        destroyedCount++;
+                        if (web != null && web.gameObject != null)
+                        {
+                            Object.Destroy(web.gameObject);
+                            destroyedCount++;
+                        }
                     }
+                    _webPool.Clear();
+                    Log.Info($"已销毁普通对象池中的 {destroyedCount} 个丝线实例");
                 }
-                _webPool.Clear();
-                Log.Info($"已销毁普通对象池中的 {destroyedCount} 个丝线实例");
-            }
 
-            // 清理 Memory 对象池：销毁所有实例
-            if (_memoryWebPool != null)
-            {
-                int destroyedCount = 0;
-                foreach (var web in _memoryWebPool)
+                // 销毁普通对象池容器
+                if (_poolContainer != null)
                 {
-                    if (web != null && web.gameObject != null)
-                    {
-                        Object.Destroy(web.gameObject);
-                        destroyedCount++;
-                    }
+                    Object.Destroy(_poolContainer);
+                    _poolContainer = null;
+                    Log.Info("已销毁普通对象池容器");
                 }
-                _memoryWebPool.Clear();
-                Log.Info($"已销毁 Memory 对象池中的 {destroyedCount} 个丝线实例");
+                _normalPoolLoaded = false;
             }
 
-            // 销毁普通对象池容器
-            if (_poolContainer != null)
+            // 销毁梦境池子（如果已加载）
+            if (_memoryPoolLoaded)
             {
-                Object.Destroy(_poolContainer);
-                _poolContainer = null;
-                Log.Info("已销毁普通对象池容器");
-            }
+                // 清理 Memory 对象池：销毁所有实例
+                if (_memoryWebPool != null)
+                {
+                    int destroyedCount = 0;
+                    foreach (var web in _memoryWebPool)
+                    {
+                        if (web != null && web.gameObject != null)
+                        {
+                            Object.Destroy(web.gameObject);
+                            destroyedCount++;
+                        }
+                    }
+                    _memoryWebPool.Clear();
+                    Log.Info($"已销毁 Memory 对象池中的 {destroyedCount} 个丝线实例");
+                }
 
-            // 销毁 Memory 对象池容器
-            if (_memoryPoolContainer != null)
-            {
-                Object.Destroy(_memoryPoolContainer);
-                _memoryPoolContainer = null;
-                Log.Info("已销毁 Memory 对象池容器");
+                // 销毁 Memory 对象池容器
+                if (_memoryPoolContainer != null)
+                {
+                    Object.Destroy(_memoryPoolContainer);
+                    _memoryPoolContainer = null;
+                    Log.Info("已销毁 Memory 对象池容器");
+                }
+                _memoryPoolLoaded = false;
             }
 
             // 销毁预制体

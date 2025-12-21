@@ -56,8 +56,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         {
             if (_attackControlFsm == null) return;
 
-            var singleState = FindState(_attackControlFsm, "Single");
-            var webRecoverState = FindState(_attackControlFsm, "Web Recover");
+            var singleState = _singleState;
+            var webRecoverState = _webRecoverState;
             if (singleState == null || webRecoverState == null)
             {
                 Log.Warn("Single或Web Recover状态不存在，无法补丁梦境版Single连击");
@@ -197,8 +197,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         {
             if (_attackControlFsm == null) return;
 
-            var doubleState = FindState(_attackControlFsm, "Double");
-            var webRecoverState = FindState(_attackControlFsm, "Web Recover");
+            var doubleState = _doubleState;
+            var webRecoverState = _webRecoverState;
             if (doubleState == null || webRecoverState == null)
             {
                 Log.Warn("Double或Web Recover状态不存在，无法补丁梦境版Double连击链");
@@ -315,7 +315,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         {
             if (_attackControlFsm == null) return;
 
-            var webRecoverState = FindState(_attackControlFsm, "Web Recover");
+            var webRecoverState = _webRecoverState;
             if (webRecoverState?.Actions != null)
             {
                 foreach (var action in webRecoverState.Actions)
@@ -330,7 +330,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 }
             }
 
-            var moveRestartState = FindState(_attackControlFsm, "Move Restart");
+            var moveRestartState = _moveRestartState;
             if (moveRestartState?.Actions != null)
             {
                 foreach (var action in moveRestartState.Actions)
@@ -342,7 +342,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                     }
                 }
             }
-            var moveRestart3State = FindState(_attackControlFsm, "Move Restart 3");
+            var moveRestart3State = _moveRestart3State;
             if (moveRestart3State?.Actions != null)
             {
                 foreach (var action in moveRestart3State.Actions)
@@ -357,7 +357,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         }
         private void AddAttactStopAction()
         {
-            var attackStopState = _attackControlFsm?.FsmStates.FirstOrDefault(x => x.Name == "Attack Stop");
+            var attackStopState = _attackStopState;
             if (attackStopState == null) { return; }
             var actions = attackStopState.Actions.ToList();
             actions.Insert(0, new CallMethod
@@ -372,9 +372,9 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
         private void ModifyDashAttackState()
         {
-            var dashAttackState = _attackControlFsm?.FsmStates.FirstOrDefault(x => x.Name == "Dash Attack");
+            var dashAttackState = _dashAttackState;
             if (dashAttackState == null) { return; }
-            var dashAttackAnticState = _attackControlFsm?.FsmStates.FirstOrDefault(x => x.Name == "Dash Attack Antic");
+            var dashAttackAnticState = _dashAttackAnticState;
             if (dashAttackAnticState == null) { return; }
 
             var dashAttackactions = dashAttackAnticState.Actions.ToList();
@@ -389,7 +389,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             }
             dashAttackAnticState.Actions = dashAttackactions.ToArray();
 
-            var dashAttackEndState = _attackControlFsm?.FsmStates.FirstOrDefault(x => x.Name == "Dash Attack End");
+            var dashAttackEndState = _dashAttackEndState;
             if (dashAttackEndState == null) { return; }
 
             var dashAttackEndactions = dashAttackEndState.Actions.ToList();
@@ -414,8 +414,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
         private void ModifySpikeLiftAimState()
         {
-            var spikeLiftAimState = _attackControlFsm?.FsmStates.FirstOrDefault(x => x.Name == "Spike Lift Aim");
-            var spikeLiftAimState2 = _attackControlFsm?.FsmStates.FirstOrDefault(x => x.Name == "Spike Lift Aim 2");
+            var spikeLiftAimState = _spikeLiftAimState;
+            var spikeLiftAimState2 = _spikeLiftAim2State;
             if (spikeLiftAimState == null || spikeLiftAimState2 == null || _bossScene == null) { return; }
             var spikeFloors = _bossScene.transform.Find("Spike Floors").gameObject;
             var spikeLiftAimactions = spikeLiftAimState.Actions.ToList();
@@ -475,6 +475,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         {
             Log.Info("Boss眩晕，开始清理丝球");
             StopGeneratingSilkBall();
+            StopAllSilkBallCoroutines();
             var managerObj = GameObject.Find("AnySilkBossManager");
             if (managerObj != null)
             {
@@ -482,11 +483,23 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 if (silkBallManager != null)
                 {
                     silkBallManager.RecycleAllActiveSilkBalls();
+                    silkBallManager.RecycleAllActiveMemorySilkBalls();
                     Log.Info("已通过SilkBallManager清理所有丝球");
                 }
                 else
                 {
                     Log.Warn("未找到SilkBallManager组件");
+                }
+
+                var singleWebManager = managerObj.GetComponent<SingleWebManager>();
+                if (singleWebManager != null)
+                {
+                    singleWebManager.ClearMemoryPool();
+                    Log.Info("已通过SingleWebManager清理所有 Memory 丝线");
+                }
+                else
+                {
+                    Log.Warn("未找到SingleWebManager组件");
                 }
             }
             else

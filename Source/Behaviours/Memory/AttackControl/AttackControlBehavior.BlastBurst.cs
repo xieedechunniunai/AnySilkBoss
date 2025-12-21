@@ -27,6 +27,11 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         private FsmEvent? _blastBurst2Event;
         private FsmEvent? _blastBurst3Event;
 
+        // 协程完成事件（用于协程结束时触发状态跳转，替代 Wait + FINISHED）
+        private FsmEvent? _blastBurst1DoneEvent;
+        private FsmEvent? _blastBurst2DoneEvent;
+        private FsmEvent? _blastBurst3DoneEvent;
+
         // FSM 状态
         private FsmState? _blastBurst1PrepareState;
         private FsmState? _blastBurst1AttackState;
@@ -98,6 +103,11 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             _blastBurst2Event = GetOrCreateEvent(_attackControlFsm, "BLAST BURST 2");
             _blastBurst3Event = GetOrCreateEvent(_attackControlFsm, "BLAST BURST 3");
 
+            // 注册协程完成事件
+            _blastBurst1DoneEvent = GetOrCreateEvent(_attackControlFsm, "BLAST BURST 1 DONE");
+            _blastBurst2DoneEvent = GetOrCreateEvent(_attackControlFsm, "BLAST BURST 2 DONE");
+            _blastBurst3DoneEvent = GetOrCreateEvent(_attackControlFsm, "BLAST BURST 3 DONE");
+
             Log.Info("[BlastBurst] 事件注册完成");
         }
         #endregion
@@ -136,13 +146,17 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             // 设置状态转换
             SetFinishedTransition(_blastBurst1PrepareState, _blastBurst1AttackState);
-            // Attack 状态不使用 FINISHED，由协程完成后手动触发
-            SetFinishedTransition(_blastBurst1AttackState, _blastBurst1EndState);
-
-            // End 状态返回 HandPtnChoice
-            if (_handPtnChoiceState != null)
+            // Attack 状态使用协程完成事件触发跳转，而不是 Wait + FINISHED
+            if (_blastBurst1DoneEvent != null)
             {
-                SetFinishedTransition(_blastBurst1EndState, _handPtnChoiceState);
+                AddTransition(_blastBurst1AttackState, CreateTransition(_blastBurst1DoneEvent, _blastBurst1EndState));
+            }
+
+            // End 状态返回 Idle
+            var idleState = _idleState;
+            if (idleState != null)
+            {
+                SetFinishedTransition(_blastBurst1EndState, idleState);
             }
 
             Log.Info("[BlastBurst1] 状态链创建完成");
@@ -201,6 +215,12 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             }
 
             Log.Info($"[BlastBurst1] 攻击完成，共生成 {blastCount} 个爆炸+丝球环");
+
+            // 协程完成后发送事件触发 FSM 状态跳转
+            if (_attackControlFsm != null && _blastBurst1DoneEvent != null)
+            {
+                _attackControlFsm.Fsm.Event(_blastBurst1DoneEvent);
+            }
         }
 
         /// <summary>
@@ -254,12 +274,18 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             // 设置状态转换
             SetFinishedTransition(_blastBurst2PrepareState, _blastBurst2BlackoutState);
-            SetFinishedTransition(_blastBurst2BlackoutState, _blastBurst2AttackState);
+            // Blackout 状态使用协程完成事件触发跳转，而不是 Wait + FINISHED
+            if (_blastBurst2DoneEvent != null)
+            {
+                AddTransition(_blastBurst2BlackoutState, CreateTransition(_blastBurst2DoneEvent, _blastBurst2AttackState));
+            }
             SetFinishedTransition(_blastBurst2AttackState, _blastBurst2EndState);
 
-            if (_handPtnChoiceState != null)
+            // End 状态返回 Idle
+            var idleState2 = _idleState;
+            if (idleState2 != null)
             {
-                SetFinishedTransition(_blastBurst2EndState, _handPtnChoiceState);
+                SetFinishedTransition(_blastBurst2EndState, idleState2);
             }
 
             Log.Info("[BlastBurst2] 状态链创建完成");
@@ -306,7 +332,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 {
                     // 预判攻击（限制在场地范围 X:20-57, Y:134.5-144）
                     blastPos = PredictiveBlastAction.CalculatePrediction(
-                        predictionTime: 0.8f, 
+                        predictionTime: 0.8f,
                         randomOffset: 2f,
                         minX: 20f, maxX: 57f,
                         minY: 134.5f, maxY: 144f);
@@ -316,7 +342,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 {
                     // 随机位置
                     blastPos = GetBlastBurst1Position();
-                    _blastManagerRef.SpawnBombBlast(blastPos, size: Random.Range(0.9f,1.2f));
+                    _blastManagerRef.SpawnBombBlast(blastPos, size: Random.Range(0.9f, 1.2f));
                 }
                 yield return new WaitForSeconds(Random.Range(0.08f, 0.2f));
             }
@@ -331,6 +357,12 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             yield return StartCoroutine(FadeFromBlack(0.3f));
 
             Log.Info($"[BlastBurst2] 攻击完成，共 {totalBlasts} 个爆炸（含 {predictiveBlasts} 个预判）");
+
+            // 协程完成后发送事件触发 FSM 状态跳转
+            if (_attackControlFsm != null && _blastBurst2DoneEvent != null)
+            {
+                _attackControlFsm.Fsm.Event(_blastBurst2DoneEvent);
+            }
         }
 
         /// <summary>
@@ -444,13 +476,18 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             // 设置状态转换
             SetFinishedTransition(_blastBurst3PrepareState, _blastBurst3SpawnState);
-            SetFinishedTransition(_blastBurst3SpawnState, _blastBurst3ConvergeState);
-            SetFinishedTransition(_blastBurst3ConvergeState, _blastBurst3FinalState);
-            SetFinishedTransition(_blastBurst3FinalState, _blastBurst3EndState);
-
-            if (_handPtnChoiceState != null)
+            // Spawn 状态使用协程完成事件触发跳转，而不是 Wait + FINISHED
+            // 协程完成后直接跳到 End 状态（省略空的 Converge 和 Final 状态）
+            if (_blastBurst3DoneEvent != null)
             {
-                SetFinishedTransition(_blastBurst3EndState, _handPtnChoiceState);
+                AddTransition(_blastBurst3SpawnState, CreateTransition(_blastBurst3DoneEvent, _blastBurst3EndState));
+            }
+
+            // End 状态返回 Idle
+            var idleState3 = _idleState;
+            if (idleState3 != null)
+            {
+                SetFinishedTransition(_blastBurst3EndState, idleState3);
             }
 
             Log.Info("[BlastBurst3] 状态链创建完成");
@@ -539,11 +576,17 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             // moveTimeout(1.8s) + 爆炸动画时间(Appear Pause 0.3s + Blast 0.3s + Wait 0.8s) + 小余量
             float waitAfterSpawn = moveTimeout + 0.05f;
             yield return new WaitForSeconds(waitAfterSpawn);
-
+            _naChargeEffect!.SetActive(false);
             // 最终在 Boss 位置生成一个大型结束爆炸
             _blastManagerRef.SpawnBombBlast(bossTransform.position, size: 3f);
 
             Log.Info($"[BlastBurst3] 汇聚爆炸攻击完成，最终爆炸大小: 3倍");
+
+            // 协程完成后发送事件触发 FSM 状态跳转
+            if (_attackControlFsm != null && _blastBurst3DoneEvent != null)
+            {
+                _attackControlFsm.Fsm.Event(_blastBurst3DoneEvent);
+            }
         }
         #endregion
 
@@ -735,16 +778,15 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             var actions = new List<FsmStateAction>
             {
-                // 调用协程执行攻击
+                // 调用协程执行攻击，协程完成后会发送 BLAST BURST 1 DONE 事件
                 new CallMethod
                 {
                     behaviour = new FsmObject { Value = this },
                     methodName = new FsmString("ExecuteBlastBurst1Attack") { Value = "ExecuteBlastBurst1Attack" },
                     parameters = new FsmVar[0],
                     storeResult = new FsmVar()
-                },
-                // 等待攻击完成（5-8个爆炸，每个0.4-0.7s间隔）
-                new Wait { time = 6f, finishEvent = FsmEvent.Finished }
+                }
+                // 不再使用 Wait，由协程完成后发送事件触发跳转
             };
             state.Actions = actions.ToArray();
         }
@@ -787,16 +829,15 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             var actions = new List<FsmStateAction>
             {
-                // 调用协程执行攻击（包含黑屏和爆炸）
+                // 调用协程执行攻击（包含黑屏和爆炸），协程完成后会发送 BLAST BURST 2 DONE 事件
                 new CallMethod
                 {
                     behaviour = new FsmObject { Value = this },
                     methodName = new FsmString("ExecuteBlastBurst2Attack") { Value = "ExecuteBlastBurst2Attack" },
                     parameters = new FsmVar[0],
                     storeResult = new FsmVar()
-                },
-                // 等待攻击完成
-                new Wait { time = 8f, finishEvent = FsmEvent.Finished }
+                }
+                // 不再使用 Wait，由协程完成后发送事件触发跳转
             };
             state.Actions = actions.ToArray();
         }
@@ -847,6 +888,18 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                     setValue = new FsmBool(true),
                     everyFrame = false
                 },
+                new ActivateGameObject
+                    {
+                        gameObject = new FsmOwnerDefault
+                        {
+                            OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                            gameObject = new FsmGameObject { Value = _naChargeEffect }
+                        },
+                        activate = new FsmBool(true),
+                        recursive = new FsmBool(false),
+                        resetOnExit = false,
+                        everyFrame = false
+                    },
                 new Wait { time = 0.2f, finishEvent = FsmEvent.Finished }
             };
             state.Actions = actions.ToArray();
@@ -861,15 +914,15 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             var actions = new List<FsmStateAction>
             {
-                // 调用协程执行攻击
+                // 调用协程执行攻击，协程完成后会发送 BLAST BURST 3 DONE 事件
                 new CallMethod
                 {
                     behaviour = new FsmObject { Value = this },
                     methodName = new FsmString("ExecuteBlastBurst3Attack") { Value = "ExecuteBlastBurst3Attack" },
                     parameters = new FsmVar[0],
                     storeResult = new FsmVar()
-                },
-                new Wait { time = 2f, finishEvent = FsmEvent.Finished }
+                }
+                // 不再使用 Wait，由协程完成后发送事件触发跳转
             };
             state.Actions = actions.ToArray();
         }
