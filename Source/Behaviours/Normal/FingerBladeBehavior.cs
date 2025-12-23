@@ -932,6 +932,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 followZ = false,
                 maintainInitialOffset = true,
                 positionLerpSpeed = 3f,
+                useRigidbody = true,
                 useMinY = true,
                 minY = 132f,
                 rotationZ = controlFSM.FsmVariables.GetFsmFloat("Attack Rotation"),

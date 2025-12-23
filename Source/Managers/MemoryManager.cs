@@ -70,6 +70,9 @@ namespace AnySilkBoss.Source.Managers
         private string _savedRespawnMarkerName = "";
         private int _savedRespawnType;
         private HazardRespawnMarker.FacingDirection _savedHazardRespawnFacing;
+        private string _savedTempRespawnScene = "";
+        private string _savedTempRespawnMarker = "";
+        private int _savedTempRespawnType;
         private bool _hasSavedPlayerData = false;
 
         private void Awake()
@@ -96,6 +99,17 @@ namespace AnySilkBoss.Source.Managers
         private void OnSceneChanged(Scene oldScene, Scene newScene)
         {
             Log.Info($"[MemoryManager] 场景切换: {oldScene.name} → {newScene.name}");
+
+            if (newScene.name == "Menu_Title" || newScene.name == "Quit_To_Menu" || newScene.name == "PermaDeath")
+            {
+                ResetMemoryStateOnEnterMenu();
+                return;
+            }
+
+            if (!IsInMemoryMode)
+            {
+                RepairCorruptedRespawnIfNeeded(newScene.name);
+            }
 
             // ========== 进入 Cradle_03 ==========
             if (newScene.name == TARGET_SCENE)
@@ -181,6 +195,39 @@ namespace AnySilkBoss.Source.Managers
                 _isInTriggerScene = false;
                 _isCheckingAudio = false;
                 _audioPlayingTimer = 0f;
+            }
+        }
+
+        private void ResetMemoryStateOnEnterMenu()
+        {
+            try
+            {
+                StopAllCoroutines();
+
+                CleanupMemoryRespawnMarker();
+                _disabledTransitionPoints.Clear();
+
+                _isReturningFromMemory = false;
+                _isInTriggerScene = false;
+                _isCheckingAudio = false;
+                _hasTriggeredThisSession = false;
+                _audioPlayingTimer = 0f;
+
+                if (IsInMemoryMode)
+                {
+                    IsInMemoryMode = false;
+                }
+
+                if (GameManager._instance != null)
+                {
+                    GameManager._instance.ForceCurrentSceneIsMemory(false);
+                }
+
+                _hasSavedPlayerData = false;
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"[MemoryManager] 进入主菜单时重置梦境状态失败: {ex.Message}");
             }
         }
 
@@ -329,11 +376,6 @@ namespace AnySilkBoss.Source.Managers
 
             // 创建临时重生标记
             CreateMemoryRespawnMarker(SPAWN_POS_X, SPAWN_POS_Y, SPAWN_POS_Z);
-
-            // 设置重生信息
-            PlayerData.instance.respawnScene = TARGET_SCENE;
-            PlayerData.instance.respawnMarkerName = MEMORY_RESPAWN_MARKER_NAME;
-            PlayerData.instance.respawnType = 0;
 
             // 淡入
             FadeSceneIn();
@@ -508,6 +550,9 @@ namespace AnySilkBoss.Source.Managers
                 yield break;
             }
 
+            // 尽早恢复进入梦境前保存的玩家数据，避免返回过程中任何保存/校验污染存档
+            RestorePlayerDataAfterExitingMemory();
+
             // 立即移动玩家到返回位置
             hero.transform.position = new Vector3(RETURN_POS_X, RETURN_POS_Y, RETURN_POS_Z);
             var rb2d = hero.GetComponent<Rigidbody2D>();
@@ -521,11 +566,6 @@ namespace AnySilkBoss.Source.Managers
 
             // 创建重生标记
             CreateMemoryRespawnMarker(RETURN_POS_X, RETURN_POS_Y, RETURN_POS_Z);
-
-            // 设置重生信息
-            PlayerData.instance.respawnScene = TRIGGER_SCENE;
-            PlayerData.instance.respawnMarkerName = MEMORY_RESPAWN_MARKER_NAME;
-            PlayerData.instance.respawnType = 0;
 
             // 淡入
             FadeSceneIn();
@@ -543,9 +583,6 @@ namespace AnySilkBoss.Source.Managers
 
             yield return null;
             EnableAllTransitionPoints();
-
-            // 恢复进入梦境前保存的玩家数据
-            RestorePlayerDataAfterExitingMemory();
         }
 
         #endregion
@@ -773,6 +810,9 @@ namespace AnySilkBoss.Source.Managers
                 _savedRespawnMarkerName = currentPlayerData.respawnMarkerName ?? "";
                 _savedRespawnType = currentPlayerData.respawnType;
                 _savedHazardRespawnFacing = currentPlayerData.hazardRespawnFacing;
+                _savedTempRespawnScene = currentPlayerData.tempRespawnScene ?? "";
+                _savedTempRespawnMarker = currentPlayerData.tempRespawnMarker ?? "";
+                _savedTempRespawnType = currentPlayerData.tempRespawnType;
                 _hasSavedPlayerData = true;
 
                 Log.Info($"[MemoryManager] 已保存玩家数据 - atBench: {_savedAtBench}, respawnScene: {_savedRespawnScene}, " +
@@ -810,6 +850,9 @@ namespace AnySilkBoss.Source.Managers
                 currentPlayerData.respawnMarkerName = _savedRespawnMarkerName;
                 currentPlayerData.respawnType = _savedRespawnType;
                 currentPlayerData.hazardRespawnFacing = _savedHazardRespawnFacing;
+                currentPlayerData.tempRespawnScene = string.IsNullOrEmpty(_savedTempRespawnScene) ? null : _savedTempRespawnScene;
+                currentPlayerData.tempRespawnMarker = string.IsNullOrEmpty(_savedTempRespawnMarker) ? null : _savedTempRespawnMarker;
+                currentPlayerData.tempRespawnType = _savedTempRespawnType;
 
                 Log.Info($"[MemoryManager] 已恢复玩家数据 - atBench: {_savedAtBench}, respawnScene: {_savedRespawnScene}, " +
                          $"respawnMarkerName: {_savedRespawnMarkerName}, respawnType: {_savedRespawnType}, hazardRespawnFacing: {_savedHazardRespawnFacing}");
@@ -820,6 +863,32 @@ namespace AnySilkBoss.Source.Managers
             catch (Exception ex)
             {
                 Log.Error($"[MemoryManager] 恢复玩家数据失败: {ex.Message}");
+            }
+        }
+
+        private void RepairCorruptedRespawnIfNeeded(string currentSceneName)
+        {
+            try
+            {
+                if (GameManager.instance == null) return;
+                PlayerData pd = GameManager.instance.playerData;
+                if (pd == null) return;
+
+                if (pd.respawnMarkerName == MEMORY_RESPAWN_MARKER_NAME)
+                {
+                    pd.respawnScene = currentSceneName;
+                    pd.respawnMarkerName = "Death Respawn Marker Init";
+                    pd.respawnType = 0;
+                }
+
+                if (pd.tempRespawnMarker == MEMORY_RESPAWN_MARKER_NAME)
+                {
+                    pd.ResetTempRespawn();
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"[MemoryManager] 修复重生点失败: {ex.Message}");
             }
         }
 

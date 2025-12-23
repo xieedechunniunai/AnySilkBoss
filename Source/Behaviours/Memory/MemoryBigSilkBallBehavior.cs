@@ -918,7 +918,8 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
             scale: 1f,
             enableRotation: true,
             customTarget: collisionBoxTransform,  // 追踪碰撞箱
-            ignoreWall: true  // 忽略墙壁碰撞
+            ignoreWall: true,  // 忽略墙壁碰撞
+            delayDamageActivation: false
         );
 
         if (behavior != null)
@@ -1053,7 +1054,8 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
             maxSpeed: 25f,     // 稍高的最大速度
             chaseTime: 10f,
             scale: 1.33f,
-            enableRotation: true
+            enableRotation: true,
+            delayDamageActivation: false
         );
 
         if (behavior != null)
@@ -1082,17 +1084,6 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// 延迟发送FSM事件
-    /// </summary>
-    private IEnumerator DelayedSendEvent(MemorySilkBallBehavior behavior, string eventName, float delay)
-    {
-        yield return new WaitForSeconds(delay);
-        if (behavior != null)
-        {
-            behavior.SendFsmEvent(eventName);
-        }
-    }
 
     /// <summary>
     /// 开始最终爆炸协程
@@ -1146,7 +1137,7 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
             for (int i = 0; i < ballsPerRing; i++)
             {
                 float angle = i * angleStep + angleOffset;
-                var behavior = SpawnRingBall(radius, angle, ring);
+                var behavior = SpawnRingBall(radius, angle);
                 if (behavior != null)
                 {
                     currentRingBalls.Add(behavior);
@@ -1190,7 +1181,7 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     /// 在圆环上生成小丝球（静止状态）
     /// </summary>
     /// <returns>生成的小丝球Behavior</returns>
-    private MemorySilkBallBehavior? SpawnRingBall(float radius, float angle, int ringIndex)
+    private MemorySilkBallBehavior? SpawnRingBall(float radius, float angle)
     {
         if (silkBallManager == null) return null;
 
@@ -1206,14 +1197,15 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
             maxSpeed: burstSpeed,
             chaseTime: 10f,
             scale: 1f,
-            enableRotation: true
+            enableRotation: true,
+            delayDamageActivation: false
         );
 
         if (behavior != null)
         {
-            behavior.StartProtectionTime(1f);
+            behavior.StartProtectionTime(2f);
             behavior.SetPhysics(Vector2.zero, finalBurstGravityScale);
-            StartCoroutine(DelayedSendEvent(behavior, "SILK BALL RELEASE", 0.1f));
+            behavior.SendFsmEvent("SILK BALL RELEASE");
             return behavior;
         }
 
@@ -1221,7 +1213,7 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     }
 
     /// <summary>
-    /// 给圆环小丝球施加径向速度并启动保护时间，同时设置公转参数
+    /// 给圆环小丝球施加径向速度，同时设置公转参数
     /// </summary>
     /// <param name="behavior">小丝球Behavior</param>
     /// <param name="ringIndex">圈索引（0=第一圈，1=第二圈...）</param>
@@ -1246,7 +1238,6 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
         // 设置初始径向速度
         Vector2 radialVelocity = new Vector2(direction.x, direction.y) * burstSpeed * speedMultiplier;
         behavior.SetPhysics(radialVelocity, finalBurstGravityScale);
-        behavior.StartProtectionTime(1f);
 
         // 设置公转参数
         bool isClockwise = (ringIndex % 2 == 0);
