@@ -903,7 +903,8 @@ internal class BigSilkBallBehavior : MonoBehaviour
             scale: 1f,
             enableRotation: true,
             customTarget: collisionBoxTransform,  // 追踪碰撞箱
-            ignoreWall: true  // 忽略墙壁碰撞
+            ignoreWall: true,  // 忽略墙壁碰撞
+            delayDamageActivation: false
         );
 
         if (behavior != null)
@@ -1036,7 +1037,8 @@ internal class BigSilkBallBehavior : MonoBehaviour
             maxSpeed: finalShootSpeed,
             chaseTime: 10f,
             scale: 1f,
-            enableRotation: true
+            enableRotation: true,
+            delayDamageActivation: false
         );
 
         if (behavior != null)
@@ -1132,7 +1134,7 @@ internal class BigSilkBallBehavior : MonoBehaviour
             for (int i = 0; i < ballsPerRing; i++)
             {
                 float angle = i * angleStep + angleOffset;
-                var ball = SpawnRingBall(radius, angle, ring);
+                var ball = SpawnRingBall(radius, angle);
                 if (ball != null)
                 {
                     currentRingBalls.Add(ball);
@@ -1143,11 +1145,9 @@ internal class BigSilkBallBehavior : MonoBehaviour
                     yield return null;
                 }
             }
-            Log.Info($"第 {ring + 1}/{finalBurstRings} 圈生成完成 - 半径: {radius}, 数量: {currentRingBalls.Count}");
             allRingsBalls.Add(currentRingBalls);
             yield return new WaitForSeconds(0.1f);
         }
-
         Log.Info($"所有圈静止生成完毕，开始依次爆发");
         yield return new WaitForSeconds(ringBurstDelay); // 爆发前的统一延迟，可根据需求加/删
                                                          // 2. 依次爆发每一圈
@@ -1181,8 +1181,7 @@ internal class BigSilkBallBehavior : MonoBehaviour
     /// <summary>
     /// 在圆环上生成小丝球（静止状态）
     /// </summary>
-    /// <returns>生成的小丝球GameObject</returns>
-    private GameObject? SpawnRingBall(float radius, float angle, int ringIndex)
+    private GameObject? SpawnRingBall(float radius, float angle)
     {
         if (silkBallManager == null) return null;
 
@@ -1198,7 +1197,8 @@ internal class BigSilkBallBehavior : MonoBehaviour
             maxSpeed: burstSpeed,
             chaseTime: 10f,
             scale: 1f,
-            enableRotation: true
+            enableRotation: true,
+            delayDamageActivation: false
         );
 
         if (behavior != null)
@@ -1213,19 +1213,8 @@ internal class BigSilkBallBehavior : MonoBehaviour
                 rb.linearVelocity = Vector2.zero;  // 初始静止
 
                 // 启动1秒保护时间（避免刚生成就碰到Terrain层的大丝球而消失）
-                behavior.StartProtectionTime(1f);
-
-                // 释放但保持静止，使用 Chase Hero 模式但 acceleration=0
-                var fsm = behavior.GetComponent<PlayMakerFSM>();
-                if (fsm != null)
-                {
-                    // 先发送PREPARE事件
-                    fsm.SendEvent("PREPARE");
-                    // 延迟后发送 SILK BALL RELEASE 进入 Chase Hero 状态
-                    // 由于 acceleration=0，丝球会保持当前速度直线飞行
-                    StartCoroutine(ReleaseToChaseStateWithPrepare(fsm));
-                }
-
+                behavior.StartProtectionTime(2f);
+                behavior.SendEvent("SILK BALL RELEASE");
                 return behavior.gameObject;
             }
         }
@@ -1234,25 +1223,7 @@ internal class BigSilkBallBehavior : MonoBehaviour
     }
 
     /// <summary>
-    /// 释放小丝球进入 Chase Hero 状态（Final Burst 阶段使用）
-    /// 由于 acceleration=0，丝球会保持当前速度直线飞行
-    /// </summary>
-    private IEnumerator ReleaseToChaseStateWithPrepare(PlayMakerFSM fsm)
-    {
-        // 等待PREPARE完成
-        yield return new WaitForSeconds(0.1f);
-
-        // 检查FSM是否还存在（小丝球可能已被销毁）
-        if (fsm != null && fsm.Fsm != null)
-        {
-            // 通过 SILK BALL RELEASE 进入 Chase Hero 状态
-            // 由于 acceleration=0，丝球不会追踪，而是保持当前速度直线飞行
-            fsm.SendEvent("SILK BALL RELEASE");
-        }
-    }
-
-    /// <summary>
-    /// 给圆环小丝球施加径向速度并启动保护时间
+    /// 给圆环小丝球施加径向速度
     /// </summary>
     private void BurstRingBall(GameObject ball, int index)
     {
@@ -1283,9 +1254,6 @@ internal class BigSilkBallBehavior : MonoBehaviour
         // 设置速度
         Vector2 velocity = new Vector2(direction.x, direction.y) * burstSpeed * speedMultiplier;
         rb.linearVelocity = velocity;
-
-        // 启动1秒保护时间（在此期间不会因碰到英雄或墙壁消失）
-        behavior.StartProtectionTime(1f);
     }
 
     /// <summary>

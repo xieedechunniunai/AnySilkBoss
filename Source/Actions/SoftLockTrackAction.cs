@@ -46,6 +46,12 @@ namespace AnySilkBoss.Source.Actions
         public FsmFloat? positionLerpSpeed;
         #endregion
 
+        #region 物理移动（可选）
+        public FsmBool? useRigidbody;
+        public FsmFloat? maxSpeed;
+        public FsmFloat? acceleration;
+        #endregion
+
         #region 边界限制（生效范围）
         /// <summary>是否启用 X 轴最小值限制</summary>
         public FsmBool? useMinX;
@@ -92,6 +98,8 @@ namespace AnySilkBoss.Source.Actions
         private Transform? _selfTransform;
         private Transform? _resolvedTarget;
 
+        private Rigidbody2D? _rb2d;
+
         private Vector3 _fixedPosition;
         private Vector3 _runtimeOffset;
         private float _elapsed;
@@ -113,6 +121,10 @@ namespace AnySilkBoss.Source.Actions
             targetZ = null;
 
             positionLerpSpeed = 15f;
+
+            useRigidbody = false;
+            maxSpeed = 40f;
+            acceleration = 200f;
 
             useMinX = false;
             minX = 0f;
@@ -151,6 +163,15 @@ namespace AnySilkBoss.Source.Actions
                 return;
             }
 
+            if (useRigidbody?.Value == true)
+            {
+                _rb2d = _selfTransform.GetComponent<Rigidbody2D>();
+            }
+            else
+            {
+                _rb2d = null;
+            }
+
             _elapsed = 0f;
             _fixedPosition = _selfTransform.position;
 
@@ -174,8 +195,78 @@ namespace AnySilkBoss.Source.Actions
             ApplyRotation(Time.deltaTime);
         }
 
+        public override void OnFixedUpdate()
+        {
+            if (useRigidbody?.Value != true)
+            {
+                return;
+            }
+
+            if (_selfTransform == null || _resolvedTarget == null)
+            {
+                Finish();
+                return;
+            }
+
+            if (_rb2d == null)
+            {
+                return;
+            }
+
+            float dt = Time.fixedDeltaTime;
+            _elapsed += dt;
+
+            if (maxDuration != null && maxDuration.Value > 0f && _elapsed >= maxDuration.Value)
+            {
+                if (onTimeout != null)
+                {
+                    Fsm.Event(onTimeout);
+                }
+
+                if (finishAfterTimeout?.Value != false)
+                {
+                    Finish();
+                }
+                return;
+            }
+
+            Vector3 current3 = _selfTransform.position;
+            Vector3 dest3 = ComputeDestination(current3);
+
+            float lerpSpeed = positionLerpSpeed?.Value ?? 0f;
+            Vector2 current = _rb2d.position;
+            Vector2 dest = new Vector2(dest3.x, dest3.y);
+            Vector2 desiredVelocity = (lerpSpeed <= 0f)
+                ? (dest - current) / dt
+                : (dest - current) * lerpSpeed;
+
+            float maxSpd = maxSpeed?.Value ?? 40f;
+            if (maxSpd > 0f && desiredVelocity.magnitude > maxSpd)
+            {
+                desiredVelocity = desiredVelocity.normalized * maxSpd;
+            }
+
+            float accel = acceleration?.Value ?? 200f;
+            _rb2d.linearVelocity = (accel > 0f)
+                ? Vector2.MoveTowards(_rb2d.linearVelocity, desiredVelocity, accel * dt)
+                : desiredVelocity;
+
+            if (!Mathf.Approximately(current3.z, dest3.z))
+            {
+                Vector3 pos = _selfTransform.position;
+                pos.z = dest3.z;
+                _selfTransform.position = pos;
+            }
+        }
+
         public override void OnUpdate()
         {
+            if (useRigidbody?.Value == true && _rb2d != null)
+            {
+                ApplyRotation(Time.deltaTime);
+                return;
+            }
+
             if (_selfTransform == null || _resolvedTarget == null)
             {
                 Finish();
@@ -200,11 +291,41 @@ namespace AnySilkBoss.Source.Actions
             }
 
             Vector3 current = _selfTransform.position;
+            Vector3 dest = ComputeDestination(current);
+
+            float lerpSpeed = positionLerpSpeed?.Value ?? 0f;
+            if (lerpSpeed > 0f)
+            {
+                Vector3 newPos = Vector3.Lerp(current, dest, dt * lerpSpeed);
+                _selfTransform.position = newPos;
+            }
+            else
+            {
+                _selfTransform.position = dest;
+            }
+
+            ApplyRotation(dt);
+        }
+
+        public override void OnExit()
+        {
+            if (zeroVelocityOnExit?.Value == true)
+            {
+                ZeroVelocity();
+            }
+
+            _selfTransform = null;
+            _resolvedTarget = null;
+            _rb2d = null;
+        }
+
+        private Vector3 ComputeDestination(Vector3 current)
+        {
             Vector3 dest = current;
 
             if (followX?.Value == true)
             {
-                dest.x = _resolvedTarget.position.x + _runtimeOffset.x;
+                dest.x = _resolvedTarget!.position.x + _runtimeOffset.x;
             }
             else if (targetX != null)
             {
@@ -217,7 +338,7 @@ namespace AnySilkBoss.Source.Actions
 
             if (followY?.Value == true)
             {
-                dest.y = _resolvedTarget.position.y + _runtimeOffset.y;
+                dest.y = _resolvedTarget!.position.y + _runtimeOffset.y;
             }
             else if (targetY != null)
             {
@@ -230,7 +351,7 @@ namespace AnySilkBoss.Source.Actions
 
             if (followZ?.Value == true)
             {
-                dest.z = _resolvedTarget.position.z + _runtimeOffset.z;
+                dest.z = _resolvedTarget!.position.z + _runtimeOffset.z;
             }
             else if (targetZ != null)
             {
@@ -258,29 +379,7 @@ namespace AnySilkBoss.Source.Actions
                 dest.y = Mathf.Min(dest.y, maxY.Value);
             }
 
-            float lerpSpeed = positionLerpSpeed?.Value ?? 0f;
-            if (lerpSpeed > 0f)
-            {
-                Vector3 newPos = Vector3.Lerp(current, dest, dt * lerpSpeed);
-                _selfTransform.position = newPos;
-            }
-            else
-            {
-                _selfTransform.position = dest;
-            }
-
-            ApplyRotation(dt);
-        }
-
-        public override void OnExit()
-        {
-            if (zeroVelocityOnExit?.Value == true)
-            {
-                ZeroVelocity();
-            }
-
-            _selfTransform = null;
-            _resolvedTarget = null;
+            return dest;
         }
 
         private Transform? ResolveTarget()

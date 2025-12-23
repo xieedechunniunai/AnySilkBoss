@@ -183,6 +183,12 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             // 确保 FSM 已被补丁（对象可能是新创建的，Start 还没调用）
             EnsureFsmPatched();
 
+            if (_controlFsm != null)
+            {
+                _controlFsm.Fsm.HandleFixedUpdate = true;
+                _controlFsm.AddEventHandlerComponents();
+            }
+
             // 更新 ChaseTargetAction 参数（Move To Target 和 Moving 状态）
             UpdateMoveTargetParams();
         }

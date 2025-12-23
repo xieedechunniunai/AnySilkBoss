@@ -3,6 +3,7 @@ using System.Linq;
 using UnityEngine;
 using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
+using AnySilkBoss.Source.Actions;
 using AnySilkBoss.Source.Tools;
 using System.Collections.Generic;
 using System;
@@ -35,6 +36,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         public bool ignoreWallCollision = false;  // 是否忽略墙壁碰撞（用于追踪大丝球的小丝球）
         private bool isProtected = false;         // 是否处于保护时间内（不会因碰到英雄或墙壁消失）
         public bool canBeAbsorbed = false;        // 是否可以被大丝球吸收（仅吸收阶段的小丝球为true）
+        private bool _delayDamageActivation = true;
 
         // 对象池相关
         private bool _isAvailable = true;         // 是否可用（在对象池中）
@@ -65,6 +67,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         private FsmBool? readyVar;
         private FsmFloat? accelerationVar;
         private FsmFloat? maxSpeedVar;
+        private FsmGameObject? targetGameObjectVar;
         #endregion
 
         #region 事件引用
@@ -387,7 +390,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         /// <summary>
         /// 准备丝球（每次从池中取出时调用）
         /// </summary>
-        public void PrepareForUse(Vector3 spawnPosition, float acceleration = 30f, float maxSpeed = 20f, float chaseTime = 6f, float scale = 1f, bool enableRotation = true, Transform? customTarget = null, bool ignoreWall = false)
+        public void PrepareForUse(Vector3 spawnPosition, float acceleration = 30f, float maxSpeed = 20f, float chaseTime = 6f, float scale = 1f, bool enableRotation = true, Transform? customTarget = null, bool ignoreWall = false, bool delayDamageActivation = true)
         {
             // 脱离池容器
             if (transform.parent == _poolContainer)
@@ -406,6 +409,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             this.enableRotation = enableRotation;
             this.customTarget = customTarget;
             this.ignoreWallCollision = ignoreWall;
+            _delayDamageActivation = delayDamageActivation;
 
             // 应用缩放
             ApplyScale();
@@ -450,8 +454,15 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             // 先禁用伤害组件，然后延后0.15s激活
             if (damageHero != null)
             {
-                damageHero.enabled = false;
-                StartCoroutine(EnableDamageAfterDelay(0.15f));
+                if (_delayDamageActivation)
+                {
+                    damageHero.enabled = false;
+                    StartCoroutine(EnableDamageAfterDelay(0.15f));
+                }
+                else
+                {
+                    damageHero.enabled = true;
+                }
             }
 
             // 启用碰撞
@@ -591,6 +602,10 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             };
             // 初始化 FSM 数据
             controlFSM.Fsm.InitData();
+
+            controlFSM.Fsm.HandleFixedUpdate = true;
+            controlFSM.AddEventHandlerComponents();
+
             // 确保 Started 标记为 true（PlayMakerFSM.Start() 会检查这个）
             // 通过反射设置 Started 为 true
             var fsmType = controlFSM.Fsm.GetType();
@@ -638,6 +653,9 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             accelerationVar = new FsmFloat("Acceleration") { Value = acceleration };
             maxSpeedVar = new FsmFloat("MaxSpeed") { Value = maxSpeed };
             controlFSM.FsmVariables.FloatVariables = new FsmFloat[] { accelerationVar, maxSpeedVar };
+
+            targetGameObjectVar = new FsmGameObject("Target") { Value = null };
+            controlFSM.FsmVariables.GameObjectVariables = new FsmGameObject[] { targetGameObjectVar };
 
             controlFSM.FsmVariables.Init();
         }
@@ -765,12 +783,23 @@ namespace AnySilkBoss.Source.Behaviours.Normal
 
         private void AddChaseHeroActions(FsmState chaseState)
         {
-            // 自定义追踪动作
-            var chaseAction = new SilkBallChaseAction
+            var startChaseAction = new CallMethod
             {
-                silkBallBehavior = this,
-                acceleration = accelerationVar,
-                maxSpeed = maxSpeedVar
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("StartChase") { Value = "StartChase" },
+                parameters = new FsmVar[0]
+            };
+
+            var chaseAction = new ChaseTargetAction
+            {
+                targetGameObject = targetGameObjectVar!,
+                acceleration = accelerationVar ?? new FsmFloat { Value = acceleration },
+                maxSpeed = maxSpeedVar ?? new FsmFloat { Value = maxSpeed },
+                useRigidbody = new FsmBool { Value = true },
+                chaseTime = new FsmFloat { Value = 0f },
+                reachDistance = new FsmFloat { Value = 0.1f },
+                onReachTarget = null,
+                onTimeout = null
             };
 
             // 超时等待
@@ -780,7 +809,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 finishEvent = FsmEvent.Finished
             };
 
-            chaseState.Actions = new FsmStateAction[] { chaseAction, waitAction };
+            chaseState.Actions = new FsmStateAction[] { startChaseAction, chaseAction, waitAction };
         }
 
         private void AddDisperseActions(FsmState disperseState)
@@ -1066,6 +1095,30 @@ namespace AnySilkBoss.Source.Behaviours.Normal
 
 
         #region 辅助方法（供FSM调用）
+        public void StartChase()
+        {
+            isChasing = true;
+
+            GameObject? target = null;
+            if (customTarget != null)
+            {
+                target = customTarget.gameObject;
+            }
+            else
+            {
+                var heroController = FindFirstObjectByType<HeroController>();
+                if (heroController != null)
+                {
+                    target = heroController.gameObject;
+                }
+            }
+
+            if (targetGameObjectVar != null && target != null)
+            {
+                targetGameObjectVar.Value = target;
+            }
+        }
+
         /// <summary>
         /// 停止追踪
         /// </summary>
@@ -1115,7 +1168,13 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 mainCollider.enabled = false;
             }
         }
-
+        public void SendEvent(string eventName)
+        {
+            if (controlFSM != null)
+            {
+                controlFSM.SendEvent(eventName);
+            }
+        }
         /// <summary>
         /// 禁用伤害并隐藏 Sprite Silk 和 Glow
         /// </summary>
@@ -1377,127 +1436,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         }
         #endregion
     }
-
-    #region 自定义 FSM Action
-    /// <summary>
-    /// 丝球追踪玩家的自定义Action
-    /// </summary>
-    internal class SilkBallChaseAction : FsmStateAction
-    {
-        public SilkBallBehavior? silkBallBehavior;
-        public FsmFloat? acceleration;
-        public FsmFloat? maxSpeed;
-
-        private Rigidbody2D? rb2d;
-        private Transform? playerTransform;
-
-        public override void Reset()
-        {
-            silkBallBehavior = null;
-            acceleration = 30f;
-            maxSpeed = 20f;
-        }
-
-        public override void OnEnter()
-        {
-            if (silkBallBehavior == null)
-            {
-                Debug.Log("SilkBallChaseAction: silkBallBehavior 为 null");
-                Finish();
-                return;
-            }
-
-            rb2d = silkBallBehavior.GetComponent<Rigidbody2D>();
-
-            // 优先使用自定义目标，否则使用玩家
-            if (silkBallBehavior.customTarget != null)
-            {
-                playerTransform = silkBallBehavior.customTarget;
-                // Debug.Log($"SilkBallChaseAction: 使用自定义目标 {playerTransform.gameObject.name}");
-            }
-            else
-            {
-                var heroController = UnityEngine.Object.FindFirstObjectByType<HeroController>();
-                if (heroController != null)
-                {
-                    playerTransform = heroController.transform;
-                }
-            }
-
-            if (rb2d == null || playerTransform == null)
-            {
-                Debug.Log("SilkBallChaseAction: Rigidbody2D 或 Target Transform 为 null");
-                Finish();
-                return;
-            }
-
-            silkBallBehavior.isChasing = true;
-        }
-
-        public override void OnUpdate()
-        {
-            if (rb2d == null || playerTransform == null || silkBallBehavior == null)
-            {
-                Finish();
-                return;
-            }
-
-            if (!silkBallBehavior.isChasing)
-            {
-                Finish();
-                return;
-            }
-
-            // 计算朝向目标的方向
-            Vector2 direction = (playerTransform.position - silkBallBehavior.transform.position).normalized;
-
-            // 应用加速度
-            float accel = acceleration != null ? acceleration.Value : 30f;
-            Vector2 accelerationForce = direction * accel;
-            rb2d.linearVelocity += accelerationForce * Time.deltaTime;
-
-            // 限制最大速度
-            float maxSpd = maxSpeed != null ? maxSpeed.Value : 20f;
-            if (rb2d.linearVelocity.magnitude > maxSpd)
-            {
-                rb2d.linearVelocity = rb2d.linearVelocity.normalized * maxSpd;
-            }
-
-            // // 如果追踪的是大丝球（有customTarget），根据距离调整Z轴
-            // if (silkBallBehavior.customTarget != null)
-            // {
-            //     // 计算小丝球与大丝球的距离（仅XY平面）
-            //     Vector3 ballPos = silkBallBehavior.transform.position;
-            //     Vector3 targetPos = playerTransform.position;
-            //     Vector2 ballPos2D = new Vector2(ballPos.x, ballPos.y);
-            //     Vector2 targetPos2D = new Vector2(targetPos.x, targetPos.y);
-            //     float distance = Vector2.Distance(ballPos2D, targetPos2D);
-
-            //     // 定义距离范围：最大距离40（吸收生成半径），最小距离0
-            //     float maxDistance = 40f;
-            //     float minDistance = 0f;
-
-            //     // 计算Z轴值：距离越近，Z轴越高（最高20），距离越远，Z轴越低（最低0）
-            //     // 使用反向映射：distance = 0 -> z = 20, distance = 40 -> z = 0
-            //     float normalizedDistance = Mathf.Clamp01((distance - minDistance) / (maxDistance - minDistance));
-            //     float targetZ = 20f * (1f - normalizedDistance);
-
-            //     // 平滑更新Z轴位置
-            //     Vector3 currentPos = silkBallBehavior.transform.position;
-            //     currentPos.z = Mathf.Lerp(currentPos.z, targetZ, Time.deltaTime * 5f); // 使用5倍速度平滑过渡
-            //     silkBallBehavior.transform.position = currentPos;
-            // }
-        }
-
-        public override void OnExit()
-        {
-            if (silkBallBehavior != null)
-            {
-                silkBallBehavior.isChasing = false;
-            }
-        }
-    }
-    #endregion
 
     #region 碰撞转发器
     /// <summary>

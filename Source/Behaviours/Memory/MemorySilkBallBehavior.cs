@@ -51,6 +51,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         public bool ignoreWallCollision = false;  // 是否忽略墙壁碰撞（用于追踪大丝球的小丝球）
         private bool isProtected = false;         // 是否处于保护时间内（不会因碰到英雄或墙壁消失）
         public bool canBeAbsorbed = false;        // 是否可以被大丝球吸收（仅吸收阶段的小丝球为true）
+        private bool _delayDamageActivation = true;
         public bool triggerBlastOnDestroy = false; // 是否在销毁时触发 Blast 攻击
 
         // 对象池相关
@@ -420,7 +421,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// <summary>
         /// 准备丝球（每次从池中取出时调用）
         /// </summary>
-        public void PrepareForUse(Vector3 spawnPosition, float acceleration = 30f, float maxSpeed = 20f, float chaseTime = 6f, float scale = 1f, bool enableRotation = true, Transform? customTarget = null, bool ignoreWall = false)
+        public void PrepareForUse(Vector3 spawnPosition, float acceleration = 30f, float maxSpeed = 20f, float chaseTime = 6f, float scale = 1f, bool enableRotation = true, Transform? customTarget = null, bool ignoreWall = false, bool delayDamageActivation = true)
         {
             // 脱离池容器
             if (transform.parent == _poolContainer)
@@ -439,6 +440,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             this.enableRotation = enableRotation;
             this.customTarget = customTarget;
             this.ignoreWallCollision = ignoreWall;
+            _delayDamageActivation = delayDamageActivation;
 
             // 应用缩放
             ApplyScale();
@@ -508,8 +510,15 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             // 先禁用伤害组件，然后延后0.15s激活
             if (damageHero != null)
             {
-                damageHero.enabled = false;
-                StartCoroutine(EnableDamageAfterDelay(0.15f));
+                if (_delayDamageActivation)
+                {
+                    damageHero.enabled = false;
+                    StartCoroutine(EnableDamageAfterDelay(0.15f));
+                }
+                else
+                {
+                    damageHero.enabled = true;
+                }
             }
 
             // 启用碰撞
@@ -690,6 +699,9 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             // 初始化 FSM 数据
             controlFSM.Fsm.InitData();
+
+            controlFSM.Fsm.HandleFixedUpdate = true;
+            controlFSM.AddEventHandlerComponents();
 
             // 确保 Started 标记为 true
             var fsmType = controlFSM.Fsm.GetType();

@@ -99,25 +99,29 @@ namespace AnySilkBoss.Source.Actions
 
         public override void OnUpdate()
         {
+            if (useRigidbody.Value)
+            {
+                return;
+            }
+
             if (selfTransform == null || resolvedTarget == null)
             {
                 Finish();
                 return;
             }
 
+            float dt = Time.deltaTime;
+            elapsedTime += dt;
+
             // 检查超时
-            if (chaseTime.Value > 0)
+            if (chaseTime.Value > 0 && elapsedTime >= chaseTime.Value)
             {
-                elapsedTime += Time.deltaTime;
-                if (elapsedTime >= chaseTime.Value)
+                if (onTimeout != null)
                 {
-                    if (onTimeout != null)
-                    {
-                        Fsm.Event(onTimeout);
-                    }
-                    Finish();
-                    return;
+                    Fsm.Event(onTimeout);
                 }
+                Finish();
+                return;
             }
 
             // 计算朝向目标的方向
@@ -135,24 +139,66 @@ namespace AnySilkBoss.Source.Actions
                 return;
             }
 
-            // 应用移动
-            if (useRigidbody.Value && rb2d != null)
-            {
-                // 使用刚体：应用加速度
-                Vector2 accelerationForce = direction * acceleration.Value;
-                rb2d.linearVelocity += accelerationForce * Time.deltaTime;
+            // 直接移动 Transform
+            float moveSpeed = Mathf.Min(acceleration.Value * elapsedTime, maxSpeed.Value);
+            selfTransform.position += (Vector3)(direction * moveSpeed * dt);
+        }
 
-                // 限制最大速度
-                if (rb2d.linearVelocity.magnitude > maxSpeed.Value)
-                {
-                    rb2d.linearVelocity = rb2d.linearVelocity.normalized * maxSpeed.Value;
-                }
-            }
-            else
+        public override void OnFixedUpdate()
+        {
+            if (!useRigidbody.Value)
             {
-                // 直接移动 Transform
-                float moveSpeed = Mathf.Min(acceleration.Value * elapsedTime, maxSpeed.Value);
-                selfTransform.position += (Vector3)(direction * moveSpeed * Time.deltaTime);
+                return;
+            }
+
+            if (selfTransform == null || resolvedTarget == null)
+            {
+                Finish();
+                return;
+            }
+
+            if (rb2d == null)
+            {
+                Finish();
+                return;
+            }
+
+            float dt = Time.fixedDeltaTime;
+            elapsedTime += dt;
+
+            // 检查超时
+            if (chaseTime.Value > 0 && elapsedTime >= chaseTime.Value)
+            {
+                if (onTimeout != null)
+                {
+                    Fsm.Event(onTimeout);
+                }
+                Finish();
+                return;
+            }
+
+            // 计算朝向目标的方向
+            Vector2 direction = ((Vector2)resolvedTarget.position - (Vector2)selfTransform.position).normalized;
+
+            // 检查是否到达目标
+            float distance = Vector2.Distance(selfTransform.position, resolvedTarget.position);
+            if (distance <= reachDistance.Value)
+            {
+                if (onReachTarget != null)
+                {
+                    Fsm.Event(onReachTarget);
+                }
+                Finish();
+                return;
+            }
+
+            Vector2 accelerationForce = direction * acceleration.Value;
+            rb2d.linearVelocity += accelerationForce * dt;
+
+            // 限制最大速度
+            if (rb2d.linearVelocity.magnitude > maxSpeed.Value)
+            {
+                rb2d.linearVelocity = rb2d.linearVelocity.normalized * maxSpeed.Value;
             }
         }
 

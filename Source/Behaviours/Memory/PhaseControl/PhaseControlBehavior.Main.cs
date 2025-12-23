@@ -4,6 +4,7 @@ using System.Linq;
 using UnityEngine;
 using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
+using TMProOld;
 using AnySilkBoss.Source.Managers;
 using AnySilkBoss.Source.Tools;
 using static AnySilkBoss.Source.Tools.FsmStateBuilder;
@@ -246,6 +247,27 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                         {
                             Silk_Title_Image.gameObject.SetActive(false);
                             Silk_Title_Text.gameObject.SetActive(true);
+                            
+                            // 设置标题颜色为星空蓝
+                            var titleSmallSuper = Silk_Title_Text.Find("Title Small Super");
+                            if (titleSmallSuper != null)
+                            {
+                                var tmp = titleSmallSuper.GetComponent<TextMeshPro>();
+                                if (tmp != null)
+                                {
+                                    // 星河蓝：明亮的蓝色带点紫调
+                                    tmp.color = new Color(0.45f, 0.45f, 1f, 1f);
+                                }
+                            }
+                            var titleSmallMain = Silk_Title_Text.Find("Title Small Main");
+                            if (titleSmallMain != null){
+                                var tmp = titleSmallMain.GetComponent<TextMeshPro>();
+                                if (tmp != null)
+                                {
+                                    // 淡金色
+                                    tmp.color = new Color(1f, 0.94f, 0.7f, 1f);
+                                }
+                            }
                         }
                     }
                 }
@@ -461,6 +483,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
         /// <summary>
         /// 移除原版地刺相关 Actions（如设置 Can Spike Pull 的 SetFsmBool）
+        /// 同时移除原版落石攻击触发（Can Rubble Attack）
         /// </summary>
         private List<FsmStateAction> RemoveOriginalSpikeActions(List<FsmStateAction> actions)
         {
@@ -472,12 +495,18 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 bool shouldRemove = false;
 
                 // 移除设置 Can Spike Pull 的 SetFsmBool
+                // 移除设置 Can Rubble Attack 的 SetFsmBool（原版落石攻击）
                 if (action is SetFsmBool setFsmBool)
                 {
                     if (setFsmBool.variableName?.Value == "Can Spike Pull")
                     {
                         shouldRemove = true;
                         Log.Debug($"[PhaseControl] 移除 SetFsmBool (Can Spike Pull)");
+                    }
+                    else if (setFsmBool.variableName?.Value == "Can Rubble Attack")
+                    {
+                        shouldRemove = true;
+                        Log.Debug($"[PhaseControl] 移除 SetFsmBool (Can Rubble Attack)");
                     }
                 }
 
@@ -493,7 +522,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             if (removedCount > 0)
             {
-                Log.Info($"[PhaseControl] 移除了 {removedCount} 个原版地刺 Actions");
+                Log.Info($"[PhaseControl] 移除了 {removedCount} 个原版 Actions");
             }
 
             return result;

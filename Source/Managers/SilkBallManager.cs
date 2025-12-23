@@ -432,7 +432,7 @@ namespace AnySilkBoss.Source.Managers
         /// <summary>
         /// 生成并准备丝球（完整参数版本）
         /// </summary>
-        public SilkBallBehavior? SpawnSilkBall(Vector3 position, float acceleration, float maxSpeed, float chaseTime, float scale, bool enableRotation = true, Transform? customTarget = null, bool ignoreWall = false)
+        public SilkBallBehavior? SpawnSilkBall(Vector3 position, float acceleration, float maxSpeed, float chaseTime, float scale, bool enableRotation = true, Transform? customTarget = null, bool ignoreWall = false, bool delayDamageActivation = true)
         {
             var behavior = GetAvailableSilkBall();
             if (behavior == null)
@@ -442,7 +442,7 @@ namespace AnySilkBoss.Source.Managers
             }
 
             // 准备丝球
-            behavior.PrepareForUse(position, acceleration, maxSpeed, chaseTime, scale, enableRotation, customTarget, ignoreWall);
+            behavior.PrepareForUse(position, acceleration, maxSpeed, chaseTime, scale, enableRotation, customTarget, ignoreWall, delayDamageActivation);
             return behavior;
         }
 
@@ -524,7 +524,7 @@ namespace AnySilkBoss.Source.Managers
         /// <summary>
         /// 生成并准备 Memory 丝球（完整参数版本）
         /// </summary>
-        public MemorySilkBallBehavior? SpawnMemorySilkBall(Vector3 position, float acceleration, float maxSpeed, float chaseTime, float scale, bool enableRotation = true, Transform? customTarget = null, bool ignoreWall = false)
+        public MemorySilkBallBehavior? SpawnMemorySilkBall(Vector3 position, float acceleration, float maxSpeed, float chaseTime, float scale, bool enableRotation = true, Transform? customTarget = null, bool ignoreWall = false, bool delayDamageActivation = true)
         {
             var behavior = GetAvailableMemorySilkBall();
             if (behavior == null)
@@ -534,7 +534,7 @@ namespace AnySilkBoss.Source.Managers
             }
 
             // 准备丝球
-            behavior.PrepareForUse(position, acceleration, maxSpeed, chaseTime, scale, enableRotation, customTarget, ignoreWall);
+            behavior.PrepareForUse(position, acceleration, maxSpeed, chaseTime, scale, enableRotation, customTarget, ignoreWall, delayDamageActivation);
             return behavior;
         }
 
