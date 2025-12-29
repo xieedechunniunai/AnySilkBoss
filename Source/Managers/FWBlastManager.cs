@@ -611,7 +611,7 @@ namespace AnySilkBoss.Source.Managers
         #endregion
 
         #region 清理
-        private void CleanupPool()
+        public void CleanupPool()
         {
             Log.Info("[FWBlastManager] 开始清理对象池...");
 

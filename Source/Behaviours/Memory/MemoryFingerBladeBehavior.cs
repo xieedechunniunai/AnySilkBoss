@@ -24,9 +24,17 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         public MemoryHandControlBehavior? parentHand; // 父手部Behavior引用
 
         [Header("环绕参数")]
-        public float orbitRadius = 7f;             // 环绕半径（增大到6f）
-        public float orbitSpeed = 200f;           // 环绕速度（稍微减慢）
-        public float orbitOffset = 0f;            // 环绕角度偏移
+        private FsmFloat? _orbitRadiusVar;
+        private FsmFloat? _orbitSpeedVar;
+        private FsmFloat? _orbitOffsetVar;
+        private FsmFloat? _trackTimeVar;         // Track Time 变量缓存
+        private FsmFloat? _dashRotationOffsetVar;
+        private FsmBool? _specialAttackVar;      // Special Attack 变量缓存
+        private FsmVector3? _pinArraySlotTargetVar;
+
+        private FsmBool? _dashReadyVar;
+        private FsmVector3? _dashOrbitTargetPosVar;
+        private FsmFloat? _dashOrbitTargetRotationVar;
 
         // 私有变量
         private PlayMakerFSM? controlFSM;        // Control FSM
@@ -35,16 +43,16 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                                                  // 运行时缓存：新增的FSM变量引用，确保动作字段绑定到同一实例
         private FWPinManager? _pinManager;
 
-        private FsmFloat? _orbitRadiusVar;
-        private FsmFloat? _orbitSpeedVar;
-        private FsmFloat? _orbitOffsetVar;
-        private FsmFloat? _trackTimeVar;         // Track Time 变量缓存
-        private FsmBool? _specialAttackVar;      // Special Attack 变量缓存
-
         // 事件引用缓存
         private FsmEvent? _orbitStartEvent;
         private FsmEvent? _shootEvent;
+        private FsmEvent? _dashOrbitStartEvent;
+        private FsmEvent? _pinArrayEnterEvent;
+        private FsmEvent? _pinArrayAttackEvent;
         private FsmState? _shootState;
+        private FsmState? _pinArrayMoveToSlotState;
+        private FsmState? _pinArrayAimState;
+
         /// <summary>
         /// 初始化Finger Blade
         /// </summary>
@@ -95,16 +103,182 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 Log.Warn($"Finger Blade {bladeIndex} ({gameObject.name}) 未找到Control FSM");
             }
             AddDynamicVariables();
+            EnsureDashOrbitVariables();
+            RegisterFingerBladeEvents();
             AddCustomStompStates();
             AddCustomSwipeStates();
             ModifyAnticPullState();  // 修改 Antic Pull 状态的等待时间
             ModifyAnticPauseState(); // 修改 Antic Pause 状态，添加二阶段追踪判断
             ModifyShootState();
+            ModifyThunkState();      // 修改 Thunk 状态，重置 Damager layer
+            InitializePinArraySpecialStates();
+            // 添加环绕攻击全局转换
+            AddOrbitGlobalTransition();
+            AddDashOrbitGlobalTransition();
             // 统一初始化FSM（在所有状态和事件添加完成后）
             RelinkFingerBladeEventReferences();
         }
 
+        private void InitializePinArraySpecialStates()
+        {
+            if (controlFSM == null) return;
 
+            EnsurePinArrayVariables();
+            RegisterPinArrayEvents();
+            CreatePinArraySpecialStates();
+            AddPinArrayGlobalTransition();
+        }
+
+        private void EnsurePinArrayVariables()
+        {
+            if (controlFSM == null) return;
+
+            var vars = controlFSM.FsmVariables;
+            var vector3Vars = vars.Vector3Variables.ToList();
+            _pinArraySlotTargetVar = vector3Vars.FirstOrDefault(v => v.Name == "PinArray Slot Target");
+            if (_pinArraySlotTargetVar == null)
+            {
+                _pinArraySlotTargetVar = new FsmVector3("PinArray Slot Target") { Value = Vector3.zero };
+                vector3Vars.Add(_pinArraySlotTargetVar);
+                vars.Vector3Variables = vector3Vars.ToArray();
+                vars.Init();
+            }
+        }
+
+        private void RegisterPinArrayEvents()
+        {
+            if (controlFSM == null) return;
+
+            _pinArrayEnterEvent = FsmEvent.GetFsmEvent("PINARRAY_ENTER");
+            _pinArrayAttackEvent = FsmEvent.GetFsmEvent("PINARRAY_ATTACK");
+
+            var events = controlFSM.Fsm.Events.ToList();
+            if (!events.Contains(_pinArrayEnterEvent)) events.Add(_pinArrayEnterEvent);
+            if (!events.Contains(_pinArrayAttackEvent)) events.Add(_pinArrayAttackEvent);
+            controlFSM.Fsm.Events = events.ToArray();
+        }
+
+        private void CreatePinArraySpecialStates()
+        {
+            if (controlFSM == null) return;
+
+            _pinArrayMoveToSlotState = GetOrCreateState(controlFSM, "PinArray MoveToSlot", $"Finger Blade {bladeIndex} PinArray MoveToSlot");
+            _pinArrayAimState = GetOrCreateState(controlFSM, "PinArray Aim", $"Finger Blade {bladeIndex} PinArray Aim");
+
+            AddPinArrayMoveToSlotActions(_pinArrayMoveToSlotState);
+            AddPinArrayAimActions(_pinArrayAimState);
+
+            SetFinishedTransition(_pinArrayMoveToSlotState, _pinArrayAimState);
+
+            var anticPullState = controlFSM.FsmStates.FirstOrDefault(s => s.Name == "Antic Pull");
+            if (anticPullState != null && _pinArrayAttackEvent != null)
+            {
+                _pinArrayAimState.Transitions = new FsmTransition[]
+                {
+                    CreateTransition(_pinArrayAttackEvent, anticPullState)
+                };
+            }
+        }
+
+        private void AddPinArrayMoveToSlotActions(FsmState state)
+        {
+            if (controlFSM == null) return;
+
+            var zeroVelocityAction = new SetVelocity2d
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                vector = new FsmVector2 { Value = Vector2.zero, UseVariable = false },
+                x = new FsmFloat { Value = 0f, UseVariable = false },
+                y = new FsmFloat { Value = 0f, UseVariable = false },
+                everyFrame = false
+            };
+
+            // 使用 AnimatePositionTo
+            var moveAction = new AnimatePositionTo
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                toValue = _pinArraySlotTargetVar,
+                localSpace = false,
+                time = new FsmFloat(0.6f), // 最大时间作为超时保护
+                speed = new FsmFloat(10f), // 使用固定速度
+                delay = new FsmFloat(0f),
+                easeType = EaseFsmAction.EaseType.linear,
+                reverse = new FsmBool(false),
+                realTime = false
+            };
+
+            var waitAction = new Wait
+            {
+                time = new FsmFloat(0.4f),
+                finishEvent = FsmEvent.Finished
+            };
+
+            state.Actions = new FsmStateAction[]
+            {
+                zeroVelocityAction,
+                moveAction,
+                waitAction
+            };
+        }
+        private void AddPinArrayAimActions(FsmState state)
+        {
+            var aimAction = new CallMethod
+            {
+                behaviour = this,
+                methodName = "UpdatePinArrayAim",
+                parameters = new FsmVar[0],
+                everyFrame = true
+            };
+
+            state.Actions = new FsmStateAction[]
+            {
+                aimAction
+            };
+        }
+
+        private void AddPinArrayGlobalTransition()
+        {
+            if (controlFSM == null) return;
+            if (_pinArrayEnterEvent == null || _pinArrayMoveToSlotState == null) return;
+
+            var globalTrans = controlFSM.Fsm.GlobalTransitions.ToList();
+            bool exists = globalTrans.Any(t => t.FsmEvent == _pinArrayEnterEvent && (t.toState == _pinArrayMoveToSlotState.Name || t.toFsmState == _pinArrayMoveToSlotState));
+            if (!exists)
+            {
+                globalTrans.Add(CreateTransition(_pinArrayEnterEvent, _pinArrayMoveToSlotState));
+                controlFSM.Fsm.GlobalTransitions = globalTrans.ToArray();
+            }
+        }
+
+        public void UpdatePinArrayAim()
+        {
+            if (controlFSM == null) return;
+
+            Vector3 currentPosition = transform.position;
+            Vector3 playerPosition = playerTransform != null ? playerTransform.position : currentPosition;
+            Vector3 attackDirection = (playerPosition - currentPosition);
+            if (attackDirection.sqrMagnitude < 0.0001f)
+            {
+                return;
+            }
+
+            attackDirection.Normalize();
+            float attackAngle = Mathf.Atan2(attackDirection.y, attackDirection.x) * Mathf.Rad2Deg - 3f;
+
+            var attackRotationVar = controlFSM.FsmVariables.GetFsmFloat("Attack Rotation");
+            if (attackRotationVar != null)
+            {
+                attackRotationVar.Value = attackAngle;
+            }
+
+            var attackAngleVar = controlFSM.FsmVariables.GetFsmFloat("Attack Angle");
+            if (attackAngleVar != null)
+            {
+                attackAngleVar.Value = attackAngle;
+            }
+
+            transform.rotation = Quaternion.Euler(0f, 0f, attackAngle + 180f);
+        }
 
         private void Update()
         {
@@ -132,64 +306,17 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         public void AddDynamicVariables()
         {
             if (controlFSM == null) return;
-
-            // 复用已存在的变量，否则创建并添加
             var floatVars = controlFSM.FsmVariables.FloatVariables.ToList();
-            _orbitRadiusVar = floatVars.FirstOrDefault(v => v.Name == "OrbitRadius");
-            _orbitSpeedVar = floatVars.FirstOrDefault(v => v.Name == "OrbitSpeed");
-            _orbitOffsetVar = floatVars.FirstOrDefault(v => v.Name == "OrbitOffset");
-
-            bool added = false;
-            if (_orbitRadiusVar == null)
-            {
-                _orbitRadiusVar = new FsmFloat("OrbitRadius") { Value = orbitRadius };
-                floatVars.Add(_orbitRadiusVar);
-                added = true;
-            }
-            else
-            {
-                _orbitRadiusVar.Value = orbitRadius;
-            }
-
-            if (_orbitSpeedVar == null)
-            {
-                _orbitSpeedVar = new FsmFloat("OrbitSpeed") { Value = orbitSpeed };
-                floatVars.Add(_orbitSpeedVar);
-                added = true;
-            }
-            else
-            {
-                _orbitSpeedVar.Value = orbitSpeed;
-            }
-
-            if (_orbitOffsetVar == null)
-            {
-                _orbitOffsetVar = new FsmFloat("OrbitOffset") { Value = orbitOffset };
-                floatVars.Add(_orbitOffsetVar);
-                added = true;
-            }
-            else
-            {
-                _orbitOffsetVar.Value = orbitOffset;
-            }
-
-            if (added)
-            {
-                controlFSM.FsmVariables.FloatVariables = floatVars.ToArray();
-            }
+            _orbitRadiusVar = new FsmFloat("OrbitRadius") { Value = 7f };
+            floatVars.Add(_orbitRadiusVar);
+            _orbitSpeedVar = new FsmFloat("OrbitSpeed") { Value = 200f };
+            floatVars.Add(_orbitSpeedVar);
+            _orbitOffsetVar = new FsmFloat("OrbitOffset") { Value = 0f };
+            floatVars.Add(_orbitOffsetVar);
+            _dashRotationOffsetVar = new FsmFloat("Dash Rotation Offset") { Value = 45f };
+            floatVars.Add(_dashRotationOffsetVar);
+            controlFSM.FsmVariables.FloatVariables = floatVars.ToArray();
         }
-
-
-        /// <summary>
-        /// 设置环绕参数（已废弃，现在由Hand通过SetFsmFloat直接设置FSM变量）
-        /// </summary>
-        [System.Obsolete("此方法已废弃，请使用Hand中的SetFsmFloat直接设置FSM变量")]
-        public void SetOrbitParameters(float radius, float speed, float offset)
-        {
-            // 此方法保留仅用于兼容性，实际参数应由Hand通过SetFsmFloat设置
-            Log.Warn($"Finger Blade {bladeIndex} SetOrbitParameters 已废弃，请使用SetFsmFloat");
-        }
-
         /// <summary>
         /// 注册Finger Blade FSM的所有事件
         /// </summary>
@@ -200,30 +327,13 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             // 创建或获取事件
             _orbitStartEvent = FsmEvent.GetFsmEvent($"ORBIT START {parentHandName} Blade {bladeIndex}");
             _shootEvent = FsmEvent.GetFsmEvent($"SHOOT {parentHandName} Blade {bladeIndex}");
+            _dashOrbitStartEvent = FsmEvent.GetFsmEvent($"DASH ORBIT START {parentHandName} Blade {bladeIndex}");
 
-            // 将事件添加到FSM的事件列表中
-            var existingEvents = controlFSM.FsmEvents.ToList();
-
-            if (!existingEvents.Contains(_orbitStartEvent))
-            {
-                existingEvents.Add(_orbitStartEvent);
-            }
-            if (!existingEvents.Contains(_shootEvent))
-            {
-                existingEvents.Add(_shootEvent);
-            }
-
-            // 使用反射设置FsmEvents
-            var fsmType = controlFSM.Fsm.GetType();
-            var eventsField = fsmType.GetField("events", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            if (eventsField != null)
-            {
-                eventsField.SetValue(controlFSM.Fsm, existingEvents.ToArray());
-            }
-            else
-            {
-                Log.Error($"Finger Blade {bladeIndex} ({gameObject.name}) 未找到events字段");
-            }
+            var Events = controlFSM.Fsm.Events.ToList();
+            Events.Add(_orbitStartEvent);
+            Events.Add(_shootEvent);
+            Events.Add(_dashOrbitStartEvent);
+            controlFSM.Fsm.Events = Events.ToArray();
         }
 
         /// <summary>
@@ -247,10 +357,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         public void AddOrbitGlobalTransition()
         {
             if (controlFSM == null) return;
-
-            // 首先注册所有需要的事件
-            RegisterFingerBladeEvents();
-
             // 创建第一个状态：Orbit Start（接收环绕指令，持续环绕）
             var orbitStartState = CreateOrbitStartState();
             if (orbitStartState == null)
@@ -281,7 +387,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             AddOrbitShootActions(orbitShootState);
             orbitStartState.Transitions = new FsmTransition[] { CreateTransition(_shootEvent!, orbitPrepareState) };
             SetFinishedTransition(orbitPrepareState, orbitShootState);
-            
+
             // 设置 Orbit Shoot 的转换：完成后进入 Shoot 状态
             var shootState = controlFSM!.FsmStates.FirstOrDefault(state => state.Name == "Shoot");
             if (shootState != null)
@@ -289,27 +395,210 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 SetFinishedTransition(orbitShootState, shootState);
             }
 
-            // 创建全局转换（从Idle到Orbit Start）
+            // 创建全局转换（用Orbit事件跳转到Orbit Start状态）
             var globalTransition = CreateTransition(_orbitStartEvent!, orbitStartState);
-
-            // 添加全局转换（使用反射修改只读属性）
-            var existingTransitions = controlFSM.FsmGlobalTransitions.ToList();
-            existingTransitions.Add(globalTransition);
-
-            // 使用反射设置FsmGlobalTransitions
-            var fsmType = controlFSM.Fsm.GetType();
-            var globalTransitionsField = fsmType.GetField("globalTransitions", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            if (globalTransitionsField != null)
-            {
-                globalTransitionsField.SetValue(controlFSM.Fsm, existingTransitions.ToArray());
-            }
-            else
-            {
-                Log.Error($"Finger Blade {bladeIndex} ({gameObject.name}) 未找到globalTransitions字段");
-            }
-
-            // 重新链接所有事件引用
+            var GlobalTransitions = controlFSM.Fsm.GlobalTransitions.ToList();
+            GlobalTransitions.Add(globalTransition);
+            controlFSM.Fsm.GlobalTransitions = GlobalTransitions.ToArray();
         }
+
+        public void AddDashOrbitGlobalTransition()
+        {
+            if (controlFSM == null) return;
+            if (_dashOrbitStartEvent == null || _shootEvent == null) return;
+
+            var dashOrbitMoveToPoseState = GetOrCreateState(controlFSM, "Dash Orbit MoveToPose");
+            var dashOrbitState = GetOrCreateState(controlFSM, "Dash Orbit");
+
+            dashOrbitMoveToPoseState.Actions = new FsmStateAction[]
+            {
+                new SetBoolValue
+                {
+                    boolVariable = _dashReadyVar,
+                    boolValue = new FsmBool(false),
+                    everyFrame = false
+                },
+                new CallMethod
+                {
+                    behaviour = new FsmObject { Value = this },
+                    methodName = new FsmString("CalcDashOrbitTargetPos") { Value = "CalcDashOrbitTargetPos" },
+                    parameters = new FsmVar[0],
+                    everyFrame = false
+                },
+                new AnimatePositionTo
+                {
+                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    toValue = _dashOrbitTargetPosVar,
+                    localSpace = false,
+                    time = new FsmFloat(0.6f),
+                    delay = new FsmFloat(0f),
+                    speed = new FsmFloat { UseVariable = true },
+                    easeType = EaseFsmAction.EaseType.linear,
+                    reverse = new FsmBool(false),
+                    realTime = false,
+                    finishEvent = FsmEvent.Finished
+                },
+                new AnimateRotationTo
+                {
+                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    fromValue = new FsmFloat { UseVariable = true }, // 使用当前角度
+                    toValue = _dashOrbitTargetRotationVar,
+                    worldSpace = false,
+                    negativeSpace = false,
+                    time = new FsmFloat(0.6f),
+                    delay = new FsmFloat(0f),
+                    speed = new FsmFloat { UseVariable = true },
+                    easeType = EaseFsmAction.EaseType.linear,
+                    reverse = new FsmBool(false),
+                    realTime = false
+                }
+            };
+
+            SetFinishedTransition(dashOrbitMoveToPoseState, dashOrbitState);
+
+            var bossObj = GameObject.Find("Silk Boss");
+
+            // 获取 Damager 变量，用于设置 Layer 和激活
+            var damagerVar = controlFSM.FsmVariables.GetFsmGameObject("Damager");
+
+            dashOrbitState.Actions = new FsmStateAction[]
+            {
+                new SetBoolValue
+                {
+                    boolVariable = _dashReadyVar,
+                    boolValue = new FsmBool(true),
+                    everyFrame = false
+                },
+                new SetLayer
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        gameObject = damagerVar
+                    },
+                    layer = LayerMask.NameToLayer("Enemy Attack")
+                },
+                new ActivateGameObject
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        gameObject = damagerVar
+                    },
+                    activate = new FsmBool(true),
+                    recursive = new FsmBool(false),
+                    resetOnExit = true
+                },
+                new OrbitAroundTargetAction
+                {
+                    targetGameObject = new FsmGameObject { Value = bossObj },
+                    orbitRadius = _orbitRadiusVar ?? controlFSM.FsmVariables.GetFsmFloat("OrbitRadius"),
+                    orbitSpeed = _orbitSpeedVar ?? controlFSM.FsmVariables.GetFsmFloat("OrbitSpeed"),
+                    orbitAngleOffset = _orbitOffsetVar ?? controlFSM.FsmVariables.GetFsmFloat("OrbitOffset"),
+                    followTarget = true,
+                    positionLerpSpeed = 30f,
+                    rotateToFaceCenter = true,
+                    pointOutward = false,
+                    rotationOffset = 45f,
+                    applyDirectionalRotationOffset = true,
+                    directionalRotationOffset = 8f,
+                    rotationLerpSpeed = 30f,
+                    zeroVelocityOnEnter = true,
+                    zeroVelocityOnExit = true
+                }
+            };
+
+            // Dash Orbit 完成后跳转到 Antic Pull 状态
+            var anticPullState = controlFSM.FsmStates.FirstOrDefault(s => s.Name == "Antic Pull");
+            if (anticPullState != null)
+            {
+                dashOrbitState.Transitions = new FsmTransition[]
+                {
+                    CreateTransition(_shootEvent, anticPullState)
+                };
+            }
+
+            var GlobalTransitions = controlFSM.Fsm.GlobalTransitions.ToList();
+            GlobalTransitions.Add(CreateTransition(_dashOrbitStartEvent, dashOrbitMoveToPoseState));
+            controlFSM.Fsm.GlobalTransitions = GlobalTransitions.ToArray();
+        }
+
+        private void EnsureDashOrbitVariables()
+        {
+            if (controlFSM == null) return;
+
+            var vars = controlFSM.FsmVariables;
+
+            var boolVars = vars.BoolVariables.ToList();
+            _dashReadyVar = boolVars.FirstOrDefault(v => v.Name == "Dash Ready");
+            if (_dashReadyVar == null)
+            {
+                _dashReadyVar = new FsmBool("Dash Ready") { Value = false };
+                boolVars.Add(_dashReadyVar);
+                vars.BoolVariables = boolVars.ToArray();
+                vars.Init();
+            }
+
+            var vec3Vars = vars.Vector3Variables.ToList();
+            _dashOrbitTargetPosVar = vec3Vars.FirstOrDefault(v => v.Name == "DashOrbit Target Pos");
+            if (_dashOrbitTargetPosVar == null)
+            {
+                _dashOrbitTargetPosVar = new FsmVector3("DashOrbit Target Pos") { Value = Vector3.zero };
+                vec3Vars.Add(_dashOrbitTargetPosVar);
+                vars.Vector3Variables = vec3Vars.ToArray();
+                vars.Init();
+            }
+
+            var floatVars = vars.FloatVariables.ToList();
+            _dashOrbitTargetRotationVar = floatVars.FirstOrDefault(v => v.Name == "DashOrbit Target Rotation");
+            if (_dashOrbitTargetRotationVar == null)
+            {
+                _dashOrbitTargetRotationVar = new FsmFloat("DashOrbit Target Rotation") { Value = 0f };
+                floatVars.Add(_dashOrbitTargetRotationVar);
+                vars.FloatVariables = floatVars.ToArray();
+                vars.Init();
+            }
+        }
+
+        public void CalcDashOrbitTargetPos()
+        {
+            if (controlFSM == null) return;
+            if (_dashOrbitTargetPosVar == null || _dashOrbitTargetRotationVar == null) return;
+
+            var boss = GameObject.Find("Silk Boss");
+            Vector3 center = boss != null ? boss.transform.position : transform.position;
+            
+            // 修正中心值：X 使用 Boss 的 AttackControlFsm 的变量 "Antic X" 的值（如果存在），Y 使用 140
+            if (boss != null)
+            {
+                var attackControlFsm = FSMUtility.LocateMyFSM(boss, "Attack Control");
+                if (attackControlFsm != null)
+                {
+                    var anticXVar = attackControlFsm.FsmVariables.GetFsmFloat("Antic X");
+                    if (anticXVar != null)
+                    {
+                        center.x = anticXVar.Value;
+                    }
+                }
+                center.y = 140f;
+            }
+
+            float radius = (_orbitRadiusVar ?? controlFSM.FsmVariables.GetFsmFloat("OrbitRadius"))?.Value ?? 5f;
+            float angleDeg = (_orbitOffsetVar ?? controlFSM.FsmVariables.GetFsmFloat("OrbitOffset"))?.Value ?? 0f;
+            float rad = angleDeg * Mathf.Deg2Rad;
+
+            // 计算目标位置
+            _dashOrbitTargetPosVar.Value = new Vector3(
+                center.x + Mathf.Cos(rad) * radius,
+                center.y + Mathf.Sin(rad) * radius,
+                center.z
+            );
+
+            // 计算目标角度（从 BOSS 中心指向外部，即从中心指向 Finger Blade）
+            // 角度应该是从中心到目标位置的方向角度
+            _dashOrbitTargetRotationVar.Value = angleDeg + 180f; // 加180度是因为要指向外部
+        }
+
         /// <summary>
         /// 创建Orbit Start状态（接收环绕指令，持续环绕）
         /// </summary>
@@ -409,8 +698,11 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             // 动作2：完全清除当前所有速度
             var clearVelocityAction = new SetVelocity2d
             {
-                x = new FsmFloat(0f),
-                y = new FsmFloat(0f)
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                vector = new FsmVector2 { Value = Vector2.zero, UseVariable = false },
+                x = new FsmFloat { Value = 0f, UseVariable = false },
+                y = new FsmFloat { Value = 0f, UseVariable = false },
+                everyFrame = false
             };
 
             // 动作3：设置攻击参数（根据当前位置和角度）
@@ -458,8 +750,11 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             var zeroVelocityAction = new SetVelocity2d
             {
-                x = new FsmFloat(0f),
-                y = new FsmFloat(0f)
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                vector = new FsmVector2 { Value = Vector2.zero, UseVariable = false },
+                x = new FsmFloat { Value = 0f, UseVariable = false },
+                y = new FsmFloat { Value = 0f, UseVariable = false },
+                everyFrame = false
             };
 
             // 动作2：预激活伤害/物理碰撞体，防止直接跳到Shoot时未及时生效
@@ -1066,6 +1361,48 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             var actions = shootState.Actions.ToList();
             actions.Insert(0, callMethodAction);
             shootState.Actions = actions.ToArray();
+        }
+
+        /// <summary>
+        /// 修改 Thunk 状态：将 Damager 的 layer 重置回 Attack 层级
+        /// </summary>
+        private void ModifyThunkState()
+        {
+            if (controlFSM == null) return;
+
+            // 查找 Thunk 状态
+            var thunkState = controlFSM.FsmStates.FirstOrDefault(s => s.Name == "Thunk");
+            if (thunkState == null)
+            {
+                Log.Warn($"[MemoryFingerBlade {bladeIndex}] 未找到 Thunk 状态");
+                return;
+            }
+
+            // 获取 Damager 变量
+            var damagerVar = controlFSM.FsmVariables.GetFsmGameObject("Damager");
+            if (damagerVar == null)
+            {
+                Log.Warn($"[MemoryFingerBlade {bladeIndex}] 未找到 Damager 变量");
+                return;
+            }
+
+            // 创建 SetLayer 动作，将 Damager 重置回 Attack 层级
+            var setLayerAction = new SetLayer
+            {
+                gameObject = new FsmOwnerDefault
+                {
+                    OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                    gameObject = damagerVar
+                },
+                layer = LayerMask.NameToLayer("Attack")
+            };
+
+            // 在 Actions 数组开头插入（确保在状态进入时立即执行）
+            var actions = thunkState.Actions.ToList();
+            actions.Insert(0, setLayerAction);
+            thunkState.Actions = actions.ToArray();
+
+            Log.Info($"Finger Blade {bladeIndex} Thunk 状态已修改：添加 Damager layer 重置为 Attack");
         }
 
         /// <summary>

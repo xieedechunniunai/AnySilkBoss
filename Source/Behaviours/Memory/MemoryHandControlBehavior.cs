@@ -29,9 +29,17 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         private PlayMakerFSM? handFSM;          // 手部的FSM
         private Transform? playerTransform;     // 玩家Transform
 
+        // FSM 内部变量缓存
+        private FsmGameObject? _silkBossFsmVar;
+        private FsmGameObject? _fingerBladeLFsmVar;
+        private FsmGameObject? _fingerBladeMFsmVar;
+        private FsmGameObject? _fingerBladeRFsmVar;
+
         // 事件引用缓存
         private FsmEvent? _orbitStartEvent;
         private FsmEvent? _shootEvent;
+        private FsmEvent? _dashOrbitStartEvent;
+        private FsmEvent? _dashOrbitShootEvent;
         private void Start()
         {
             StartCoroutine(InitializeHand());
@@ -94,6 +102,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             // 添加环绕攻击状态（在Hand初始化完成后）
             AddOrbitAttackState();
+
+            AddDashOrbitAttackState();
 
             // 修改 Stomp 和 Swipe 攻击状态（使用新的自定义状态链）
             ModifyStompState_New();
@@ -511,20 +521,34 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         private void InitializeFingerBlades()
         {
-            // 查找手部对象下的所有Finger Blade
-            Transform[] handChildren = GetComponentsInChildren<Transform>();
-            var fingerBladeTransforms = handChildren.Where(t =>
-                t.name == "Finger Blade L" ||
-                t.name == "Finger Blade M" ||
-                t.name == "Finger Blade R").ToArray();
+            if (handFSM == null)
+            {
+                Log.Warn($"{handName} handFSM 为 null，无法初始化 Finger Blades");
+                return;
+            }
+
+            // 从 FSM 变量获取 Finger Blade 引用（Hand Control FSM 已有这些变量）
+            var vars = handFSM.FsmVariables;
+            _silkBossFsmVar = vars.FindFsmGameObject("Silk Boss");
+            _fingerBladeLFsmVar = vars.FindFsmGameObject("Finger Blade L");
+            _fingerBladeMFsmVar = vars.FindFsmGameObject("Finger Blade M");
+            _fingerBladeRFsmVar = vars.FindFsmGameObject("Finger Blade R");
+
+            // 使用 FSM 变量获取 Finger Blade 引用
+            fingerBlades[0] = _fingerBladeLFsmVar?.Value?.transform;
+            fingerBlades[1] = _fingerBladeMFsmVar?.Value?.transform;
+            fingerBlades[2] = _fingerBladeRFsmVar?.Value?.transform;
 
             int bladeIndex = 0;
-            foreach (Transform bladeTransform in fingerBladeTransforms)
+            for (int i = 0; i < 3; i++)
             {
-                if (bladeIndex >= fingerBlades.Length) break;
+                if (fingerBlades[i] == null)
+                {
+                    Log.Warn($"{handName} Finger Blade {i} 未找到（FSM 变量为 null）");
+                    continue;
+                }
 
-                GameObject bladeObj = bladeTransform.gameObject;
-                fingerBlades[bladeIndex] = bladeTransform;
+                GameObject bladeObj = fingerBlades[i].gameObject;
 
                 // 添加FingerBladeBehavior组件
                 MemoryFingerBladeBehavior bladeBehavior = bladeObj.GetComponent<MemoryFingerBladeBehavior>();
@@ -537,12 +561,10 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 InitializeFingerBlade(bladeBehavior, bladeIndex);
                 fingerBladeBehaviors[bladeIndex] = bladeBehavior;
 
-                // 添加环绕攻击全局转换
-                bladeBehavior.AddOrbitGlobalTransition();
                 bladeIndex++;
             }
 
-            Log.Info($"{handName} 初始化完成，找到 {bladeIndex} 根Finger Blade");
+            Log.Info($"{handName} 初始化完成，找到 {bladeIndex} 根Finger Blade（使用 FSM 变量）");
         }
 
         /// <summary>
@@ -557,7 +579,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// 初始化 FingerBlade（子类可覆盖以执行不同的初始化逻辑）
         /// </summary>
         private void InitializeFingerBlade(MemoryFingerBladeBehavior bladeBehavior, int bladeIndex)
-        {    if (bladeBehavior is MemoryFingerBladeBehavior memoryBlade)
+        {
+            if (bladeBehavior is MemoryFingerBladeBehavior memoryBlade)
             {
                 memoryBlade.Initialize(bladeIndex, handName, this);
                 Log.Debug($"[MemoryHand] 已初始化 MemoryFingerBladeBehavior {bladeIndex}");
@@ -599,6 +622,250 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             // 重新链接所有事件引用
             RelinkHandEventReferences();
+        }
+
+        public void AddDashOrbitAttackState()
+        {
+            if (handFSM == null) return;
+
+            _dashOrbitStartEvent = FsmEvent.GetFsmEvent($"DASH ORBIT START {handName}");
+            _dashOrbitShootEvent = FsmEvent.GetFsmEvent($"DASH ORBIT SHOOT {handName}");
+
+            var events = handFSM.Fsm.Events.ToList();
+            if (!events.Contains(_dashOrbitStartEvent)) events.Add(_dashOrbitStartEvent);
+            if (!events.Contains(_dashOrbitShootEvent)) events.Add(_dashOrbitShootEvent);
+            handFSM.Fsm.Events = events.ToArray();
+
+            var boolVars = handFSM.FsmVariables.BoolVariables.ToList();
+            var dashReadyVar = boolVars.FirstOrDefault(v => v.Name == "Dash Ready");
+            if (dashReadyVar == null)
+            {
+                dashReadyVar = new FsmBool("Dash Ready") { Value = false };
+                boolVars.Add(dashReadyVar);
+            }
+
+            var dashReadyBlade0 = boolVars.FirstOrDefault(v => v.Name == "Dash Ready Blade0");
+            if (dashReadyBlade0 == null)
+            {
+                dashReadyBlade0 = new FsmBool("Dash Ready Blade0") { Value = false };
+                boolVars.Add(dashReadyBlade0);
+            }
+
+            var dashReadyBlade1 = boolVars.FirstOrDefault(v => v.Name == "Dash Ready Blade1");
+            if (dashReadyBlade1 == null)
+            {
+                dashReadyBlade1 = new FsmBool("Dash Ready Blade1") { Value = false };
+                boolVars.Add(dashReadyBlade1);
+            }
+
+            var dashReadyBlade2 = boolVars.FirstOrDefault(v => v.Name == "Dash Ready Blade2");
+            if (dashReadyBlade2 == null)
+            {
+                dashReadyBlade2 = new FsmBool("Dash Ready Blade2") { Value = false };
+                boolVars.Add(dashReadyBlade2);
+            }
+
+            handFSM.FsmVariables.BoolVariables = boolVars.ToArray();
+
+            var dashOrbitStartState = GetOrCreateState(handFSM, "Dash Orbit Start");
+            var dashOrbitWaitFingersReadyState = GetOrCreateState(handFSM, "Dash Orbit Wait Fingers Dash Ready");
+            var dashOrbitShootDispatchState = GetOrCreateState(handFSM, "Dash Orbit Shoot Dispatch");
+
+            var setDashReadyFalse = new SetBoolValue
+            {
+                boolVariable = dashReadyVar,
+                boolValue = new FsmBool(false),
+                everyFrame = false
+            };
+
+            var startDashOrbitSeqAction = new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("StartDashOrbitSequence") { Value = "StartDashOrbitSequence" },
+                parameters = new FsmVar[0],
+                everyFrame = false
+            };
+
+            var dashOrbitStartWait = new Wait
+            {
+                time = new FsmFloat(0.1f),
+                finishEvent = FsmEvent.Finished
+            };
+
+            dashOrbitStartState.Actions = new FsmStateAction[]
+            {
+                setDashReadyFalse,
+                startDashOrbitSeqAction,
+                dashOrbitStartWait
+            };
+
+            SetFinishedTransition(dashOrbitStartState, dashOrbitWaitFingersReadyState);
+
+            var blade0Obj = fingerBlades.Length > 0 && fingerBlades[0] != null ? fingerBlades[0].gameObject : null;
+            var blade1Obj = fingerBlades.Length > 1 && fingerBlades[1] != null ? fingerBlades[1].gameObject : null;
+            var blade2Obj = fingerBlades.Length > 2 && fingerBlades[2] != null ? fingerBlades[2].gameObject : null;
+
+            var getBlade0Ready = new GetFsmBool
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.SpecifyGameObject, gameObject = new FsmGameObject { Value = blade0Obj } },
+                fsmName = new FsmString("Control") { Value = "Control" },
+                variableName = new FsmString("Dash Ready") { Value = "Dash Ready" },
+                storeValue = dashReadyBlade0,
+                everyFrame = true
+            };
+
+            var getBlade1Ready = new GetFsmBool
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.SpecifyGameObject, gameObject = new FsmGameObject { Value = blade1Obj } },
+                fsmName = new FsmString("Control") { Value = "Control" },
+                variableName = new FsmString("Dash Ready") { Value = "Dash Ready" },
+                storeValue = dashReadyBlade1,
+                everyFrame = true
+            };
+
+            var getBlade2Ready = new GetFsmBool
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.SpecifyGameObject, gameObject = new FsmGameObject { Value = blade2Obj } },
+                fsmName = new FsmString("Control") { Value = "Control" },
+                variableName = new FsmString("Dash Ready") { Value = "Dash Ready" },
+                storeValue = dashReadyBlade2,
+                everyFrame = true
+            };
+
+            var allBladesReady = new BoolAllTrue
+            {
+                boolVariables = new FsmBool[] { dashReadyBlade0, dashReadyBlade1, dashReadyBlade2 },
+                sendEvent = FsmEvent.Finished,
+                storeResult = dashReadyVar,
+                everyFrame = true
+            };
+
+            dashOrbitWaitFingersReadyState.Actions = new FsmStateAction[]
+            {
+                getBlade0Ready,
+                getBlade1Ready,
+                getBlade2Ready,
+                allBladesReady
+            };
+
+            var attackReadyFrame = handFSM.FsmStates.FirstOrDefault(s => s.Name == "Attack Ready Frame");
+            if (attackReadyFrame != null)
+            {
+                SetFinishedTransition(dashOrbitWaitFingersReadyState, attackReadyFrame);
+            }
+
+            var sendDashOrbitShootAction = new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("SendDashOrbitShootEvents") { Value = "SendDashOrbitShootEvents" },
+                parameters = new FsmVar[0],
+                everyFrame = false
+            };
+
+            var dashOrbitShootWait = new Wait
+            {
+                time = new FsmFloat(0.1f),
+                finishEvent = FsmEvent.Finished
+            };
+
+            dashOrbitShootDispatchState.Actions = new FsmStateAction[]
+            {
+                sendDashOrbitShootAction,
+                dashOrbitShootWait
+            };
+
+            if (attackReadyFrame != null)
+            {
+                SetFinishedTransition(dashOrbitShootDispatchState, attackReadyFrame);
+            }
+
+            var globalTransitions = handFSM.FsmGlobalTransitions.ToList();
+            bool hasStart = globalTransitions.Any(t => t.FsmEvent == _dashOrbitStartEvent && (t.toState == dashOrbitStartState.Name || t.toFsmState == dashOrbitStartState));
+            if (!hasStart)
+            {
+                globalTransitions.Add(CreateTransition(_dashOrbitStartEvent, dashOrbitStartState));
+            }
+            bool hasShoot = globalTransitions.Any(t => t.FsmEvent == _dashOrbitShootEvent && (t.toState == dashOrbitShootDispatchState.Name || t.toFsmState == dashOrbitShootDispatchState));
+            if (!hasShoot)
+            {
+                globalTransitions.Add(CreateTransition(_dashOrbitShootEvent, dashOrbitShootDispatchState));
+            }
+            handFSM.Fsm.GlobalTransitions = globalTransitions.ToArray();
+        }
+
+        public void StartDashOrbitSequence()
+        {
+            float[] orbitOffsets;
+            if (handName == "Hand L")
+            {
+                orbitOffsets = new float[] { 0f, 120f, 240f };
+            }
+            else
+            {
+                orbitOffsets = new float[] { 60f, 180f, 300f };
+            }
+            // 获取 Phase Control FSM 并读取 Special Attack 变量
+            bool isSpecialAttack = false;
+            if (_silkBossFsmVar?.Value != null)
+            {
+                var phaseControlFSM = _silkBossFsmVar.Value.GetComponents<PlayMakerFSM>()
+                    .FirstOrDefault(fsm => fsm.FsmName == "Phase Control");
+                
+                if (phaseControlFSM != null)
+                {
+                    var specialAttackVar = phaseControlFSM.FsmVariables.GetFsmBool("Special Attack");
+                    if (specialAttackVar != null)
+                    {
+                        isSpecialAttack = specialAttackVar.Value;
+                    }
+                }
+            }
+            
+            for (int i = 0; i < fingerBladeBehaviors.Length; i++)
+            {
+                if (fingerBladeBehaviors[i] == null) continue;
+
+                var controlFSM = fingerBladeBehaviors[i].GetComponents<PlayMakerFSM>()
+                    .FirstOrDefault(fsm => fsm.FsmName == "Control");
+
+                if (controlFSM == null) continue;
+
+                float adjustedSpeed = 1200f;
+                float adjustedOffset = orbitOffsets[i];
+                var radiusVar = controlFSM.FsmVariables.GetFsmFloat("OrbitRadius");
+                if (radiusVar != null) radiusVar.Value = 5f;
+
+                var speedVar = controlFSM.FsmVariables.GetFsmFloat("OrbitSpeed");
+                if (speedVar != null) speedVar.Value = adjustedSpeed;
+
+                var offsetVar = controlFSM.FsmVariables.GetFsmFloat("OrbitOffset");
+                if (offsetVar != null) offsetVar.Value = adjustedOffset;
+                var dashRotationOffsetVar = controlFSM.FsmVariables.GetFsmFloat("Dash Rotation Offset");
+                if (dashRotationOffsetVar != null) dashRotationOffsetVar.Value = isSpecialAttack ? 45f : 0f;
+                var dashReadyVar = controlFSM.FsmVariables.GetFsmBool("Dash Ready");
+                if (dashReadyVar != null) dashReadyVar.Value = false;
+
+                int globalIndex = handName == "Hand L" ? i : i + 3;
+                string uniqueEventName = $"DASH ORBIT START {handName} Blade {globalIndex}";
+                controlFSM.SendEvent(uniqueEventName);
+            }
+        }
+
+        public void SendDashOrbitShootEvents()
+        {
+            for (int i = 0; i < fingerBladeBehaviors.Length; i++)
+            {
+                if (fingerBladeBehaviors[i] == null) continue;
+
+                var controlFSM = fingerBladeBehaviors[i].GetComponents<PlayMakerFSM>()
+                    .FirstOrDefault(fsm => fsm.FsmName == "Control");
+
+                if (controlFSM == null) continue;
+
+                int globalIndex = handName == "Hand L" ? i : i + 3;
+                string shootEventName = $"SHOOT {handName} Blade {globalIndex}";
+                controlFSM.SendEvent(shootEventName);
+            }
         }
 
         private void OnDestroy()
@@ -663,7 +930,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             var idleState = handFSM!.FsmStates.FirstOrDefault(state => state.Name == "Idle");
             if (idleState != null)
             {
-                    AddTransition(idleState, CreateTransition(_orbitStartEvent, orbitStartState));
+                AddTransition(idleState, CreateTransition(_orbitStartEvent, orbitStartState));
             }
 
             // 添加全局转换
@@ -874,11 +1141,11 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         public void SetFingerBladePhase2Parameters()
         {
-            // 自动查找 Phase Control FSM
-            var bossObject = GameObject.Find("Silk Boss");
+            // 使用 FSM 变量获取 Silk Boss 对象
+            var bossObject = _silkBossFsmVar?.Value;
             if (bossObject == null)
             {
-                Log.Warn($"{handName} 未找到 Silk Boss 对象");
+                Log.Warn($"{handName} 未找到 Silk Boss 对象（FSM 变量为 null）");
                 return;
             }
 

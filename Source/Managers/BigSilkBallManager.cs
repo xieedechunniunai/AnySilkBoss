@@ -492,7 +492,7 @@ namespace AnySilkBoss.Source.Managers
         /// <summary>
         /// 清理预制体和缓存（离开 BOSS 场景时调用）
         /// </summary>
-        private void CleanupPrefab()
+        public void CleanupPrefab()
         {
             Log.Info("=== 开始清理 BigSilkBallManager 缓存 ===");
 

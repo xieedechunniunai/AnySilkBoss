@@ -6,6 +6,7 @@ using UnityEngine.SceneManagement;
 using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
 using AnySilkBoss.Source.Tools;
+using static AnySilkBoss.Source.Tools.FsmStateBuilder;
 
 namespace AnySilkBoss.Source.Managers
 {
@@ -228,15 +229,12 @@ namespace AnySilkBoss.Source.Managers
                 yield break;
             }
 
-            Log.Info($"[FWPinManager] 动画资源加载成功: {_firstWeaverAnimGO.name}");
-
             // 搜索并加载 sprite collection
             yield return LoadSpriteCollection();
 
             // 修复 Pin Projectile 预制体的动画引用
             FixPrefabAnimationReference(_pinProjectilePrefab);
 
-            Log.Info("[FWPinManager] 动画资源加载并修复完成");
         }
 
         /// <summary>
@@ -428,11 +426,38 @@ namespace AnySilkBoss.Source.Managers
             // 补丁 Pin FSM
             PatchPinFsm(obj);
 
+            // 池内对象保持“受控休眠”，避免 FSM/动画在池中继续跑导致复用时贴图/状态异常
+            var rb2d = obj.GetComponent<Rigidbody2D>();
+            if (rb2d != null)
+            {
+                rb2d.linearVelocity = Vector2.zero;
+                rb2d.angularVelocity = 0f;
+                rb2d.bodyType = RigidbodyType2D.Kinematic;
+            }
+
+            ResetPinVisualState(obj);
+
+            var fsm = obj.LocateMyFSM("Control");
+            if (fsm != null)
+            {
+                ResetPinFsmVariables(fsm);
+                fsm.Fsm.InitData();
+
+                var managedDormantState = FindState(fsm, "Managed Dormant");
+                if (managedDormantState != null)
+                {
+                    fsm.SetState(managedDormantState.Name);
+                }
+            }
+
+            obj.SetActive(false);
+
             return obj;
         }
 
         /// <summary>
         /// 补丁 Pin Projectile FSM
+        /// 添加 DIRECT_FIRE 全局转换和 PinArray 大招状态链
         /// </summary>
         private void PatchPinFsm(GameObject pinObj)
         {
@@ -443,54 +468,133 @@ namespace AnySilkBoss.Source.Managers
                 return;
             }
 
-            // 1. 创建或获取 DIRECT_FIRE 事件
-            var directFireEvent = FsmEvent.GetFsmEvent("DIRECT_FIRE");
+            // 1. 注册所有需要的事件
+            var directFireEvent = GetOrCreateEvent(fsm, "DIRECT_FIRE");
+            var pinArraySlamEvent = GetOrCreateEvent(fsm, "PINARRAY_SLAM");
+            var pinArrayLiftEvent = GetOrCreateEvent(fsm, "PINARRAY_LIFT");
+            var pinArrayLandEvent = GetOrCreateEvent(fsm, "PINARRAY_LAND");
+            var attackEvent = FsmEvent.GetFsmEvent("ATTACK");
+            var isGroundEvent = GetOrCreateEvent(fsm, "IS_GROUND");
+            var isAirEvent = GetOrCreateEvent(fsm, "IS_AIR");
 
-            // 2. 添加事件到 FSM 的事件列表
-            var events = fsm.FsmEvents.ToList();
-            if (!events.Contains(directFireEvent))
-            {
-                events.Add(directFireEvent);
-                var fsmType = fsm.Fsm.GetType();
-                var eventsField = fsmType.GetField("events", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                if (eventsField != null)
-                {
-                    eventsField.SetValue(fsm.Fsm, events.ToArray());
-                }
-            }
+            // 2. 添加 FSM 变量（用于 Lift 和 Scramble）
+            AddPinArrayFsmVariables(fsm);
 
-            // 3. 查找 Antic 状态
-            var anticState = fsm.FsmStates.FirstOrDefault(s => s.Name == "Antic");
+            // 3. 查找原版状态
+            var anticState = FindState(fsm, "Antic");
+            var releaseState = FindState(fsm, "Release Pin");
+            var attackPauseState = FindState(fsm, "Attack Pause");
+            var managedDormantState = FindState(fsm, "Managed Dormant");
             if (anticState == null)
             {
-                Log.Warn("[FWPinManager] Pin FSM 未找到 Antic 状态，无法添加全局转换");
+                Log.Warn("[FWPinManager] Pin FSM 未找到 Antic 状态");
                 return;
             }
 
-            // 4. 创建全局转换 DIRECT_FIRE → Antic
-            var globalTransition = new FsmTransition
+            // 3.1 创建一个“受控休眠”状态，避免原版 Dormant 的 Wait 自动触发 ATTACK 干扰 PinArray 展开期
+            if (managedDormantState == null)
             {
-                FsmEvent = directFireEvent,
-                toState = "Antic",
-                toFsmState = anticState
-            };
-
-            // 5. 添加全局转换
-            var globalTransitions = fsm.FsmGlobalTransitions.ToList();
-            if (!globalTransitions.Any(t => t.FsmEvent == directFireEvent))
-            {
-                globalTransitions.Add(globalTransition);
-
-                var fsmType = fsm.Fsm.GetType();
-                var globalTransitionsField = fsmType.GetField("globalTransitions", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                if (globalTransitionsField != null)
+                managedDormantState = CreateAndAddState(fsm, "Managed Dormant", "Managed dormant (no auto attack)");
+                managedDormantState.Actions = new FsmStateAction[]
                 {
-                    globalTransitionsField.SetValue(fsm.Fsm, globalTransitions.ToArray());
+                    new SetMeshRenderer
+                    {
+                        gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                        active = new FsmBool(false)
+                    },
+                    new SetMeshRenderer
+                    {
+                        gameObject = new FsmOwnerDefault
+                        {
+                            OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                            GameObject = new FsmGameObject { Value = fsm.gameObject.transform.Find("Thread")?.gameObject }
+                        },
+                        active = new FsmBool(false)
+                    }
+                };
+
+                if (attackPauseState != null)
+                {
+                    managedDormantState.Transitions = new FsmTransition[]
+                    {
+                        CreateTransition(attackEvent, attackPauseState)
+                    };
                 }
             }
 
-            // 6. 在 Release Pin 状态末尾添加回收动作
-            var releaseState = fsm.FsmStates.FirstOrDefault(s => s.Name == "Release Pin");
+            // 4. 创建 PinArray 大招状态链
+            var pinArraySlamPrepareState = CreateAndAddState(fsm, "PinArray Slam Prepare", "PinArray 砸地预备");
+            var pinArraySlamPreFireState = CreateAndAddState(fsm, "PinArray Slam PreFire", "PinArray 砸地发射前");
+            var pinArraySlamFireState = CreateAndAddState(fsm, "PinArray Slam Fire", "PinArray 砸地发射");
+            var pinArraySlamThunkState = CreateAndAddState(fsm, "PinArray Slam Thunk", "PinArray 砸地落地");
+            var pinArraySlamRecoverState = CreateAndAddState(fsm, "PinArray Slam Recover", "PinArray 砸地恢复");
+            var pinArrayLiftState = CreateAndAddState(fsm, "PinArray Lift", "PinArray 抬起");
+            var pinArrayPostLiftState = CreateAndAddState(fsm, "PinArray PostLift", "PinArray 抬起后处理");
+            // 打乱角度拆分为多个状态
+            var pinArrayScrambleCheckState = CreateAndAddState(fsm, "PinArray Scramble Check", "PinArray 检查位置");
+            var pinArrayScrambleGroundState = CreateAndAddState(fsm, "PinArray Scramble Ground", "PinArray 地面基准角度");
+            var pinArrayScrambleAirState = CreateAndAddState(fsm, "PinArray Scramble Air", "PinArray 空中基准角度");
+            var pinArrayScrambleCalcState = CreateAndAddState(fsm, "PinArray Scramble Calc", "PinArray 计算并旋转");
+            var pinArrayReadyState = CreateAndAddState(fsm, "PinArray Ready", "PinArray 等待攻击");
+
+            // 5. 添加状态动作
+            AddPinArraySlamPrepareActions(fsm, pinArraySlamPrepareState);
+            AddPinArraySlamPreFireActions(fsm, pinArraySlamPreFireState);
+            AddPinArraySlamFireActions(fsm, pinArraySlamFireState, pinArrayLandEvent);
+            AddPinArraySlamThunkActions(fsm, pinArraySlamThunkState);
+            AddPinArraySlamRecoverActions(fsm, pinArraySlamRecoverState);
+            AddPinArrayLiftActions(fsm, pinArrayLiftState, pinArrayLiftEvent);
+            AddPinArrayPostLiftActions(fsm, pinArrayPostLiftState);
+            // 打乱角度状态链
+            AddPinArrayScrambleCheckActions(fsm, pinArrayScrambleCheckState, isGroundEvent, isAirEvent);
+            AddPinArrayScrambleGroundActions(fsm, pinArrayScrambleGroundState);
+            AddPinArrayScrambleAirActions(fsm, pinArrayScrambleAirState);
+            AddPinArrayScrambleCalcActions(fsm, pinArrayScrambleCalcState);
+            AddPinArrayReadyActions(fsm, pinArrayReadyState);
+
+            // 6. 设置状态转换
+            // PinArray Slam Prepare → (FINISHED) → PinArray Slam PreFire
+            SetFinishedTransition(pinArraySlamPrepareState, pinArraySlamPreFireState);
+            // PinArray Slam PreFire → (FINISHED) → PinArray Slam Fire
+            SetFinishedTransition(pinArraySlamPreFireState, pinArraySlamFireState);
+            // PinArray Slam Fire → (PINARRAY_LAND) → PinArray Slam Thunk
+            pinArraySlamFireState.Transitions = new FsmTransition[]
+            {
+                CreateTransition(pinArrayLandEvent, pinArraySlamThunkState)
+            };
+            // PinArray Slam Thunk → (FINISHED) → PinArray Slam Recover
+            SetFinishedTransition(pinArraySlamThunkState, pinArraySlamRecoverState);
+            // PinArray Slam Recover → (FINISHED) → PinArray Lift
+            SetFinishedTransition(pinArraySlamRecoverState, pinArrayLiftState);
+            // PinArray Lift 状态结束时触发 PINARRAY_LIFT（由全局转换进入 PinArray PostLift）
+            // PinArray PostLift → (FINISHED) → PinArray Scramble Check
+            SetFinishedTransition(pinArrayPostLiftState, pinArrayScrambleCheckState);
+            // PinArray Scramble Check → (IS_GROUND) → PinArray Scramble Ground
+            //                        → (IS_AIR) → PinArray Scramble Air
+            pinArrayScrambleCheckState.Transitions = new FsmTransition[]
+            {
+                CreateTransition(isGroundEvent, pinArrayScrambleGroundState),
+                CreateTransition(isAirEvent, pinArrayScrambleAirState)
+            };
+            // PinArray Scramble Ground → (FINISHED) → PinArray Scramble Calc
+            SetFinishedTransition(pinArrayScrambleGroundState, pinArrayScrambleCalcState);
+            // PinArray Scramble Air → (FINISHED) → PinArray Scramble Calc
+            SetFinishedTransition(pinArrayScrambleAirState, pinArrayScrambleCalcState);
+            // PinArray Scramble Calc → (FINISHED) → PinArray Ready
+            SetFinishedTransition(pinArrayScrambleCalcState, pinArrayReadyState);
+            // PinArray Ready → (ATTACK) → Antic（进入原版发射链）
+            pinArrayReadyState.Transitions = new FsmTransition[]
+            {
+                CreateTransition(attackEvent, anticState)
+            };
+
+            // 7. 添加全局转换
+            var globalTransitions = fsm.Fsm.globalTransitions.ToList();
+            globalTransitions.Add(CreateTransition(directFireEvent, anticState));
+            globalTransitions.Add(CreateTransition(pinArraySlamEvent, pinArraySlamPrepareState));
+            globalTransitions.Add(CreateTransition(pinArrayLiftEvent, pinArrayPostLiftState));
+            fsm.Fsm.globalTransitions = globalTransitions.ToArray();
+            // 8. 在 Release Pin 状态末尾添加回收动作
             if (releaseState != null)
             {
                 var actions = releaseState.Actions.ToList();
@@ -512,11 +616,638 @@ namespace AnySilkBoss.Source.Managers
                 releaseState.Actions = actions.ToArray();
             }
 
-            // 7. 初始化 FSM 数据
+            // 9. 初始化 FSM 数据
             fsm.Fsm.InitData();
 
-            Log.Debug($"[FWPinManager] Pin FSM 已补丁，添加 DIRECT_FIRE → Antic 全局转换");
+            Log.Debug($"[FWPinManager] Pin FSM 已补丁，添加 DIRECT_FIRE/PINARRAY_SLAM/PINARRAY_LIFT 全局转换");
         }
+
+        #region PinArray FSM 变量
+        /// <summary>
+        /// 添加 PinArray 大招需要的 FSM 变量
+        /// </summary>
+        private void AddPinArrayFsmVariables(PlayMakerFSM fsm)
+        {
+            var variables = fsm.FsmVariables;
+            var floatVars = variables.FloatVariables.ToList();
+
+            // Lift 相关变量
+            if (!floatVars.Any(v => v.Name == "CurrentY"))
+            {
+                floatVars.Add(new FsmFloat("CurrentY") { Value = 0f });
+            }
+            if (!floatVars.Any(v => v.Name == "LiftDistance"))
+            {
+                floatVars.Add(new FsmFloat("LiftDistance") { Value = 0.2f });
+            }
+            if (!floatVars.Any(v => v.Name == "TargetY"))
+            {
+                floatVars.Add(new FsmFloat("TargetY") { Value = 0f });
+            }
+
+            // Scramble 相关变量
+            if (!floatVars.Any(v => v.Name == "CenterY"))
+            {
+                floatVars.Add(new FsmFloat("CenterY") { Value = 146f });  // 139 + 7
+            }
+            if (!floatVars.Any(v => v.Name == "BaseAngle"))
+            {
+                floatVars.Add(new FsmFloat("BaseAngle") { Value = 0f });
+            }
+            if (!floatVars.Any(v => v.Name == "RandomOffset"))
+            {
+                floatVars.Add(new FsmFloat("RandomOffset") { Value = 0f });
+            }
+            if (!floatVars.Any(v => v.Name == "TargetAngle"))
+            {
+                floatVars.Add(new FsmFloat("TargetAngle") { Value = 0f });
+            }
+
+            variables.FloatVariables = floatVars.ToArray();
+
+            // 重新初始化变量
+            variables.Init();
+
+            Log.Debug("[FWPinManager] 已添加 PinArray FSM 变量");
+        }
+
+        /// <summary>
+        /// 获取 FSM 中的 Float 变量引用
+        /// </summary>
+        private FsmFloat GetFsmFloatVariable(PlayMakerFSM fsm, string name)
+        {
+            var variable = fsm.FsmVariables.FindFsmFloat(name);
+            if (variable == null)
+            {
+                Log.Warn($"[FWPinManager] 未找到 FSM 变量: {name}");
+                return new FsmFloat(name) { Value = 0f };
+            }
+            return variable;
+        }
+
+        /// <summary>
+        /// 重置 Pin FSM 变量到初始值
+        /// </summary>
+        private void ResetPinFsmVariables(PlayMakerFSM fsm)
+        {
+            var variables = fsm.FsmVariables;
+
+            // 重置 Lift 相关变量
+            var currentY = variables.FindFsmFloat("CurrentY");
+            if (currentY != null) currentY.Value = 0f;
+
+            var liftDistance = variables.FindFsmFloat("LiftDistance");
+            if (liftDistance != null) liftDistance.Value = 0.2f;
+
+            var targetY = variables.FindFsmFloat("TargetY");
+            if (targetY != null) targetY.Value = 0f;
+
+            // 重置 Scramble 相关变量
+            var centerY = variables.FindFsmFloat("CenterY");
+            if (centerY != null) centerY.Value = 146f;
+
+            var baseAngle = variables.FindFsmFloat("BaseAngle");
+            if (baseAngle != null) baseAngle.Value = 0f;
+
+            var randomOffset = variables.FindFsmFloat("RandomOffset");
+            if (randomOffset != null) randomOffset.Value = 0f;
+
+            var targetAngle = variables.FindFsmFloat("TargetAngle");
+            if (targetAngle != null) targetAngle.Value = 0f;
+        }
+        #endregion
+
+        #region PinArray 状态动作
+        /// <summary>
+        /// PinArray Slam Prepare 状态动作（砸地前预备：短暂等待准备）
+        /// 注意：Thread 显示和动画播放已移到 PreFire 状态
+        /// </summary>
+        private void AddPinArraySlamPrepareActions(PlayMakerFSM fsm, FsmState state)
+        {
+            var actions = new List<FsmStateAction>();
+
+            // 短暂等待，让 Pin 完成初始化
+            actions.Add(new SetMeshRenderer
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                active = new FsmBool(true)
+            });
+            actions.Add(new Wait
+            {
+                time = new FsmFloat(0.15f),
+                finishEvent = FsmEvent.Finished
+            });
+
+            state.Actions = actions.ToArray();
+        }
+
+        /// <summary>
+        /// PinArray Slam PreFire 状态动作（发射前准备：显示Thread、播放音频、播放动画、设置帧、等待0.2s）
+        /// </summary>
+        private void AddPinArraySlamPreFireActions(PlayMakerFSM fsm, FsmState state)
+        {
+            var threadObj = fsm.gameObject.transform.Find("Thread")?.gameObject;
+            var actions = new List<FsmStateAction>();
+
+            // 1. 播放音频（从 Antic 状态复制）
+            var anticState = fsm.FsmStates.FirstOrDefault(s => s.Name == "Antic");
+            var playAudioAction = anticState?.Actions.FirstOrDefault(a => a is PlayAudioEvent) as PlayAudioEvent;
+            if (playAudioAction != null)
+            {
+                actions.Add(new PlayAudioEvent
+                {
+                    Fsm = fsm.Fsm,
+                    audioClip = playAudioAction.audioClip,
+                    volume = playAudioAction.volume,
+                    pitchMin = playAudioAction.pitchMin,
+                    pitchMax = playAudioAction.pitchMax,
+                    audioPlayerPrefab = playAudioAction.audioPlayerPrefab,
+                    spawnPoint = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    spawnPosition = playAudioAction.spawnPosition,
+                    SpawnedPlayerRef = playAudioAction.SpawnedPlayerRef
+                });
+            }
+
+            // 2. 显示 Thread
+            if (threadObj != null)
+            {
+                actions.Add(new SetMeshRenderer
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        GameObject = new FsmGameObject { Value = threadObj }
+                    },
+                    active = new FsmBool(true)
+                });
+
+                // 3. 播放 Pin Thread 动画
+                actions.Add(new Tk2dPlayAnimationWithEvents
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        GameObject = new FsmGameObject { Value = threadObj }
+                    },
+                    clipName = new FsmString("Pin Thread") { Value = "Pin Thread" },
+                    animationCompleteEvent = FsmEvent.Finished
+                });
+
+                // 4. 设置 Thread 从第 0 帧开始播放
+                actions.Add(new Tk2dPlayFrame
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        GameObject = new FsmGameObject { Value = threadObj }
+                    },
+                    frame = new FsmInt(0)
+                });
+            }
+
+            // 5. 等待 0.55s 后进入 Fire
+            actions.Add(new Wait
+            {
+                time = new FsmFloat(0.55f),
+                finishEvent = FsmEvent.Finished
+            });
+
+            state.Actions = actions.ToArray();
+        }
+
+        /// <summary>
+        /// PinArray Slam Fire 状态动作（简化版：向下砸地）
+        /// </summary>
+        private void AddPinArraySlamFireActions(PlayMakerFSM fsm, FsmState state, FsmEvent landEvent)
+        {
+            // 获取子对象引用
+            var threadObj = fsm.gameObject.transform.Find("Thread")?.gameObject;
+            var damagerObj = fsm.gameObject.transform.Find("Damager")?.gameObject;
+
+            var actions = new List<FsmStateAction>();
+
+            // 隐藏 Thread
+            if (threadObj != null)
+            {
+                actions.Add(new SetMeshRenderer
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        GameObject = new FsmGameObject { Value = threadObj }
+                    },
+                    active = new FsmBool(false)
+                });
+            }
+
+            // 播放 Pin Fire 动画
+            actions.Add(new Tk2dPlayAnimation
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                animLibName = new FsmString("") { Value = "" },
+                clipName = new FsmString("Pin Fire") { Value = "Pin Fire" }
+            });
+
+            // 注意：音频播放已移到 PreFire 状态
+
+            // 关闭 Kinematic（先关闭才能受物理影响）
+            actions.Add(new SetIsKinematic2d
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                isKinematic = new FsmBool(false)
+            });
+
+            // 设置速度（向下，速度 180）
+            actions.Add(new SetVelocityAsAngle
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                angle = new FsmFloat(-90f),  // 向下
+                speed = new FsmFloat(180f),
+                everyFrame = false
+            });
+
+            // 碰撞检测 - OnCollisionEnter2D
+            actions.Add(new Collision2dEvent
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                collision = Collision2DType.OnCollisionEnter2D,
+                collideTag = new FsmString("") { Value = "" },
+                sendEvent = landEvent,
+                storeCollider = new FsmGameObject { Value = null },
+                storeForce = new FsmFloat { Value = 0f }
+            });
+
+            // 碰撞检测 - OnCollisionStay2D
+            actions.Add(new Collision2dEvent
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                collision = Collision2DType.OnCollisionStay2D,
+                collideTag = new FsmString("") { Value = "" },
+                sendEvent = landEvent,
+                storeCollider = new FsmGameObject { Value = null },
+                storeForce = new FsmFloat { Value = 0f }
+            });
+
+            // 激活 Damager
+            if (damagerObj != null)
+            {
+                actions.Add(new ActivateGameObject
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        GameObject = new FsmGameObject { Value = damagerObj }
+                    },
+                    activate = new FsmBool(true),
+                    recursive = new FsmBool(false),
+                    resetOnExit = true
+                });
+            }
+
+            state.Actions = actions.ToArray();
+        }
+
+        /// <summary>
+        /// PinArray Slam Thunk 状态动作（复制原版 Thunk）
+        /// </summary>
+        private void AddPinArraySlamThunkActions(PlayMakerFSM fsm, FsmState state)
+        {
+            var cameraShake = new DoCameraShake();
+            cameraShake.Reset();
+            cameraShake.VisibleRenderer = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner };
+            cameraShake.Profile = new FsmObject
+            {
+                Value = UnityEngine.Resources.FindObjectsOfTypeAll<CameraShakeProfile>()
+                    .FirstOrDefault(p => p.name == "Small Shake")
+            };
+            cameraShake.Delay = new FsmFloat(0f);
+
+            state.Actions = new FsmStateAction[]
+            {
+                // 调用 ResetPinVisualState 设置 Pin Antic 最后一帧（不播放动画）
+                new CallMethod
+                {
+                    behaviour = this,
+                    methodName = "ResetPinVisualState",
+                    parameters = new[]
+                    {
+                        new FsmVar
+                        {
+                            type = VariableType.GameObject,
+                            objectReference = fsm.gameObject
+                        }
+                    },
+                    everyFrame = false
+                },
+                // 清零速度
+                new SetVelocity2d
+                {
+                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    vector = new FsmVector2 { Value = Vector2.zero, UseVariable = false },
+                    x = new FsmFloat { Value = 0f, UseVariable = false },
+                    y = new FsmFloat { Value = 0f, UseVariable = false },
+                    everyFrame = false
+                },
+                // 震屏
+                cameraShake,
+                // 开启 Kinematic
+                new SetIsKinematic2d
+                {
+                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    isKinematic = new FsmBool(true)
+                },
+                // 短暂等待后跳转
+                new Wait
+                {
+                    time = new FsmFloat(0.1f),
+                    finishEvent = FsmEvent.Finished
+                }
+            };
+        }
+
+        /// <summary>
+        /// PinArray Slam Recover 状态动作（恢复参数）
+        /// </summary>
+        private void AddPinArraySlamRecoverActions(PlayMakerFSM fsm, FsmState state)
+        {
+            var damagerObj = fsm.gameObject.transform.Find("Damager")?.gameObject;
+            var actions = new List<FsmStateAction>();
+
+            // 关闭 Damager
+            if (damagerObj != null)
+            {
+                actions.Add(new ActivateGameObject
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        GameObject = new FsmGameObject { Value = damagerObj }
+                    },
+                    activate = new FsmBool(false),
+                    recursive = new FsmBool(false),
+                    resetOnExit = false
+                });
+            }
+
+            // 清零速度
+            actions.Add(new SetVelocity2d
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                vector = new FsmVector2 { Value = Vector2.zero, UseVariable = false },
+                x = new FsmFloat { Value = 0f, UseVariable = false },
+                y = new FsmFloat { Value = 0f, UseVariable = false },
+                everyFrame = false
+            });
+
+            // 短暂等待
+            actions.Add(new Wait
+            {
+                time = new FsmFloat(0.1f),
+                finishEvent = FsmEvent.Finished
+            });
+
+            state.Actions = actions.ToArray();
+        }
+
+        /// <summary>
+        /// PinArray Lift 状态动作（向上抬起，使用 GetPosition + FloatAdd + AnimateYPositionTo）
+        /// </summary>
+        private void AddPinArrayLiftActions(PlayMakerFSM fsm, FsmState state, FsmEvent liftEvent)
+        {
+            // 获取 FSM 变量引用
+            var currentY = GetFsmFloatVariable(fsm, "CurrentY");
+            var liftDistance = GetFsmFloatVariable(fsm, "LiftDistance");
+            var targetY = GetFsmFloatVariable(fsm, "TargetY");
+
+            state.Actions = new FsmStateAction[]
+            {
+                // 1. 获取当前 Y 位置
+                new GetPosition
+                {
+                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    vector = new FsmVector3 { UseVariable = true },
+                    x = new FsmFloat { UseVariable = true },
+                    y = currentY,
+                    z = new FsmFloat { UseVariable = true },
+                    space = Space.World,
+                    everyFrame = false
+                },
+                // 2. 计算目标 Y = CurrentY + LiftDistance
+                new SetFloatValue
+                {
+                    floatVariable = targetY,
+                    floatValue = currentY,
+                    everyFrame = false
+                },
+                new FloatAdd
+                {
+                    floatVariable = targetY,
+                    add = liftDistance,
+                    everyFrame = false,
+                    perSecond = false
+                },
+                // 3. 平滑移动到目标 Y
+                new AnimateYPositionTo
+                {
+                    GameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    ToValue = targetY,
+                    localSpace = false,
+                    time = new FsmFloat(0.35f),
+                    delay = new FsmFloat { UseVariable = true },
+                    speed = new FsmFloat { UseVariable = true },
+                    reverse = new FsmBool(false),
+                    easeType = EaseFsmAction.EaseType.easeInOutSine,
+                    finishEvent = liftEvent
+                }
+            };
+        }
+
+        private void AddPinArrayPostLiftActions(PlayMakerFSM fsm, FsmState state)
+        {
+            state.Actions = new FsmStateAction[]
+            {
+                // 显示 MeshRenderer
+                new SetMeshRenderer
+                {
+                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    active = new FsmBool(true)
+                },
+                // 开启 Kinematic
+                new SetIsKinematic2d
+                {
+                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    isKinematic = new FsmBool(true)
+                },
+                new Wait
+                {
+                    time = new FsmFloat(0.1f),
+                    finishEvent = FsmEvent.Finished
+                }
+            };
+        }
+
+        /// <summary>
+        /// PinArray Scramble Check 状态动作（检查 Y 位置判断地面/空中）
+        /// </summary>
+        private void AddPinArrayScrambleCheckActions(PlayMakerFSM fsm, FsmState state, FsmEvent isGroundEvent, FsmEvent isAirEvent)
+        {
+            var currentY = GetFsmFloatVariable(fsm, "CurrentY");
+            var centerY = GetFsmFloatVariable(fsm, "CenterY");
+
+            state.Actions = new FsmStateAction[]
+            {
+                // 1. 获取当前 Y 位置
+                new GetPosition
+                {
+                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    vector = new FsmVector3 { UseVariable = true },
+                    x = new FsmFloat { UseVariable = true },
+                    y = currentY,
+                    z = new FsmFloat { UseVariable = true },
+                    space = Space.World,
+                    everyFrame = false
+                },
+                // 2. 比较 Y 与 CenterY，决定是地面还是空中
+                new FloatCompare
+                {
+                    float1 = currentY,
+                    float2 = centerY,
+                    tolerance = new FsmFloat(1f),
+                    equal = isAirEvent,
+                    lessThan = isGroundEvent,    // Y < CenterY → 地面
+                    greaterThan = isAirEvent,    // Y > CenterY → 空中
+                    everyFrame = false
+                }
+            };
+        }
+
+        /// <summary>
+        /// PinArray Scramble Ground 状态动作（设置地面基准角度 90° 朝上）
+        /// </summary>
+        private void AddPinArrayScrambleGroundActions(PlayMakerFSM fsm, FsmState state)
+        {
+            var baseAngle = GetFsmFloatVariable(fsm, "BaseAngle");
+
+            state.Actions = new FsmStateAction[]
+            {
+                new SetFloatValue
+                {
+                    floatVariable = baseAngle,
+                    floatValue = new FsmFloat(90f),  // 地面的针朝上
+                    everyFrame = false
+                }
+            };
+        }
+
+        /// <summary>
+        /// PinArray Scramble Air 状态动作（设置空中基准角度 -90° 朝下）
+        /// </summary>
+        private void AddPinArrayScrambleAirActions(PlayMakerFSM fsm, FsmState state)
+        {
+            var baseAngle = GetFsmFloatVariable(fsm, "BaseAngle");
+
+            state.Actions = new FsmStateAction[]
+            {
+                new SetFloatValue
+                {
+                    floatVariable = baseAngle,
+                    floatValue = new FsmFloat(-90f),  // 空中的针朝下
+                    everyFrame = false
+                }
+            };
+        }
+
+        /// <summary>
+        /// PinArray Scramble Calc 状态动作（计算随机角度并旋转）
+        /// </summary>
+        private void AddPinArrayScrambleCalcActions(PlayMakerFSM fsm, FsmState state)
+        {
+            var baseAngle = GetFsmFloatVariable(fsm, "BaseAngle");
+            var randomOffset = GetFsmFloatVariable(fsm, "RandomOffset");
+            var targetAngle = GetFsmFloatVariable(fsm, "TargetAngle");
+
+            state.Actions = new FsmStateAction[]
+            {
+                // 1. 生成随机偏移 ±45°
+                new RandomFloat
+                {
+                    min = new FsmFloat(-45f),
+                    max = new FsmFloat(45f),
+                    storeResult = randomOffset
+                },
+                // 2. 计算目标角度 = BaseAngle + RandomOffset
+                new SetFloatValue
+                {
+                    floatVariable = targetAngle,
+                    floatValue = baseAngle,
+                    everyFrame = false
+                },
+                new FloatAdd
+                {
+                    floatVariable = targetAngle,
+                    add = randomOffset,
+                    everyFrame = false,
+                    perSecond = false
+                },
+                // 2.1 将目标角度归一到“从当前角度出发的最短路径”，避免 AnimateRotationTo 走远路（例如 40° 变 320°）
+                new CallMethod
+                {
+                    behaviour = this,
+                    methodName = "NormalizePinTargetAngle",
+                    parameters = new[]
+                    {
+                        new FsmVar
+                        {
+                            type = VariableType.GameObject,
+                            objectReference = fsm.gameObject
+                        }
+                    },
+                    everyFrame = false
+                },
+                // 3. 平滑旋转到目标角度
+                new AnimateRotationTo
+                {
+                    gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    fromValue = new FsmFloat { UseVariable = true },  // 使用当前角度
+                    toValue = targetAngle,
+                    worldSpace = false,
+                    negativeSpace = false,
+                    time = new FsmFloat(0.15f),
+                    delay = new FsmFloat { UseVariable = true },
+                    speed = new FsmFloat { UseVariable = true },
+                    reverse = new FsmBool(false),
+                    easeType = EaseFsmAction.EaseType.easeOutQuad,
+                    finishEvent = FsmEvent.Finished
+                }
+            };
+        }
+
+        /// <summary>
+        /// PinArray Ready 状态动作（等待 ATTACK）
+        /// </summary>
+        private void AddPinArrayReadyActions(PlayMakerFSM fsm, FsmState state)
+        {
+            state.Actions = new FsmStateAction[]
+            {
+                // 播放 Pin Antic 动画（准备姿态）
+                new CallMethod
+                {
+                    behaviour = this,
+                    methodName = "ResetPinVisualState",
+                    parameters = new[]
+                    {
+                        new FsmVar
+                        {
+                            type = VariableType.GameObject,
+                            objectReference = fsm.gameObject
+                        }
+                    },
+                    everyFrame = false
+                }
+                // 不设置 Wait，持续等待 ATTACK 事件
+            };
+        }
+        #endregion
 
         /// <summary>
         /// 从池中获取或创建 Pin Projectile
@@ -548,10 +1279,40 @@ namespace AnySilkBoss.Source.Managers
                 obj.transform.position = position;
                 obj.SetActive(true);
 
+                // 清理刚体残留速度，避免出池后短时间内与 Transform 驱动的移动/旋转打架
+                var rb2d = obj.GetComponent<Rigidbody2D>();
+                if (rb2d != null)
+                {
+                    rb2d.linearVelocity = Vector2.zero;
+                    rb2d.angularVelocity = 0f;
+                    rb2d.bodyType = RigidbodyType2D.Kinematic;
+                }
+
+                ResetPinVisualState(obj);
+
                 var fsm = obj.LocateMyFSM("Control");
                 if (fsm != null)
                 {
+                    // 重置 FSM 变量
+                    ResetPinFsmVariables(fsm);
+
+                    // 重置 FSM 到初始状态
                     fsm.Fsm.InitData();
+
+                    // 强制进入 Managed Dormant 状态（等待事件触发；不会自动触发 ATTACK）
+                    var managedDormantState = FindState(fsm, "Managed Dormant");
+                    if (managedDormantState != null)
+                    {
+                        fsm.SetState(managedDormantState.Name);
+                    }
+                    else
+                    {
+                        var dormantState = FindState(fsm, "Dormant");
+                        if (dormantState != null)
+                        {
+                            fsm.SetState(dormantState.Name);
+                        }
+                    }
                 }
             }
 
@@ -570,7 +1331,44 @@ namespace AnySilkBoss.Source.Managers
 
             obj.transform.SetParent(_poolContainer.transform);
             _pinProjectilePool.Add(obj);
+            obj.SetActive(false);
             Log.Debug($"[FWPinManager] Pin Projectile 已回收，池中数量: {_pinProjectilePool.Count}");
+        }
+
+        public void ResetPinVisualState(GameObject pinObj)
+        {
+            if (pinObj == null) return;
+
+            var animator = pinObj.GetComponent<tk2dSpriteAnimator>();
+            if (animator != null)
+            {
+                var clip = animator.GetClipByName("Pin Antic");
+                if (clip != null)
+                {
+                    animator.Play(clip);
+                    if (clip.frames != null && clip.frames.Length > 0)
+                    {
+                        animator.SetFrame(clip.frames.Length - 1, false);
+                    }
+                    animator.Stop();
+                }
+            }
+        }
+
+        public void NormalizePinTargetAngle(GameObject pinObj)
+        {
+            if (pinObj == null) return;
+
+            var fsm = pinObj.LocateMyFSM("Control");
+            if (fsm == null) return;
+
+            var targetAngle = fsm.FsmVariables.FindFsmFloat("TargetAngle");
+            if (targetAngle == null) return;
+
+            float current = pinObj.transform.localEulerAngles.z;
+            float desired = targetAngle.Value;
+            float delta = Mathf.DeltaAngle(current, desired);
+            targetAngle.Value = current + delta;
         }
 
         /// <summary>
@@ -590,7 +1388,7 @@ namespace AnySilkBoss.Source.Managers
         #endregion
 
         #region 清理
-        private void CleanupPool()
+        public void CleanupPool()
         {
             Log.Info("[FWPinManager] 开始清理对象池...");
 

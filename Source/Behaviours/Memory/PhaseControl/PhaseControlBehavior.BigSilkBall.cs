@@ -718,37 +718,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             SendBladesReturnToAllFingerBlades();
             Log.Info("第二次发送 BLADES RETURN（针对Rise状态）");
         }
-
-        /// <summary>
-        /// 在爬升阶段完成时重置Finger Blade状态
-        /// 这是为了弥补跳过Move Stop导致的事件丢失
-        /// </summary>
-        public void ResetFingerBladesOnClimbComplete()
-        {
-            // ⚠️ 注意：不在这里立即发送BLADES RETURN
-            // 因为SendBladesReturnDelay已经在3.5秒后发送过了
-            // 如果此时指针还在Stagger流程中，立即发送会导致事件丢失
-            // 
-            // 只重置Finger Blade的状态标志，确保它们处于正确的初始状态
-            foreach (var bladeObj in _allFingerBlades)
-            {
-                if (bladeObj != null)
-                {
-                    var fsm = bladeObj.GetComponent<PlayMakerFSM>();
-                    if (fsm != null)
-                    {
-                        // 重置Ready标志
-                        var readyVar = fsm.FsmVariables.GetFsmBool("Ready");
-                        if (readyVar != null)
-                        {
-                            readyVar.Value = false;
-                        }
-
-                        Log.Info($"重置Finger Blade {bladeObj.name} Ready标志");
-                    }
-                }
-            }
-        }
         /// <summary>
         /// 保存Boss原始图层
         /// </summary>

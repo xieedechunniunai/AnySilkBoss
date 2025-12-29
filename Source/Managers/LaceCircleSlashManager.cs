@@ -224,7 +224,7 @@ namespace AnySilkBoss.Source.Managers
         /// <summary>
         /// 清理所有实例（离开场景时调用）
         /// </summary>
-        private void Cleanup()
+        public void Cleanup()
         {
             Log.Info("LaceCircleSlashManager: 开始清理...");
 

@@ -290,7 +290,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             yield return new WaitForSeconds(0.66f);
             
             // 使用 EventRegister 全局广播释放事件
-            Log.Info($"=== 广播 SILK BALL RELEASE 事件，释�?P6 交点丝球 ===");
+            Log.Info($"=== 广播 SILK BALL RELEASE 事件，释P6 交点丝球 ===");
             EventRegister.SendEvent("SILK BALL RELEASE");
             
             Log.Info($"已生成并释放 {silkBalls.Count} 个小丝球");

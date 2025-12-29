@@ -202,6 +202,15 @@ namespace AnySilkBoss.Source.Managers
         {
             try
             {
+                var anySilkBossManager = GameObject.Find("AnySilkBossManager");
+                if (anySilkBossManager != null)
+                {
+                    anySilkBossManager.GetComponent<FWPinManager>().CleanupPool();
+                    anySilkBossManager.GetComponent<FWBlastManager>().CleanupPool();
+                    anySilkBossManager.GetComponent<LaceCircleSlashManager>().Cleanup();
+                    anySilkBossManager.GetComponent<SingleWebManager>().CleanupPool();
+                    anySilkBossManager.GetComponent<BigSilkBallManager>().CleanupPrefab();
+                }
                 StopAllCoroutines();
 
                 CleanupMemoryRespawnMarker();

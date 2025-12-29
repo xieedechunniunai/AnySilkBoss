@@ -11,6 +11,9 @@ namespace AnySilkBoss.Source.Behaviours.Memory
     internal partial class MemoryPhaseControlBehavior : MonoBehaviour
     {
         #region 爬升阶段相关
+        private GameObject? _collapseGate;
+        private bool _collapseGateDisabled = false;
+        private bool _climbPhaseCompleted = false;
         /// <summary>
         /// 获取 Boss Control FSM 引用
         /// </summary>
@@ -43,7 +46,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             // 找到关键状态
             var staggerPauseState = FindState(_phaseControl, "Stagger Pause");
             var setP4State = FindState(_phaseControl, "Set P4");
-
+            var staggerHitState = FindState(_phaseControl, "Stagger Hit");
             if (staggerPauseState == null)
             {
                 Log.Error("未找到 Stagger Pause 状态");
@@ -54,7 +57,22 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 Log.Error("未找到 Set P4 状态");
                 return;
             }
-
+            if (staggerHitState == null)
+            {
+                Log.Error("未找到 Stagger Hit 状态");
+                return;
+            }
+            var staggerHitActions = staggerHitState.Actions.ToList();
+            staggerHitActions.Insert(0, new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("PauseSpike") { Value = "PauseSpike" },
+                parameters = new FsmVar[]
+            {
+                new FsmVar(typeof(int)) { intValue = _currentPhase.Value }
+            },
+            });
+            staggerHitState.Actions = staggerHitActions.ToArray();
             // 注册新事件
             RegisterClimbPhaseEvents();
 
@@ -677,17 +695,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 delay = new FsmFloat(0f),
                 everyFrame = false
             });
-
-            // ⚠️ 注意：Attack Control 的 CLIMB PHASE END 事件将在 Boss 完全返回场地后由协程发送
-            // 这样可以确保 Boss 完全恢复后再开始攻击
-
-            // 重置Finger Blade状态（弥补跳过Move Stop导致的BLADES RETURN事件）
-            actions.Add(new CallMethod
-            {
-                behaviour = new FsmObject { Value = this },
-                methodName = new FsmString("ResetFingerBladesOnClimbComplete") { Value = "ResetFingerBladesOnClimbComplete" },
-                parameters = new FsmVar[0]
-            });
+            actions.Add(new SendEventToRegister
+            { eventName = "BLADES RETURN" });
 
             // ⚠️ 快速移动Boss回到战斗场地（Y=50附近）
             actions.Add(new CallMethod
@@ -1112,9 +1121,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             }
         }
 
-        private GameObject? _collapseGate;
-        private bool _collapseGateDisabled = false;
-        private bool _climbPhaseCompleted = false;
+
 
         /// <summary>
         /// 处理collapse_gate的启用/禁用逻辑
@@ -1164,7 +1171,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 Log.Info($"玩家X > 20，恢复collapse_gate GameObject（X={playerX:F2}），但Animator仍禁用");
             }
         }
-
         /// <summary>
         /// 重置爬升阶段标志
         /// </summary>
@@ -1174,6 +1180,11 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             _climbAttackEventSent = false;  // 重置攻击事件标志
             _climbPhaseCompleted = false;
             _collapseGateDisabled = false;
+
+            // 恢复地刺系统（根据当前阶段重新启动循环）
+            var spikeFloorsParent = _bossScene?.transform.Find("Spike Floors")?.gameObject;
+            MemorySpikeFloorBehavior.ResumeSpikeSystem(spikeFloorsParent);
+
             Log.Info("爬升阶段标志已重置");
         }
 

@@ -11,11 +11,50 @@ using AnySilkBoss.Source.Managers;
 namespace AnySilkBoss.Source.Behaviours.Memory
 {
     /// <summary>
-    /// AttackControlBehavior的P6 Web攻击扩展部分（partial class�?
+    /// AttackControlBehavior的P6 领域次元斩扩展部分（partial class）
     /// </summary>
     internal partial class MemoryAttackControlBehavior
     {
-        #region P6 Web攻击
+        #region P6 领域次元斩
+
+        /// <summary>
+        /// Web位置点信息
+        /// </summary>
+        private class WebSlotInfo
+        {
+            public Vector3 Position;           // 世界坐标
+            public float Angle;                // Z轴旋转角度
+            public MemorySingleWebBehavior[] WebPair; // 双web轮换 [0]和[1]
+            public int CurrentWebIndex;        // 当前使用哪根 (0或1)
+
+            public WebSlotInfo(Vector3 position, float angle)
+            {
+                Position = position;
+                Angle = angle;
+                WebPair = new MemorySingleWebBehavior[2];
+                CurrentWebIndex = 0;
+            }
+        }
+
+        // 配置参数
+        private float[] _waveBaseAngles = { 45f, 60f, 30f, 75f, 15f }; // 每波基础角度
+        private float _angleRandomRange = 0f;  // 角度随机范围 ±10°
+        private float _parallelDistance = 3f;   // 平行间距
+        private float _burstDelay = 0.75f;      // 预警延迟
+        private float _waveInterval = 0.25f;       // 波次间隔（减少为1秒）
+
+        // 领域配置
+        private float _initialRadius = 18f;  // 初始安全半径（世界单位）
+        // 5 波攻击，实际会缩圈 4 次：final = initial - shrinkPerWave * 4
+        // 目标：最后收缩到 5（与 minRadius 对齐，避免“minRadius 看起来没用”）
+        private float _shrinkPerWave = 2.5f; // 18 - 2.5*4 = 8
+        private float _minRadius = 8f;        // 最小安全半径（世界单位），同时用于伤害判定与洞大小
+
+        // 位置管理器
+        private List<WebSlotInfo> _webSlots = new List<WebSlotInfo>();
+        
+        // P6 Domain Slash 完成事件（不使用 FINISHED）
+        private FsmEvent? _p6DomainSlashDoneEvent;
 
         /// <summary>
         /// 修改Rubble Attack?状态，添加P6 Web Attack监听
@@ -33,7 +72,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             var actions = rubbleAttackState.Actions.ToList();
 
-            // 在第2个Action（检查Do Phase Roar）之后插入P6 Web Attack检�?
+            // 在第2个Action（检查Do Phase Roar）之后插入P6 Web Attack检查
             actions.Insert(2, new BoolTest
             {
                 boolVariable = _attackControlFsm.FsmVariables.BoolVariables.ToList().FirstOrDefault(v => v.Name == "Do P6 Web Attack"),
@@ -45,459 +84,354 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             rubbleAttackState.Actions = actions.ToArray();
 
             // 使用 AddTransition 添加跳转
-            AddTransition(rubbleAttackState, CreateTransition(_p6WebAttackEvent!, _p6WebPrepareState!));
+            if (_p6DomainSlashState != null)
+            {
+                AddTransition(rubbleAttackState, CreateTransition(_p6WebAttackEvent!, _p6DomainSlashState));
+            }
 
             Log.Info("Rubble Attack?状态已添加P6 Web Attack监听");
         }
 
         /// <summary>
-        /// 创建P6 Web攻击的所有状�?
+        /// 创建P6 领域次元斩状态
         /// </summary>
         private void CreateP6WebAttackStates()
         {
-            Log.Info("=== 开始创建P6 Web攻击状态链 ===");
+            Log.Info("=== 开始创建P6 领域次元斩状态 ===");
 
-            // 使用 FsmStateBuilder 批量创建P6 Web攻击状�?
-            var p6WebStates = CreateStates(_attackControlFsm!.Fsm,
-                ("P6 Web Prepare", "P6阶段Web攻击准备"),
-                ("P6 Web Cast", "P6阶段Web施法动画"),
-                ("P6 Web Attack 1", "第一根丝网攻�?+ 交汇点生成小丝球"),
-                ("P6 Web Attack 2", "第二根丝网攻�?+ 交汇点生成小丝球"),
-                ("P6 Web Attack 3", "第三根丝网攻�?+ 交汇点生成小丝球"),
-                ("P6 Web Recover", "P6阶段Web攻击结束恢复")
-            );
-            AddStatesToFsm(_attackControlFsm, p6WebStates);
+            // 注册 P6 Domain Slash 完成事件（不使用 FINISHED）
+            RegisterEvents(_attackControlFsm!, "P6 DOMAIN SLASH DONE");
+            _p6DomainSlashDoneEvent = FsmEvent.GetFsmEvent("P6 DOMAIN SLASH DONE");
 
-            _p6WebPrepareState = p6WebStates[0];
-            _p6WebCastState = p6WebStates[1];
-            _p6WebAttack1State = p6WebStates[2];
-            _p6WebAttack2State = p6WebStates[3];
-            _p6WebAttack3State = p6WebStates[4];
-            _p6WebRecoverState = p6WebStates[5];
+            // 创建单个状态
+            var domainSlashState = CreateState(_attackControlFsm!.Fsm, "P6 Domain Slash", "P6领域次元斩：5波递增攻击+领域结界");
+            AddStateToFsm(_attackControlFsm, domainSlashState);
+            _p6DomainSlashState = domainSlashState;
 
-            // 添加各状态的动作（使用原有方法）
-            SetP6WebPrepareActions(_p6WebPrepareState);
-            SetP6WebCastActions(_p6WebCastState);
-            SetP6WebAttack1Actions(_p6WebAttack1State);
-            SetP6WebAttack2Actions(_p6WebAttack2State);
-            SetP6WebAttack3Actions(_p6WebAttack3State);
-            SetP6WebRecoverActions(_p6WebRecoverState);
-
-            // 查找Move Restart状态
-            var moveRestartState = _moveRestartState;
-
-            // 设置状态转换
-            SetP6WebAttackTransitions(moveRestartState);
-
-            Log.Info("=== P6 Web攻击状态链创建完成 ===");
-        }
-
-        /// <summary>
-        /// 设置P6 Web Prepare状态的动作
-        /// </summary>
-        private void SetP6WebPrepareActions(FsmState state)
-        {
-            var actions = new List<FsmStateAction>();
-
-            // 1. 设置Do P6 Web Attack为false（消耗标记）
-            actions.Add(new SetFsmBool
+            // 设置状态动作：调用协程方法
+            domainSlashState.Actions = new FsmStateAction[]
             {
-                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
-                fsmName = new FsmString("Attack Control") { Value = "Attack Control" },
-                variableName = new FsmString("Do P6 Web Attack") { Value = "Do P6 Web Attack" },
-                setValue = new FsmBool(false),
-                everyFrame = false
-            });
-
-            // 2. 复制Web Prepare的准备动�?
-            var setBoolAction = CloneAction<SetBoolValue>("Web Prepare");
-            if (setBoolAction != null) actions.Add(setBoolAction);
-
-            var setFsmBoolAction = CloneAction<SetFsmBool>("Web Prepare");
-            if (setFsmBoolAction != null) actions.Add(setFsmBoolAction);
-
-            state.Actions = actions.ToArray();
-            Log.Info("设置P6 Web Prepare动作");
-        }
-
-        /// <summary>
-        /// 设置P6 Web Cast状态的动作
-        /// </summary>
-        private void SetP6WebCastActions(FsmState state)
-        {
-            // 直接克隆Web Cast的所有动�?
-            state.Actions = CloneStateActions("Web Cast");
-            Log.Info("设置P6 Web Cast动作");
-        }
-
-        /// <summary>
-        /// 设置P6 Web Attack状态的通用动作（丝网攻�?+ 生成小丝球）
-        /// </summary>
-        private void SetP6WebAttackCommonActions(FsmState state, string logName)
-        {
-            var actions = new List<FsmStateAction>();
-
-            // 选择随机Pattern并激�?
-            var getRandomChildAction = CloneAction<GetRandomChild>("Activate Strands");
-            if (getRandomChildAction != null) actions.Add(getRandomChildAction);
-
-            var sendAttackAction = CloneAction<SendEventByName>("Activate Strands", predicate: a =>
-                a.sendEvent?.Value == "ATTACK");
-            if (sendAttackAction != null) actions.Add(sendAttackAction);
-
-            // 调用生成小丝球的方法
-            actions.Add(new CallMethod
-            {
-                behaviour = new FsmObject { Value = this },
-                methodName = new FsmString("SpawnSilkBallsAtWebIntersections") { Value = "SpawnSilkBallsAtWebIntersections" },
-                parameters = new FsmVar[0],
-                everyFrame = false
-            });
-
-            // 等待2s
-            actions.Add(new Wait
-            {
-                time = new FsmFloat(2f),
-                finishEvent = FsmEvent.Finished,
-                realTime = false
-            });
-
-            state.Actions = actions.ToArray();
-            Log.Info($"设置{logName}动作");
-        }
-
-        private void SetP6WebAttack1Actions(FsmState state) => SetP6WebAttackCommonActions(state, "P6 Web Attack 1");
-        private void SetP6WebAttack2Actions(FsmState state) => SetP6WebAttackCommonActions(state, "P6 Web Attack 2");
-        private void SetP6WebAttack3Actions(FsmState state) => SetP6WebAttackCommonActions(state, "P6 Web Attack 3");
-
-        /// <summary>
-        /// 设置P6 Web Recover状态的动作
-        /// </summary>
-        private void SetP6WebRecoverActions(FsmState state)
-        {
-            // 直接克隆Web Recover的所有动�?
-            state.Actions = CloneStateActions("Web Recover");
-            Log.Info("设置P6 Web Recover动作");
-        }
-
-        /// <summary>
-        /// 设置P6 Web攻击状态转�?
-        /// </summary>
-        private void SetP6WebAttackTransitions(FsmState? moveRestartState)
-        {
-            if (_p6WebPrepareState == null || _p6WebCastState == null ||
-                _p6WebAttack1State == null || _p6WebAttack2State == null ||
-                _p6WebAttack3State == null || _p6WebRecoverState == null)
-            {
-                Log.Error("P6 Web攻击状态未完全创建，无法设置转�?");
-                return;
-            }
-
-            // P6 Web Prepare -> P6 Web Cast (ATTACK PREPARED)
-            _p6WebPrepareState.Transitions = new FsmTransition[]
-            {
-                CreateTransition(FsmEvent.GetFsmEvent("ATTACK PREPARED"), _p6WebCastState)
+                new CallMethod
+                {
+                    behaviour = new FsmObject { Value = this },
+                    methodName = new FsmString("ExecuteDomainSlash") { Value = "ExecuteDomainSlash" },
+                    parameters = new FsmVar[0],
+                    everyFrame = false
+                }
             };
 
-            // P6 Web Cast -> Attack 1 -> Attack 2 -> Attack 3 -> Recover (链式FINISHED转换)
-            SetFinishedTransition(_p6WebCastState, _p6WebAttack1State);
-            SetFinishedTransition(_p6WebAttack1State, _p6WebAttack2State);
-            SetFinishedTransition(_p6WebAttack2State, _p6WebAttack3State);
-            SetFinishedTransition(_p6WebAttack3State, _p6WebRecoverState);
-
-            // P6 Web Recover -> Move Restart (FINISHED)
-            if (moveRestartState != null)
+            // 设置状态转换：使用自定义事件 P6 DOMAIN SLASH DONE 跳转到 Move Restart
+            if (_moveRestartState != null && _p6DomainSlashDoneEvent != null)
             {
-                SetFinishedTransition(_p6WebRecoverState, moveRestartState);
+                domainSlashState.Transitions = new FsmTransition[]
+                {
+                    CreateTransition(_p6DomainSlashDoneEvent, _moveRestartState)
+                };
             }
 
-            Log.Info("P6 Web攻击状态转换设置完");
+            Log.Info("=== P6 领域次元斩状态创建完成 ===");
         }
 
         /// <summary>
-        /// 在丝网交汇点生成小丝球（延迟0.5s后释放）
+        /// 执行领域次元斩（协程方法）
         /// </summary>
-        public void SpawnSilkBallsAtWebIntersections()
+        public void ExecuteDomainSlash()
         {
-            StartCoroutine(SpawnSilkBallsCoroutine());
+            StartCoroutine(ExecuteDomainSlashCoroutine());
         }
 
         /// <summary>
-        /// 生成小丝球的协程
+        /// 领域次元斩主协程
         /// </summary>
-        private IEnumerator SpawnSilkBallsCoroutine()
+        private IEnumerator ExecuteDomainSlashCoroutine()
         {
-            Log.Info("=== 开始在丝网交汇点生成小丝球 ===");
+            Log.Info("=== 开始执行P6 领域次元斩 ===");
 
-            // 获取当前激活的Pattern
-            var currentPattern = GetCurrentActiveWebPattern();
-            if (currentPattern == null)
+            // 0. 消耗标记（设置为false）
+            if (_attackControlFsm != null)
             {
-                Log.Warn("未找到当前激活的丝网Pattern，跳过小丝球生成");
-                yield break;
+                var doP6WebAttackVar = _attackControlFsm.FsmVariables.FindFsmBool("Do P6 Web Attack");
+                if (doP6WebAttackVar != null)
+                {
+                    doP6WebAttackVar.Value = false;
+                }
             }
 
-            Log.Info($"找到当前Pattern: {currentPattern.name}");
-
-            // ==========================================
-            // 方法3：精确算法（基于web_strand_caught碰撞体的线段相交�?
-            // ==========================================
-            Log.Info("=== 使用精确算法（基于web_strand_caught碰撞体） ===");
-            var colliderInfos = GetWebStrandColliderInfo(currentPattern);
-            Log.Info($"找到 {colliderInfos.Count} 根丝线碰撞体");
-
-            var intersectionPointsPrecise = CalculateIntersectionPointsPrecise(colliderInfos);
-            List<Vector3> intersectionPoints = new List<Vector3>();
-
-            if (intersectionPointsPrecise.Count > 0)
+            // 1. 准备阶段：Boss无敌 + 领域激活
+            SetBossInvincible(true);
+            
+            if (_domainBehavior != null && gameObject != null)
             {
-                intersectionPoints = intersectionPointsPrecise;
-                Log.Info($"使用精确算法，找{intersectionPoints.Count} 个交汇点");
+                _domainBehavior.ActivateDomain(transform.position, _initialRadius);
             }
-            else
-            {
-                Log.Warn("精确算法未找");
-                yield break;
-            }
-            // 获取SilkBallManager
-            if (_silkBallManager == null)
-            {
-                Log.Warn("SilkBallManager未找到，无法生成小丝?");
-                yield break;
-            }
-
-            // 在每个交汇点生成小丝球（等待0.5秒后生成，让丝网先出现）
+            
             yield return new WaitForSeconds(0.5f);
 
-            var silkBalls = new List<MemorySilkBallBehavior>();
-            foreach (var point in intersectionPoints)
-            {
-                Vector3 spawnPos = point;
+            // 清空位置记录
+            _webSlots.Clear();
 
-                // 使用 Memory 版本的丝球
-                var silkBall = _silkBallManager.SpawnMemorySilkBall(spawnPos, 6f, 20f, 6f, 0.8f);
-                if (silkBall != null)
+            float currentRadius = _initialRadius;
+
+            // 2. 5波攻击循环
+            for (int wave = 1; wave <= 5; wave++)
+            {
+                Log.Info($"=== 第{wave}波攻击开始 ===");
+
+                // 执行本波web攻击
+                yield return StartCoroutine(ExecuteWave(wave));
+
+                // 缩圈（最后一波不缩）
+                if (wave < 5 && _domainBehavior != null)
                 {
-                    silkBalls.Add(silkBall);
-                    Log.Info($"在交汇点 {point} 生成并释放小丝球");
+                    currentRadius -= _shrinkPerWave;
+                    currentRadius = Mathf.Max(currentRadius, _minRadius);
+                    _domainBehavior.ShrinkDomain(currentRadius, 0.5f);
+                    yield return new WaitForSeconds(_waveInterval);
                 }
             }
-            yield return new WaitForSeconds(0.66f);
+
+            // 3. 结束阶段：清理所有web和领域
+            yield return new WaitForSeconds(0.5f);
             
-            // 使用 EventRegister 全局广播释放事件
-            Log.Info($"=== 广播 SILK BALL RELEASE 事件，释�?P6 交点丝球 ===");
-            EventRegister.SendEvent("SILK BALL RELEASE");
+            // 清理所有web
+            CleanupAllWebs();
             
-            Log.Info($"已生成并释放 {silkBalls.Count} 个小丝球");
-        }
-
-        /// <summary>
-        /// 获取当前激活的丝网Pattern
-        /// </summary>
-        private GameObject? GetCurrentActiveWebPattern()
-        {
-            if (_strandPatterns == null) return null;
-
-            var WebPattern = _attackControlFsm!.FsmVariables.FindFsmGameObject("Web Pattern");
-            return WebPattern.value;
-        }
-
-        /// <summary>
-        /// 获取Pattern中所有WebStrand的碰撞体信息（基于web_strand_caught
-        /// </summary>
-        private List<WebStrandColliderInfo> GetWebStrandColliderInfo(GameObject pattern)
-        {
-            var colliderInfos = new List<WebStrandColliderInfo>();
-            const float extent = 12.5f;
-
-            foreach (Transform strandTransform in pattern.transform)
+            // 停用领域
+            if (_domainBehavior != null)
             {
-                if (strandTransform.name.EndsWith("(10)"))
-                {
-                    Log.Info($"排除边界丝线: {strandTransform.name}");
-                    continue;
-                }
-                if (strandTransform.name.Contains("Silk Boss WebStrand"))
-                {
-
-                    // === 修改点：直接使用 strandTransform (父物视觉物体) ===
-
-                    Vector3 center = strandTransform.position; // 使用父物体中
-                    Vector3 direction3D = strandTransform.right;  // 使用父物体朝(Unity自动处理旋转)
-                    // Vector2 direction = new Vector2(direction3D.x, direction3D.y);
-                    Vector2 direction = new Vector2(direction3D.x, direction3D.y).normalized;
-                    // 计算线段端点
-                    Vector3 startPoint = center - new Vector3(direction.x * extent, direction.y * extent, 0);
-                    Vector3 endPoint = center + new Vector3(direction.x * extent, direction.y * extent, 0);
-
-                    var info = new WebStrandColliderInfo
-                    {
-                        name = strandTransform.name,
-                        centerPosition = center,
-                        rotationZ = strandTransform.eulerAngles.z, // 记录父物体角度
-                        startPoint = startPoint,
-                        endPoint = endPoint
-                    };
-                    colliderInfos.Add(info);
-                }
+                _domainBehavior.DeactivateDomain();
             }
-            return colliderInfos;
-        }
-        /// <summary>
-        /// 获取Pattern中所有WebStrand的详细信息（用于调试和改进交汇点算法�?
-        /// </summary>
-        private List<WebStrandInfo> GetWebStrandDetailedInfo(GameObject pattern)
-        {
-            var infos = new List<WebStrandInfo>();
+            
+            // 恢复Boss无敌状态
+            SetBossInvincible(false);
 
-            foreach (Transform child in pattern.transform)
+            Log.Info("=== P6 领域次元斩执行完成 ===");
+
+            // 发送 P6 DOMAIN SLASH DONE 事件（不使用 FINISHED）
+            if (_attackControlFsm != null)
             {
-                if (child.name.Contains("Silk Boss WebStrand"))
-                {
-                    var info = new WebStrandInfo
-                    {
-                        name = child.name,
-                        position = child.position,
-                        localPosition = child.localPosition,
-                        rotation = child.rotation,
-                        eulerAngles = child.eulerAngles,
-                        localEulerAngles = child.localEulerAngles,
-                        localScale = child.localScale,
-                        forward = child.forward,      // 前方向（蓝色轴，Z轴）
-                        up = child.up,                // 上方向（绿色轴，Y轴）
-                        right = child.right           // 右方向（红色轴，X轴）
-                    };
-                    infos.Add(info);
-
-                    // 输出详细调试信息
-                    Log.Info($"=== 丝线: {info.name} ===");
-                    Log.Info($"  position: {info.position}");
-                    Log.Info($"  localPosition: {info.localPosition}");
-                    Log.Info($"  rotation:{info.rotation}");
-                    Log.Info($"  eulerAngles: {info.eulerAngles}");
-                    Log.Info($"  localEulerAngles: {info.localEulerAngles}");
-                    Log.Info($"  localScale: {info.localScale}");
-                    Log.Info($"  forward: {info.forward}");
-                    Log.Info($"  up: {info.up}");
-                    Log.Info($"  right: {info.right}");
-                }
+                _attackControlFsm.SendEvent("P6 DOMAIN SLASH DONE");
             }
-
-            return infos;
         }
 
         /// <summary>
-        /// 丝线详细信息结构
+        /// 清理所有web
         /// </summary>
-        private struct WebStrandInfo
+        private void CleanupAllWebs()
         {
-            public string name;
-            public Vector3 position;
-            public Vector3 localPosition;
-            public Quaternion rotation;
-            public Vector3 eulerAngles;
-            public Vector3 localEulerAngles;
-            public Vector3 localScale;
-            public Vector3 forward;  // Z轴方向（丝线�?长度"方向�?
-            public Vector3 up;       // Y轴方�?
-            public Vector3 right;    // X轴方�?
-        }
-
-        /// <summary>
-        /// 丝线碰撞体信息（基于web_strand_caught�?
-        /// </summary>
-        private struct WebStrandColliderInfo
-        {
-            public string name;
-            public Vector3 centerPosition;  // 碰撞体中心位�?X, Y)
-            public float rotationZ;         // Z轴旋转角度（0=横向�?0=竖向�?
-            public Vector3 startPoint;      // 线段起点（中�?10�?
-            public Vector3 endPoint;        // 线段终点（中�?10�?
-        }
-
-        /// <summary>
-        /// 计算交汇点（精确版：基于web_strand_caught碰撞体的线段相交�?
-        /// 这是最精确的方法，使用实际碰撞体的位置和旋转来计算线段交点
-        /// </summary>
-        private List<Vector3> CalculateIntersectionPointsPrecise(List<WebStrandColliderInfo> colliderInfos)
-        {
-            var intersections = new List<Vector3>();
-
-            if (colliderInfos.Count < 2)
+            Log.Info("=== 开始清理所有P6 Web ===");
+            
+            int cleanedCount = 0;
+            foreach (var slot in _webSlots)
             {
-                return intersections;
-            }
-
-            Log.Info("=== 开始计算精确交汇点（基于线段相交） ===");
-
-            // 对所有线段对进行两两相交检�?
-            for (int i = 0; i < colliderInfos.Count - 1; i++)
-            {
-                for (int j = i + 1; j < colliderInfos.Count; j++)
+                for (int i = 0; i < 2; i++)
                 {
-                    var strand1 = colliderInfos[i];
-                    var strand2 = colliderInfos[j];
-
-                    // 计算两条线段的交点（2D�?
-                    Vector3? intersection = CalculateLineSegmentIntersection(
-                        strand1.startPoint, strand1.endPoint,
-                        strand2.startPoint, strand2.endPoint
-                    );
-
-                    if (intersection.HasValue)
+                    if (slot.WebPair[i] != null)
                     {
-                        intersections.Add(intersection.Value);
-                        Log.Info($"  找到交点: {strand1.name} × {strand2.name}");
-                        Log.Info($"    线段1: {strand1.startPoint} �?{strand1.endPoint} (旋转{strand1.rotationZ}°)");
-                        Log.Info($"    线段2: {strand2.startPoint} �?{strand2.endPoint} (旋转{strand2.rotationZ}°)");
-                        Log.Info($"    交点位置: {intersection.Value}");
+                        slot.WebPair[i].StopAttack();
+                        slot.WebPair[i].ResetCooldown();
+                        cleanedCount++;
                     }
                 }
             }
-
-            Log.Info($"=== 共找�?{intersections.Count} 个精确交汇点 ===");
-            return intersections;
+            
+            // 清空位置记录
+            _webSlots.Clear();
+            
+            Log.Info($"已清理 {cleanedCount} 根web");
         }
 
         /// <summary>
-        /// 计算两条2D线段的交�?
-        /// 使用参数方程：P = P1 + t * (P2 - P1)
-        /// 返回null表示线段不相交或平行
+        /// 执行单波攻击
         /// </summary>
-        private Vector3? CalculateLineSegmentIntersection(Vector3 p1, Vector3 p2, Vector3 p3, Vector3 p4)
+        private IEnumerator ExecuteWave(int waveIndex)
         {
-            // 线段1: p1 �?p2
-            // 线段2: p3 �?p4
+            // 第N波需要的位置数 = N*(N+1)/2（三角数）
+            int totalSlotsNeeded = waveIndex * (waveIndex + 1) / 2;
+            int newSlotsNeeded = totalSlotsNeeded - _webSlots.Count;
 
-            float x1 = p1.x, y1 = p1.y;
-            float x2 = p2.x, y2 = p2.y;
-            float x3 = p3.x, y3 = p3.y;
-            float x4 = p4.x, y4 = p4.y;
+            Log.Info($"第{waveIndex}波：需要{totalSlotsNeeded}个位置，新增{newSlotsNeeded}个位置");
 
-            // 计算分母
-            float denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+            // 获取玩家位置
+            var heroController = FindFirstObjectByType<HeroController>();
+            Vector3 playerPos = heroController != null ? heroController.transform.position : transform.position;
 
-            // 如果分母�?，说明两条线段平行或共线
-            if (Mathf.Abs(denom) < 0.0001f)
+            // 创建新位置
+            for (int i = 0; i < newSlotsNeeded; i++)
             {
-                return null;
+                Vector3 newPos = CalculateNewSlotPosition(playerPos, waveIndex);
+                float angle = CalculateSlotAngle(waveIndex);
+                _webSlots.Add(new WebSlotInfo(newPos, angle));
             }
 
-            // 计算参数t和u
-            float t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
-            float u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
-
-            // 检查交点是否在两条线段内（t和u都在[0, 1]范围内）
-            if (t >= 0 && t <= 1 && u >= 0 && u <= 1)
+            // 激活所有位置的web攻击
+            List<Coroutine> attackCoroutines = new List<Coroutine>();
+            for (int i = 0; i < totalSlotsNeeded && i < _webSlots.Count; i++)
             {
-                // 计算交点
-                float intersectX = x1 + t * (x2 - x1);
-                float intersectY = y1 + t * (y2 - y1);
-                return new Vector3(intersectX, intersectY, p1.z);  // 保持Z坐标
+                var slot = _webSlots[i];
+                var coroutine = StartCoroutine(ActivateSlotWeb(slot));
+                attackCoroutines.Add(coroutine);
             }
 
-            return null;  // 线段不相交（延长后可能相交，但线段本身不相交�?
+            // 等待所有web攻击完成（预警延迟 + 攻击持续时间）
+            yield return new WaitForSeconds(_burstDelay + 1f);
         }
+
+        /// <summary>
+        /// 计算新位置点（平行扩展逻辑）
+        /// </summary>
+        private Vector3 CalculateNewSlotPosition(Vector3 playerPos, int waveIndex)
+        {
+            if (_webSlots.Count == 0)
+            {
+                // 第一个位置：玩家位置
+                return playerPos;
+            }
+
+            // 找到最接近玩家的已存在位置
+            WebSlotInfo? closestSlot = null;
+            float minDist = float.MaxValue;
+            foreach (var slot in _webSlots)
+            {
+                float dist = Vector2.Distance(new Vector2(slot.Position.x, slot.Position.y), 
+                                             new Vector2(playerPos.x, playerPos.y));
+                if (dist < minDist)
+                {
+                    minDist = dist;
+                    closestSlot = slot;
+                }
+            }
+
+            if (closestSlot == null)
+            {
+                return playerPos;
+            }
+
+            // 计算从最近位置到玩家的方向（垂直于web角度方向）
+            Vector2 toPlayer = new Vector2(playerPos.x - closestSlot.Position.x, 
+                                          playerPos.y - closestSlot.Position.y);
+            
+            // 垂直于web角度的方向
+            float webAngleRad = closestSlot.Angle * Mathf.Deg2Rad;
+            Vector2 webDir = new Vector2(Mathf.Cos(webAngleRad), Mathf.Sin(webAngleRad));
+            Vector2 perpendicularDir = new Vector2(-webDir.y, webDir.x).normalized;
+
+            // 确定扩展方向（向玩家方向）
+            if (Vector2.Dot(perpendicularDir, toPlayer.normalized) < 0)
+            {
+                perpendicularDir = -perpendicularDir;
+            }
+
+            // 从最近位置开始，沿垂直方向每隔parallelDistance检查是否有空位
+            Vector3 candidatePos = closestSlot.Position;
+            for (int step = 1; step <= 10; step++) // 最多检查10步
+            {
+                candidatePos = closestSlot.Position + new Vector3(
+                    perpendicularDir.x * _parallelDistance * step,
+                    perpendicularDir.y * _parallelDistance * step,
+                    0
+                );
+
+                // 检查是否与已有位置太近
+                bool tooClose = false;
+                foreach (var existingSlot in _webSlots)
+                {
+                    float dist = Vector2.Distance(
+                        new Vector2(candidatePos.x, candidatePos.y),
+                        new Vector2(existingSlot.Position.x, existingSlot.Position.y)
+                    );
+                    if (dist < _parallelDistance * 0.5f)
+                    {
+                        tooClose = true;
+                        break;
+                    }
+                }
+
+                if (!tooClose)
+                {
+                    return candidatePos;
+                }
+            }
+
+            // 如果找不到合适位置，返回玩家位置
+            return playerPos;
+        }
+
+        /// <summary>
+        /// 计算位置的角度
+        /// </summary>
+        private float CalculateSlotAngle(int waveIndex)
+        {
+            if (waveIndex < 1 || waveIndex > _waveBaseAngles.Length)
+            {
+                return 45f;
+            }
+
+            float baseAngle = _waveBaseAngles[waveIndex - 1];
+            float randomOffset = Random.Range(-_angleRandomRange, _angleRandomRange);
+            return baseAngle + randomOffset;
+        }
+
+        /// <summary>
+        /// 激活单个位置的web攻击（双web轮换）
+        /// </summary>
+        private IEnumerator ActivateSlotWeb(WebSlotInfo slot)
+        {
+            if (_singleWebManager == null)
+            {
+                Log.Warn("SingleWebManager未找到，无法激活web");
+                yield break;
+            }
+
+            // 选择当前使用的web索引
+            int webIndex = slot.CurrentWebIndex;
+            
+            // 如果当前web不可用，尝试切换到另一根
+            if (slot.WebPair[webIndex] != null && !slot.WebPair[webIndex].IsAvailable)
+            {
+                webIndex = 1 - webIndex;
+            }
+
+            // 如果两根都不可用，创建新的
+            if (slot.WebPair[webIndex] == null || !slot.WebPair[webIndex].IsAvailable)
+            {
+                var newWeb = _singleWebManager.SpawnMemoryWebAndAttack(
+                    slot.Position,
+                    new Vector3(0f, 0f, slot.Angle),
+                    new Vector3(3.2f, 1f, 1f),
+                    0f,
+                    _burstDelay
+                );
+
+                if (newWeb != null)
+                {
+                    slot.WebPair[webIndex] = newWeb;
+                    slot.CurrentWebIndex = webIndex;
+                }
+            }
+            else
+            {
+                // 使用已有的web
+                slot.WebPair[webIndex].transform.position = slot.Position;
+                slot.WebPair[webIndex].transform.eulerAngles = new Vector3(0f, 0f, slot.Angle);
+                slot.WebPair[webIndex].TriggerAttack(0f, _burstDelay);
+            }
+
+            // 下次使用另一根
+            slot.CurrentWebIndex = 1 - slot.CurrentWebIndex;
+        }
+
+        /// <summary>
+        /// 设置Boss无敌状态
+        /// </summary>
+        private void SetBossInvincible(bool invincible)
+        {
+            if (gameObject == null) return;
+
+            // 直接设置GameObject的Layer
+            gameObject.layer = invincible ? 2 : LayerMask.NameToLayer("Enemies");  // Layer 2 = Invincible
+        }
+
         #endregion
     }
 }
