@@ -40,6 +40,9 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             // 添加爬升阶段漫游状态
             CreateClimbRoamStates();
 
+            // 添加 PinArray Roar 状态
+            CreatePinArrayRoarStates();
+
             // 添加全局事件监听
             AddGlobalEventListeners();
 
@@ -673,7 +676,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 clipName = new FsmString("TurnToIdle") { Value = "TurnToIdle" },
                 animationCompleteEvent = FsmEvent.Finished
             });
-            endActions.Add(new Wait { time = new FsmFloat(0.2f),finishEvent = FsmEvent.Finished });
+            endActions.Add(new Wait { time = new FsmFloat(0.2f), finishEvent = FsmEvent.Finished });
             endBlastBurst3State.Actions = endActions.ToArray();
 
             // 6. 设置状态转换

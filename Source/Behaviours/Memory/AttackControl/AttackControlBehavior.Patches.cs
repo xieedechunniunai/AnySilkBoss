@@ -412,6 +412,195 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             dashAttackEndState.Actions = dashAttackEndactions.ToArray();
         }
 
+        private void PatchDashOrbitForDashAttack()
+        {
+            if (_attackControlFsm == null) return;
+            if (_dashAttackAnticState == null) return;
+            if (_dashAttackState == null) return;
+            if (_moveRestart3State == null) return;
+            if (_waitForHandsReadyState == null) return;
+
+
+
+            var dashOrbitWaitHandsReadyState = _attackControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Dash Orbit Wait Hands Dash Ready");
+            if (dashOrbitWaitHandsReadyState == null)
+            {
+                dashOrbitWaitHandsReadyState = CreateState(_attackControlFsm.Fsm, "Dash Orbit Wait Hands Dash Ready");
+                AddStateToFsm(_attackControlFsm, dashOrbitWaitHandsReadyState);
+            }
+
+            var boolVars = _attackControlFsm.FsmVariables.BoolVariables.ToList();
+            var dashReadyHandL = boolVars.FirstOrDefault(v => v.Name == "Dash Ready Hand L");
+            if (dashReadyHandL == null)
+            {
+                dashReadyHandL = new FsmBool("Dash Ready Hand L") { Value = false };
+                boolVars.Add(dashReadyHandL);
+            }
+            var dashReadyHandR = boolVars.FirstOrDefault(v => v.Name == "Dash Ready Hand R");
+            if (dashReadyHandR == null)
+            {
+                dashReadyHandR = new FsmBool("Dash Ready Hand R") { Value = false };
+                boolVars.Add(dashReadyHandR);
+            }
+            _attackControlFsm.FsmVariables.BoolVariables = boolVars.ToArray();
+
+
+            var getHandLDashReady = new GetFsmBool
+            {
+                gameObject = new FsmOwnerDefault
+                {
+                    OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                    gameObject = new FsmGameObject { Value = handL }
+                },
+                fsmName = new FsmString("Hand Control") { Value = "Hand Control" },
+                variableName = new FsmString("Dash Ready") { Value = "Dash Ready" },
+                storeValue = dashReadyHandL,
+                everyFrame = true
+            };
+
+            var getHandRDashReady = new GetFsmBool
+            {
+                gameObject = new FsmOwnerDefault
+                {
+                    OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                    gameObject = new FsmGameObject { Value = handR }
+                },
+                fsmName = new FsmString("Hand Control") { Value = "Hand Control" },
+                variableName = new FsmString("Dash Ready") { Value = "Dash Ready" },
+                storeValue = dashReadyHandR,
+                everyFrame = true
+            };
+
+            // 使用自定义事件 DASH HANDS READY 而不是 FINISHED
+            var dashHandsReadyEvent = FsmEvent.GetFsmEvent("DASH HANDS READY");
+            var allHandsReady = new BoolAllTrue
+            {
+                boolVariables = new FsmBool[]
+                {
+                    dashReadyHandL,
+                    dashReadyHandR
+                },
+                sendEvent = dashHandsReadyEvent,
+                storeResult = new FsmBool { UseVariable = true },
+                everyFrame = true
+            };
+
+            dashOrbitWaitHandsReadyState.Actions = new FsmStateAction[]
+            {
+                getHandLDashReady,
+                getHandRDashReady,
+                allHandsReady
+            };
+
+            // 使用 DASH HANDS READY 事件跳转到 Dash Attack 状态
+            AddTransition(dashOrbitWaitHandsReadyState, CreateTransition(dashHandsReadyEvent, _dashAttackState));
+
+            // 移除 Dash Attack Antic 中发送 STOMP DASH L/R 的 SendEventByName 动作
+            var dashAttackAnticActions = _dashAttackAnticState.Actions?.ToList() ?? new List<FsmStateAction>();
+            if (_dashAttackAnticState.Actions != null)
+            {
+                var cleanedActions = _dashAttackAnticState.Actions
+                    .Where(a => !(a is SendEventByName send &&
+                        (send.sendEvent.Value == "STOMP DASH L" ||
+                         send.sendEvent.Value == "STOMP DASH R")))
+                    .ToList();
+                dashAttackAnticActions = cleanedActions;
+                Log.Info($"已移除 Dash Attack Antic 中的 STOMP DASH L/R 事件发送，剩余 {cleanedActions.Count} 个动作");
+            }
+            // 将 StartDashOrbitHands CallMethod 添加到 Dash Attack Antic 状态
+            var startDashOrbitHandsAction = new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("StartDashOrbitHands") { Value = "StartDashOrbitHands" },
+                parameters = new FsmVar[0],
+                everyFrame = false
+            };
+            // 检查是否已存在该 CallMethod，避免重复添加
+            bool hasStartDashOrbitHands = dashAttackAnticActions.OfType<CallMethod>()
+                .Any(a => a.methodName != null && a.methodName.Value == "StartDashOrbitHands");
+            if (!hasStartDashOrbitHands)
+            {
+                dashAttackAnticActions.Insert(0, startDashOrbitHandsAction);
+            }
+            _dashAttackAnticState.Actions = dashAttackAnticActions.ToArray();
+
+            // 修改 Dash Attack Antic 的跳转：从 Dash Attack 或 Dash Orbit Antic 改为直接跳转到 Dash Orbit Wait Hands Dash Ready
+            foreach (var t in _dashAttackAnticState.Transitions)
+            {
+                if (t.FsmEvent == FsmEvent.Finished && (t.toState == _dashAttackState.Name || t.toFsmState == _dashAttackState))
+                {
+                    t.toState = dashOrbitWaitHandsReadyState.Name;
+                    t.toFsmState = dashOrbitWaitHandsReadyState;
+                }
+            }
+            var moveRestart3Actions = _moveRestart3State.Actions?.ToList() ?? new List<FsmStateAction>();
+            bool hasShootCall = moveRestart3Actions.OfType<CallMethod>().Any(a => a.methodName != null && a.methodName.Value == "DashOrbitShootHands");
+            if (!hasShootCall)
+            {
+                moveRestart3Actions.Insert(0, new CallMethod
+                {
+                    behaviour = new FsmObject { Value = this },
+                    methodName = new FsmString("DashOrbitShootHands") { Value = "DashOrbitShootHands" },
+                    parameters = new FsmVar[0],
+                    everyFrame = false
+                });
+                _moveRestart3State.Actions = moveRestart3Actions.ToArray();
+            }
+
+            foreach (var t in _moveRestart3State.Transitions)
+            {
+                if (t.FsmEvent == FsmEvent.Finished && (t.toState == "Idle" || (_idleState != null && t.toFsmState == _idleState)))
+                {
+                    t.toState = _waitForHandsReadyState.Name;
+                    t.toFsmState = _waitForHandsReadyState;
+                }
+            }
+
+            _attackControlFsm.Fsm.InitData();
+        }
+
+        public void StartDashOrbitHands()
+        {
+            if (_handLControlFsm != null)
+            {
+                _handLControlFsm.SendEvent("DASH ORBIT START Hand L");
+            }
+            else
+            {
+                Log.Warn("DashOrbit: Hand L Control FSM 未缓存");
+            }
+
+            if (_handRControlFsm != null)
+            {
+                _handRControlFsm.SendEvent("DASH ORBIT START Hand R");
+            }
+            else
+            {
+                Log.Warn("DashOrbit: Hand R Control FSM 未缓存");
+            }
+        }
+
+        public void DashOrbitShootHands()
+        {
+            if (_handLControlFsm != null)
+            {
+                _handLControlFsm.SendEvent("DASH ORBIT SHOOT Hand L");
+            }
+            else
+            {
+                Log.Warn("DashOrbitShoot: Hand L Control FSM 未缓存");
+            }
+
+            if (_handRControlFsm != null)
+            {
+                _handRControlFsm.SendEvent("DASH ORBIT SHOOT Hand R");
+            }
+            else
+            {
+                Log.Warn("DashOrbitShoot: Hand R Control FSM 未缓存");
+            }
+        }
+
         private void ModifySpikeLiftAimState()
         {
             var spikeLiftAimState = _spikeLiftAimState;

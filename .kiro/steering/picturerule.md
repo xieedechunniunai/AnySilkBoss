@@ -1,7 +1,5 @@
 ---
-trigger: always_on
----
-
+inclusion: always
 ---
 FSM / PlayMaker 项目规则（面向实现与审查，AI 必须遵守）
 

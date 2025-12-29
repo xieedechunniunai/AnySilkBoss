@@ -44,7 +44,7 @@ namespace AnySilkBoss.Source.Managers
         private bool _enableNormalAutoPooling = false;  // 普通池自动补充
         private bool _enableMemoryAutoPooling = false;  // 梦境池自动补充
         private const int NORMAL_MIN_POOL_SIZE = 20;   // 普通池最小数量
-        private const int MEMORY_MIN_POOL_SIZE = 40;   // 梦境池最小数量（提升到20）
+        private const int MEMORY_MIN_POOL_SIZE = 70;   // 梦境池最小数量（P6领域次元斩需要70根）
         private const float POOL_GENERATION_INTERVAL = 0.2f;  // 生成间隔
 
         // 池子加载状态
@@ -97,9 +97,8 @@ namespace AnySilkBoss.Source.Managers
             if (oldScene.name == BossSceneName && newScene.name != BossSceneName)
             {
                 Log.Info($"离开 BOSS 场景 {oldScene.name}，清理 SingleWebManager 缓存");
-                StopCoroutine(AutoPoolGeneration());
-                StopCoroutine(AutoMemoryPoolGeneration());
-                CleanupPrefab();
+
+                CleanupPool();
                 _initialized = false;
                 Log.Info("=== SingleWebManager 清理完成 ===");
             }
@@ -234,7 +233,7 @@ namespace AnySilkBoss.Source.Managers
             // 克隆 WebStrand 作为预制体
             _singleWebStrandPrefab = Object.Instantiate(firstWebStrand);
             _singleWebStrandPrefab.name = "Single WebStrand Prefab";
-            _singleWebStrandPrefab.transform.SetScaleX(2f);
+            _singleWebStrandPrefab.transform.SetScaleX(5f);  // 2.5倍长度（原版2f × 2.5 = 5f）
 
             // 不需要 DontDestroyOnLoad，因为 SingleWebManager 已经在 AnySilkBossManager 上，后者已设置 DontDestroyOnLoad
             // 预制体作为 Manager 的子物体保存
@@ -665,6 +664,36 @@ namespace AnySilkBoss.Source.Managers
             }
             Log.Info($"已清空 Memory 对象池（共 {_memoryWebPool.Count} 个丝线）");
         }
+
+        /// <summary>
+        /// 确保 Memory 对象池有足够的容量
+        /// </summary>
+        /// <param name="minCount">最小数量</param>
+        public void EnsureMemoryPoolCapacity(int minCount)
+        {
+            if (!_initialized || _singleWebStrandPrefab == null || _memoryPoolContainer == null)
+            {
+                Log.Warn("SingleWebManager 未初始化，无法确保池容量");
+                return;
+            }
+
+            int currentCount = _memoryWebPool.Count(w => w != null);
+            int needed = minCount - currentCount;
+
+            if (needed > 0)
+            {
+                Log.Info($"Memory 池当前有 {currentCount} 根丝线，需要 {needed} 根，开始预热...");
+                for (int i = 0; i < needed; i++)
+                {
+                    var web = CreateNewMemoryWebInstance();
+                    if (web != null)
+                    {
+                        web.ResetCooldown();
+                    }
+                }
+                Log.Info($"Memory 池预热完成，当前有 {_memoryWebPool.Count(w => w != null)} 根丝线");
+            }
+        }
         #endregion
 
         #region Auto Pool Generation
@@ -957,13 +986,12 @@ namespace AnySilkBoss.Source.Managers
         /// <summary>
         /// 清理预制体和缓存（离开 BOSS 场景时调用）
         /// </summary>
-        private void CleanupPrefab()
+        public void CleanupPool()
         {
             Log.Info("=== 开始清理 SingleWebManager 缓存 ===");
 
             // 停止所有协程
             StopAllCoroutines();
-
             // 停止自动补充
             _enableNormalAutoPooling = false;
             _enableMemoryAutoPooling = false;

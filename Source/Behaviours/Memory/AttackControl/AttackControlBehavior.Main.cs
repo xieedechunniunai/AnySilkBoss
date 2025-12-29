@@ -77,14 +77,16 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         // BossControl FSM引用（用于通信）
         private PlayMakerFSM? _bossControlFsm;
 
-        // P6 Web攻击相关事件与状态
+        // FSM 内部变量缓存（从 Attack Control FSM 获取 Hand L/R）
+        private FsmGameObject? _handLFsmVar;
+        private FsmGameObject? _handRFsmVar;
+        private PlayMakerFSM? _handLControlFsm;
+        private PlayMakerFSM? _handRControlFsm;
+
+        // P6 Web攻击相关事件与状态（领域次元斩）
         private FsmEvent? _p6WebAttackEvent;
-        private FsmState? _p6WebPrepareState;
-        private FsmState? _p6WebCastState;
-        private FsmState? _p6WebAttack1State;
-        private FsmState? _p6WebAttack2State;
-        private FsmState? _p6WebAttack3State;
-        private FsmState? _p6WebRecoverState;
+        private FsmState? _p6DomainSlashState;
+        private DomainBehavior? _domainBehavior;
 
         // 丝球释放时的冲击波和音效动作缓存
         // 坐标常量
@@ -170,6 +172,25 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 return;
             }
 
+            // 从 FSM 变量获取 Hand L/R
+            _handLFsmVar = _attackControlFsm.FsmVariables.FindFsmGameObject("Hand L");
+            _handRFsmVar = _attackControlFsm.FsmVariables.FindFsmGameObject("Hand R");
+            handL = _handLFsmVar?.Value;
+            handR = _handRFsmVar?.Value;
+
+            // 获取 Hand Control FSM（注意名称是 "Hand Control" 不是 "Control"）
+            _handLControlFsm = handL != null ? FSMUtility.LocateMyFSM(handL, "Hand Control") : null;
+            _handRControlFsm = handR != null ? FSMUtility.LocateMyFSM(handR, "Hand Control") : null;
+
+            if (_handLControlFsm == null)
+            {
+                Log.Warn("未找到 Hand L 的 Hand Control FSM");
+            }
+            if (_handRControlFsm == null)
+            {
+                Log.Warn("未找到 Hand R 的 Hand Control FSM");
+            }
+
             CacheOriginalStates();
 
             var parent = transform.parent;
@@ -211,6 +232,11 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 {
                     Log.Warn("未找到 SingleWebManager 组件");
                 }
+
+                // 初始化DomainBehavior（领域结界）
+                var domainObj = new GameObject("DomainBehavior");
+                domainObj.transform.SetParent(managerObj.transform);
+                _domainBehavior = domainObj.AddComponent<DomainBehavior>();
 
                 var assetManager = managerObj.GetComponent<AssetManager>();
                 if (assetManager != null)
@@ -369,11 +395,17 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             CreateSilkBallWithWebAttackStates();
             CreateClimbPhaseAttackStates();
             CreateP6WebAttackStates();
+            
+            // 注意：不再在这里预热 SingleWebManager 对象池
+            // 池子容量已在 SingleWebManager 中设置为 MEMORY_MIN_POOL_SIZE = 70
+            
             InitializeBlastBurstAttacks();
+
             ModifyRubbleAttackForP6Web();
             ModifySendRandomEventAction();
             ModifyAttackChoiceForSilkBall();
             PatchOriginalAttackPatterns();
+            PatchDashOrbitForDashAttack();
             AddAttactStopAction();
             ModifySpikeLiftAimState();
             RelinkAllEventReferences();
@@ -391,6 +423,11 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 "ORBIT ATTACK",
                 "ORBIT START Hand L",
                 "ORBIT START Hand R",
+                "DASH ORBIT START Hand L",
+                "DASH ORBIT START Hand R",
+                "DASH ORBIT SHOOT Hand L",
+                "DASH ORBIT SHOOT Hand R",
+                "DASH HANDS READY",
                 "SILK BALL ATTACK",
                 "SILK BALL WITH WEB ATTACK",
                 "SILK BALL WITH WEB ATTACK DONE",
@@ -401,7 +438,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 "NULL",
                 "CLIMB PHASE ATTACK",
                 "CLIMB PHASE END",
-                "P6 WEB ATTACK"
+                "P6 WEB ATTACK",
+                "P6 DOMAIN SLASH DONE"
             );
 
             _orbitAttackEvent = FsmEvent.GetFsmEvent("ORBIT ATTACK");

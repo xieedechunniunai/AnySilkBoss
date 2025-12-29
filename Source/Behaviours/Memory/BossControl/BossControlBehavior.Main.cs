@@ -144,7 +144,7 @@ internal partial class MemoryBossBehavior : MonoBehaviour
     }
 
 
-    
+
 
     #region 眩晕中断处理
 
@@ -403,11 +403,217 @@ internal partial class MemoryBossBehavior : MonoBehaviour
 
         // 添加全局转换（包含 Roar 和 漫游）
         AddClimbPhaseGlobalTransitionsNew(climbRoarPrepare, climbRoamInit, idleState);
-        
+
         // 重新初始化FSM
         // ReinitializeFsm(_bossControlFsm);
         ReinitializeFsmVariables(_bossControlFsm);
         Log.Info("=== 爬升阶段状态链创建完成 ===");
+    }
+
+    /// <summary>
+    /// 创建 PinArray 特殊攻击的 Roar 状态链
+    /// </summary>
+    private void CreatePinArrayRoarStates()
+    {
+        if (_bossControlFsm == null) return;
+
+        Log.Info("=== 开始创建 PinArray Roar 状态链 ===");
+
+        // 1. 注册事件
+        RegisterEvents(_bossControlFsm, "PIN ARRAY ROAR START", "PIN ARRAY ROAR DONE");
+
+        // 2. 创建状态
+        var states = CreateStates(_bossControlFsm.Fsm,
+            ("PinArray Roar Prepare", "PinArray吼叫准备"),
+            ("PinArray Roar", "PinArray吼叫"),
+            ("PinArray Roar DONE", "PinArray吼叫完成")
+        );
+        AddStatesToFsm(_bossControlFsm, states);
+
+        var roarPrepare = states[0];
+        var roar = states[1];
+        var roarDone = states[2];
+
+        var idleState = FindState(_bossControlFsm, "Idle");
+
+        // 3. 添加动作
+        AddPinArrayRoarPrepareActions(roarPrepare);
+        AddPinArrayRoarActions(roar);
+        AddPinArrayRoarDoneActions(roarDone, idleState);
+
+        // 4. 添加转换
+        // PinArray Roar Prepare -> PinArray Roar (FINISHED)
+        SetFinishedTransition(roarPrepare, roar);
+
+        // PinArray Roar -> PinArray Roar DONE (FINISHED)
+        SetFinishedTransition(roar, roarDone);
+
+        // PinArray Roar DONE -> Idle (FINISHED)
+        if (idleState != null)
+        {
+            SetFinishedTransition(roarDone, idleState);
+        }
+
+        // 5. 添加全局转换：任意状态收到 PIN ARRAY ROAR START -> PinArray Roar Prepare
+        // 注意：这会打断当前任何状态
+        var globalTransitions = _bossControlFsm.Fsm.GlobalTransitions.ToList();
+        globalTransitions.Add(CreateTransition(FsmEvent.GetFsmEvent("PIN ARRAY ROAR START"), roarPrepare));
+        _bossControlFsm.Fsm.GlobalTransitions = globalTransitions.ToArray();
+
+        Log.Info("=== PinArray Roar 状态链创建完成 ===");
+    }
+
+    private void AddPinArrayRoarPrepareActions(FsmState state)
+    {
+        var actions = new List<FsmStateAction>();
+
+        // 停止当前所有攻击
+        actions.Add(new SendEventToRegister
+        {
+            Fsm = _bossControlFsm!.Fsm,
+            eventName = new FsmString("ATTACK CLEAR") { Value = "ATTACK CLEAR" }
+        });
+
+        // 播放 Roar 动画前摇
+        actions.Add(new SendEventByName
+        {
+            eventTarget = new FsmEventTarget
+            {
+                target = FsmEventTarget.EventTarget.GameObject,
+                gameObject = new FsmOwnerDefault
+                {
+                    OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                    gameObject = new FsmGameObject { Value = _silkHair }
+                }
+            },
+            sendEvent = "ROAR",
+            delay = new FsmFloat(0f),
+            everyFrame = false
+        });
+
+        // 播放 Roar 动画（带事件监听）
+        actions.Add(new Tk2dPlayAnimationWithEvents
+        {
+            Fsm = _bossControlFsm.Fsm,
+            gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+            clipName = new FsmString("Roar") { Value = "Roar" },
+            animationTriggerEvent = FsmEvent.Finished
+        });
+
+        state.Actions = actions.ToArray();
+    }
+
+    private void AddPinArrayRoarActions(FsmState state)
+    {
+        // 复用 ClimbRoar 的逻辑（StartRoarEmitter + Audio）
+        // 我们可以直接从 Rerise Roar 状态复制动作，就像 ClimbRoar 那样
+        var actions = new List<FsmStateAction>();
+        var reriseRoarState = _bossControlFsm!.FsmStates.FirstOrDefault(x => x.Name == "Rerise Roar");
+
+        if (reriseRoarState != null)
+        {
+            var originalEmitter = reriseRoarState.Actions.FirstOrDefault(x => x is StartRoarEmitter) as StartRoarEmitter;
+            var audioEvents = reriseRoarState.Actions.Where(x => x is PlayAudioEvent).Cast<PlayAudioEvent>();
+
+            if (originalEmitter != null)
+            {
+                actions.Add(new StartRoarEmitter
+                {
+                    Fsm = _bossControlFsm.Fsm,
+                    spawnPoint = originalEmitter.spawnPoint,
+                    delay = originalEmitter.delay,
+                    stunHero = new FsmBool(false) { Value = false }, // PinArray 期间不一定要眩晕玩家，或者看需求，这里暂时 false
+                    roarBurst = originalEmitter.roarBurst,
+                    isSmall = originalEmitter.isSmall,
+                    noVisualEffect = originalEmitter.noVisualEffect,
+                    forceThroughBind = originalEmitter.forceThroughBind,
+                    stopOnExit = originalEmitter.stopOnExit
+                });
+            }
+
+            foreach (var audio in audioEvents)
+            {
+                actions.Add(new PlayAudioEvent
+                {
+                    Fsm = _bossControlFsm.Fsm,
+                    audioClip = audio.audioClip,
+                    volume = audio.volume,
+                    pitchMin = audio.pitchMin,
+                    pitchMax = audio.pitchMax,
+                    audioPlayerPrefab = audio.audioPlayerPrefab,
+                    spawnPoint = audio.spawnPoint,
+                    spawnPosition = audio.spawnPosition,
+                    SpawnedPlayerRef = audio.SpawnedPlayerRef
+                });
+            }
+        }
+
+        // 监听动画结束
+        actions.Add(new Tk2dWatchAnimationEvents
+        {
+            Fsm = _bossControlFsm.Fsm,
+            gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+            animationTriggerEvent = FsmEvent.Finished
+        });
+
+        state.Actions = actions.ToArray();
+    }
+
+    private void AddPinArrayRoarDoneActions(FsmState state, FsmState nextState)
+    {
+        var actions = new List<FsmStateAction>();
+
+        // 通知 Phase Control
+        actions.Add(new SendEventByName
+        {
+            eventTarget = new FsmEventTarget
+            {
+                target = FsmEventTarget.EventTarget.GameObjectFSM,
+                excludeSelf = new FsmBool(false),
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                fsmName = new FsmString("Phase Control") { Value = "Phase Control" }
+            },
+            sendEvent = new FsmString("PIN ARRAY ROAR DONE") { Value = "PIN ARRAY ROAR DONE" },
+            delay = new FsmFloat(0f),
+            everyFrame = false
+        });
+
+        // 恢复 Hair Idle
+        actions.Add(new SendEventByName
+        {
+            eventTarget = new FsmEventTarget
+            {
+                target = FsmEventTarget.EventTarget.GameObject,
+                gameObject = new FsmOwnerDefault
+                {
+                    OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                    gameObject = new FsmGameObject { Value = _silkHair }
+                }
+            },
+            sendEvent = "IDLE",
+            delay = new FsmFloat(0f),
+            everyFrame = false
+        });
+
+        // 播放 Idle 动画（确保回到 Idle 状态前视觉正常）
+        actions.Add(new Tk2dPlayAnimation
+        {
+            gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+            clipName = new FsmString("Idle") { Value = "Idle" }
+        });
+
+        state.Actions = actions.ToArray();
+
+        // 显式检查并添加转换
+        if (nextState != null)
+        {
+            // 已经在 CreatePinArrayRoarStates 中使用 SetFinishedTransition 添加了转换，
+            // 这里主要负责 Action 的添加。
+            // 如果 nextState 为 null，说明不需要在此处隐式完成（虽然 CreateStates 已经处理了）
+            // 实际上这里的 nextState 参数在这个 Add 方法中并没有被使用来创建 Transition，
+            // 仅仅是为了保持签名或者语义。
+            // 为了避免警告，我们可以在这里加一句 Log 或者不做任何事。
+        }
     }
 
     /// <summary>
@@ -761,46 +967,17 @@ internal partial class MemoryBossBehavior : MonoBehaviour
 
         // 3. 延迟发送 BLADES RETURN
         // Finger Blade 的 Stagger 流程需要约 3.5 秒才能到达 Stagger Finish 状态
-        // 在那里才能响应 BLADES RETURN 事件
-        actions.Add(new CallMethod
+        actions.Add(new SendEventToRegisterDelay
         {
-            behaviour = new FsmObject { Value = this },
-            methodName = new FsmString("SendBladesReturnDelayed") { Value = "SendBladesReturnDelayed" },
-            parameters = new FsmVar[0],
-            everyFrame = false
+            delay = new FsmFloat(3.5f),
+            EventName = new FsmString("BLADES RETURN") { Value = "BLADES RETURN" }
         });
-
-        roarDoneState.Actions = actions.ToArray();
-    }
-
-    /// <summary>
-    /// 延迟发送 BLADES RETURN 事件给所有 Finger Blade
-    /// </summary>
-    public void SendBladesReturnDelayed()
-    {
-        StartCoroutine(SendBladesReturnDelayedCoroutine());
-    }
-
-    private IEnumerator SendBladesReturnDelayedCoroutine()
-    {
-        // 等待 Finger Blade 完成 Stagger 流程到达 Stagger Finish
-        // Stagger 流程：Stagger Pause(0-0.3s) → Stagger Anim(0.4-1s) → Stagger Drop(2.5s) → Stagger Finish
-        // 总计最多约 3.8 秒，这里等待 3.5 秒应该足够
-        yield return new WaitForSeconds(3.5f);
-
-        // 第一次发送 BLADES RETURN
-        var bladesReturnEvent = new SendEventToRegister
+        actions.Add(new SendEventToRegisterDelay
         {
-            Fsm = _bossControlFsm!.Fsm,
-            eventName = new FsmString("BLADES RETURN") { Value = "BLADES RETURN" }
-        };
-        bladesReturnEvent.OnEnter();
-        Log.Info("延迟发送 BLADES RETURN（针对 Stagger Finish 状态）");
-
-        // 再等待 1 秒，发送第二次（针对可能在 Rise 状态的 Finger）
-        yield return new WaitForSeconds(1f);
-        bladesReturnEvent.OnEnter();
-        Log.Info("第二次发送 BLADES RETURN（针对 Rise 状态）");
+            delay = new FsmFloat(4.5f),
+            EventName = new FsmString("BLADES RETURN") { Value = "BLADES RETURN" }
+        });
+        roarDoneState.Actions = actions.ToArray();
     }
 
     /// <summary>

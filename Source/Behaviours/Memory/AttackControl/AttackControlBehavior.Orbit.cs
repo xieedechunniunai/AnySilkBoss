@@ -14,12 +14,11 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         #region 针环绕攻击方法
         /// <summary>
         /// 初始化手部Behavior组件
+        /// 注意：handL 和 handR 已在 GetComponents() 中从 FSM 变量获取
         /// </summary>
         private void InitializeHandBehaviors()
         {
-            // 查找Hand L和Hand R对象
-            handL = GameObject.Find("Hand L");
-            handR = GameObject.Find("Hand R");
+            // handL 和 handR 已在 GetComponents() 中从 FSM 变量获取，不再使用 GameObject.Find()
 
             if (handL != null)
             {
@@ -31,7 +30,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             }
             else
             {
-                Log.Warn("未找到Hand L对象");
+                Log.Warn("未找到 Hand L 对象（FSM 变量为 null）");
             }
 
             if (handR != null)
@@ -44,7 +43,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             }
             else
             {
-                Log.Warn("未找到Hand R对象");
+                Log.Warn("未找到 Hand R 对象（FSM 变量为 null）");
             }
         }
 

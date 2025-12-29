@@ -35,6 +35,9 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         private bool _isInitialized = false;
         private bool _isAttacking = false;            // 是否正在攻击
         private int _currentPhase = 1;                // 当前阶段
+        
+        private static bool _isSpikeSystemPaused = false;  // 地刺系统是否暂停（PinArray 期间）
+        private static int _pausedPhase = 1;               // 暂停时的阶段（用于恢复）
         #endregion
 
         #region FSM 状态和事件引用
@@ -301,6 +304,13 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         private void TriggerNextSpike()
         {
+            // 如果地刺系统暂停（PinArray 期间），不触发下一个地刺
+            if (_isSpikeSystemPaused)
+            {
+                Log.Debug($"[SpikeFloor {spikeIndex}] 地刺系统暂停中，跳过触发下一个地刺");
+                return;
+            }
+            
             if (_spikeFloorsParent == null)
             {
                 Log.Warn($"[SpikeFloor {spikeIndex}] 父物体引用为空");
@@ -382,6 +392,13 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         public void ForceAttack()
         {
+            // 如果地刺系统暂停（PinArray 期间），不触发攻击
+            if (_isSpikeSystemPaused)
+            {
+                Log.Debug($"[SpikeFloor {spikeIndex}] 地刺系统暂停中，跳过强制攻击");
+                return;
+            }
+            
             if (_controlFsm != null && !_isAttacking)
             {
                 _controlFsm.SendEvent("ATTACK");
@@ -466,6 +483,38 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             Log.Info($"设置所有地刺阶段为 P{phase}");
         }
+
+        /// <summary>
+        /// 暂停地刺系统（PinArray 期间调用）
+        /// 注意：不会中断正在进行的地刺攻击，只是阻止触发新的地刺
+        /// </summary>
+        public static void PauseSpikeSystem(int currentPhase = 1)
+        {
+            _isSpikeSystemPaused = true;
+            _pausedPhase = currentPhase;
+            Log.Info($"[SpikeFloor] 地刺系统已暂停（当前阶段 P{currentPhase}）");
+        }
+
+        /// <summary>
+        /// 恢复地刺系统（PinArray 结束后调用）
+        /// 会根据暂停时的阶段重新启动地刺循环
+        /// </summary>
+        public static void ResumeSpikeSystem(GameObject? spikeFloorsParent)
+        {
+            _isSpikeSystemPaused = false;
+            Log.Info($"[SpikeFloor] 地刺系统已恢复（阶段 P{_pausedPhase}）");
+            
+            // 重新启动地刺循环：根据阶段触发对应数量的地刺
+            if (spikeFloorsParent != null)
+            {
+                TriggerSpikeAttacks(spikeFloorsParent, _pausedPhase);
+            }
+        }
+
+        /// <summary>
+        /// 检查地刺系统是否暂停
+        /// </summary>
+        public static bool IsSpikeSystemPaused => _isSpikeSystemPaused;
 
         #endregion
     }
