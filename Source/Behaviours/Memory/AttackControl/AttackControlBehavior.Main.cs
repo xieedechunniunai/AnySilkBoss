@@ -237,44 +237,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 var domainObj = new GameObject("DomainBehavior");
                 domainObj.transform.SetParent(managerObj.transform);
                 _domainBehavior = domainObj.AddComponent<DomainBehavior>();
-
-                var assetManager = managerObj.GetComponent<AssetManager>();
-                if (assetManager != null)
-                {
-                    var originalLaceCircleSlash = assetManager.Get<GameObject>("lace_circle_slash");
-                    if (originalLaceCircleSlash != null)
-                    {
-                        // 复制一份，不修改原始资源
-                        laceCircleSlash = GameObject.Instantiate(originalLaceCircleSlash);
-                        laceCircleSlash.name = "LaceCircleSlash_Copy";
-                        laceCircleSlash.SetActive(false);
-
-                        // 设置大小为两倍
-                        laceCircleSlash.transform.localScale = originalLaceCircleSlash.transform.localScale * 2f;
-
-                        // 添加或启用 AutoRecycleSelf 组件
-                        var autoRecycle = laceCircleSlash.GetComponent<AutoRecycleSelf>();
-                        if (autoRecycle == null)
-                        {
-                            autoRecycle = laceCircleSlash.AddComponent<AutoRecycleSelf>();
-                        }
-                        if (autoRecycle != null)
-                        {
-                            autoRecycle.enabled = true;
-                        }
-
-                        Log.Info("已创建 laceCircleSlash 副本，设置大小为两倍并启用 AutoRecycleSelf");
-                    }
-                    else
-                    {
-                        Log.Warn("从 AssetManager 获取的 lace_circle_slash 为 null");
-                    }
-                    ModifyDashAttackState();
-                }
-                else
-                {
-                    Log.Warn("未找到 AssetManager 组件");
-                }
             }
             else
             {

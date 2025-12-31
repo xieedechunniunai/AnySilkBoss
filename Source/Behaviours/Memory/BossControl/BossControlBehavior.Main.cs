@@ -250,7 +250,6 @@ internal partial class MemoryBossBehavior : MonoBehaviour
             if (silkBallManager != null)
             {
                 silkBallManager.RecycleAllActiveSilkBalls();
-                silkBallManager.RecycleAllActiveMemorySilkBalls();
                 Log.Info("已通过SilkBallManager清理所有丝球");
             }
             else
@@ -261,8 +260,8 @@ internal partial class MemoryBossBehavior : MonoBehaviour
             var singleWebManager = managerObj.GetComponent<Managers.SingleWebManager>();
             if (singleWebManager != null)
             {
-                singleWebManager.ClearMemoryPool();
-                Log.Info("已通过SingleWebManager清理所有 Memory 丝线");
+                singleWebManager.ClearPool();
+                Log.Info("已通过SingleWebManager清理所有丝线");
             }
             else
             {
@@ -301,15 +300,14 @@ internal partial class MemoryBossBehavior : MonoBehaviour
             if (silkBallManager != null)
             {
                 silkBallManager.RecycleAllActiveSilkBalls();
-                silkBallManager.RecycleAllActiveMemorySilkBalls();
                 Log.Info("完全清理：已通过SilkBallManager回收所有丝球");
             }
 
             var singleWebManager = managerObj.GetComponent<AnySilkBoss.Source.Managers.SingleWebManager>();
             if (singleWebManager != null)
             {
-                singleWebManager.ClearMemoryPool();
-                Log.Info("完全清理：已通过SingleWebManager清理所有 Memory 丝线");
+                singleWebManager.ClearPool();
+                Log.Info("完全清理：已通过SingleWebManager清理所有丝线");
             }
         }
     }

@@ -6,7 +6,7 @@ using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
 using AnySilkBoss.Source.Tools;
 using static AnySilkBoss.Source.Tools.FsmStateBuilder;
-using AnySilkBoss.Source.Managers;
+using AnySilkBoss.Source.Behaviours.Common;
 
 namespace AnySilkBoss.Source.Behaviours.Normal
 {
@@ -274,7 +274,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             // 在每个交汇点生成小丝球（等待0.5秒后生成，让丝网先出现）
             yield return new WaitForSeconds(0.5f);
 
-            var silkBalls = new List<SilkBallBehavior>();
+            var silkBalls = new List<Common.SilkBallBehavior>();
             foreach (var point in intersectionPoints)
             {
                 Vector3 spawnPos = point;

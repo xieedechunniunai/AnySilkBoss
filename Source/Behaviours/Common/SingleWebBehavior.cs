@@ -3,14 +3,13 @@ using System.Linq;
 using UnityEngine;
 using HutongGames.PlayMaker;
 using AnySilkBoss.Source.Tools;
-using AnySilkBoss.Source.Managers;
-using HutongGames.PlayMaker.Actions;
 
-namespace AnySilkBoss.Source.Behaviours.Normal
+namespace AnySilkBoss.Source.Behaviours.Common
 {
     /// <summary>
-    /// 单根丝线行为组件
+    /// 统一版单根丝线行为组件
     /// 负责单根丝线的FSM修改、攻击流程控制和生命周期管理
+    /// 合并了普通版和梦境版的所有功能
     /// </summary>
     internal class SingleWebBehavior : MonoBehaviour
     {
@@ -31,6 +30,13 @@ namespace AnySilkBoss.Source.Behaviours.Normal
 
         // 攻击参数
         private bool _isAttacking = false;
+
+        // 高级功能（来自 Memory 版本）
+        private Transform? _followTarget;
+        private Vector3 _followOffset = Vector3.zero;
+        private bool _enableFollowTarget = false;
+        private bool _enableContinuousRotation = false;
+        private float _continuousRotationSpeed = 0f;
 
         // 初始化标志
         private bool _initialized = false;
@@ -68,8 +74,28 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             // 禁用时停止所有协程
             StopAllCoroutines();
             _isAttacking = false;
+            ResetDynamicSettings();
+        }
+
+        private void LateUpdate()
+        {
+            if (!_isAttacking)
+            {
+                return;
+            }
+
+            if (_enableFollowTarget && _followTarget != null)
+            {
+                transform.position = _followTarget.position + _followOffset;
+            }
+
+            if (_enableContinuousRotation && Mathf.Abs(_continuousRotationSpeed) > 0.001f)
+            {
+                transform.Rotate(0f, 0f, _continuousRotationSpeed * Time.deltaTime);
+            }
         }
         #endregion
+
 
         #region Initialization
         /// <summary>
@@ -102,6 +128,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 Log.Error($"未找到 hero_catcher，初始化失败: {gameObject.name}");
                 return;
             }
+
             // 3. 获取 DamageHero 组件并设置事件
             _damageHero = _heroCatcher.GetComponent<DamageHero>();
             if (_damageHero == null)
@@ -113,6 +140,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 // 默认禁用，等待攻击时启用
                 _damageHero.enabled = false;
             }
+
             // 4. 修改 Control FSM
             ModifyControlFsm();
 
@@ -151,15 +179,15 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             var inactiveState = _controlFsm.FsmStates.FirstOrDefault(s => s.Name == "Catch Cancel");
             if (inactiveState != null)
             {
-                catchHeroState.Transitions = new FsmTransition[]
-                {
-                    new FsmTransition
+                catchHeroState.Transitions =
+                [
+                    new()
                     {
                         FsmEvent = FsmEvent.GetFsmEvent("FINISHED"),
                         ToFsmState = inactiveState,
                         ToState = "Catch Cancel"
                     }
-                };
+                ];
             }
 
             // 重新初始化 FSM
@@ -203,6 +231,26 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         }
 
         /// <summary>
+        /// 配置跟随目标（Memory 版本功能）
+        /// </summary>
+        public void ConfigureFollowTarget(Transform? target, Vector3? offset = null)
+        {
+            _followTarget = target;
+            _followOffset = offset ?? Vector3.zero;
+            _enableFollowTarget = target != null;
+        }
+
+        /// <summary>
+        /// 配置持续旋转（Memory 版本功能）
+        /// </summary>
+        public void ConfigureContinuousRotation(bool enable, float rotationSpeed)
+        {
+            _enableContinuousRotation = enable;
+            _continuousRotationSpeed = enable ? rotationSpeed : 0f;
+        }
+
+
+        /// <summary>
         /// 攻击协程
         /// </summary>
         private IEnumerator AttackCoroutine(float appearDelay, float burstDelay)
@@ -216,13 +264,12 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             _isAttacking = true;
             _isAvailable = false;  // 开始冷却
 
-            Log.Info($"--- 开始攻击: {gameObject.name} ---");
+            Log.Debug($"--- 开始攻击: {gameObject.name} ---");
 
             // 1. 脱离父对象（从池中取出）
             if (transform.parent == _poolContainer)
             {
                 transform.SetParent(null);
-                Log.Debug($"  已从池容器脱离");
             }
 
             // 2. 等待出现延迟
@@ -233,7 +280,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
 
             // 3. 发送 APPEAR 事件（对象已经是激活状态）
             _controlFsm.SendEvent("APPEAR");
-            Log.Info($"  [时间 {appearDelay}s] 已发送 APPEAR 事件");
 
             // 4. 等待爆发延迟
             yield return new WaitForSeconds(burstDelay);
@@ -241,25 +287,22 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             // 5. 发送 BURST 事件并启用 DamageHero
             _controlFsm.SendEvent("BURST");
             EnableDamageHero();
-            Log.Info($"  [时间 {appearDelay + burstDelay}s] 已发送 BURST 事件并启用伤害");
-
+ 
             // 6. 等待攻击完成（原版 Burst 状态持续 1.75 秒）
             yield return new WaitForSeconds(1.75f);
 
             // 7. 禁用 DamageHero
             DisableDamageHero();
-            Log.Info($"  [时间 {appearDelay + burstDelay + 1.75f}s] 攻击完成，已禁用伤害");
 
             // 8. 重置状态并回到池中
             ResetToPoolContainer();
             _isAttacking = false;
 
-            Log.Info($"--- 攻击结束: {gameObject.name}，开始 {CooldownDuration}s 冷却 ---");
+            Log.Debug($"--- 攻击结束: {gameObject.name}，开始 {CooldownDuration}s 冷却 ---");
 
             // 9. 等待冷却时间后重新可用
             yield return new WaitForSeconds(CooldownDuration);
             _isAvailable = true;
-            Log.Info($"丝线 {gameObject.name} 冷却完成，已回到可用池");
         }
 
         /// <summary>
@@ -270,9 +313,8 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             StopAllCoroutines();
             _isAttacking = false;
             DisableDamageHero();
+            ResetDynamicSettings();
             ResetToPoolContainer();
-
-            // 注意：强制停止不会重置冷却，需要手动调用 ResetCooldown
         }
 
         /// <summary>
@@ -281,7 +323,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         public void ResetCooldown()
         {
             _isAvailable = true;
-            Log.Debug($"丝线 {gameObject.name} 冷却已重置");
         }
 
         /// <summary>
@@ -289,23 +330,25 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         /// </summary>
         private void ResetToPoolContainer()
         {
+            ResetDynamicSettings();
             if (_controlFsm != null)
             {
-                // 发送 ATTACK CLEAR 全局事件（原版用于清理攻击）
-                // 这会触发全局跳转到 Inactive 状态，自动禁用 web_strand_single
                 _controlFsm.SendEvent("ATTACK CLEAR");
-                Log.Debug($"  已发送 ATTACK CLEAR 事件");
             }
 
-            // 注意：不禁用父对象，FSM 会自动处理 web_strand_single 的禁用
-            // gameObject.SetActive(false);  // 移除这行
-
-            // 回到池容器
             if (_poolContainer != null)
             {
                 transform.SetParent(_poolContainer);
-                Log.Debug($"  已回到池容器");
             }
+        }
+
+        private void ResetDynamicSettings()
+        {
+            _followTarget = null;
+            _followOffset = Vector3.zero;
+            _enableFollowTarget = false;
+            _enableContinuousRotation = false;
+            _continuousRotationSpeed = 0f;
         }
 
         /// <summary>
@@ -316,7 +359,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             if (_damageHero != null)
             {
                 _damageHero.enabled = true;
-                Log.Debug($"  已启用 DamageHero");
             }
         }
 
@@ -328,12 +370,11 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             if (_damageHero != null)
             {
                 _damageHero.enabled = false;
-                Log.Debug($"  已禁用 DamageHero");
             }
         }
 
         /// <summary>
-        /// 设置 DamageHero 的事件（从外部传入，备用方法，通常不需要手动调用）
+        /// 设置 DamageHero 的事件
         /// </summary>
         public void SetDamageHeroEvent(DamageHero originalDamageHero)
         {
@@ -346,12 +387,11 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             if (originalDamageHero != null && originalDamageHero.OnDamagedHero != null)
             {
                 _damageHero.OnDamagedHero = originalDamageHero.OnDamagedHero;
-                Log.Debug($"  已设置 DamageHero 事件（外部传入）: {gameObject.name}");
             }
         }
 
         /// <summary>
-        /// 设置池容器引用（用于父对象管理）
+        /// 设置池容器引用
         /// </summary>
         public void SetPoolContainer(Transform poolContainer)
         {
@@ -381,4 +421,3 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         #endregion
     }
 }
-

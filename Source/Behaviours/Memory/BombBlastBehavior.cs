@@ -7,6 +7,7 @@ using HutongGames.PlayMaker.Actions;
 using AnySilkBoss.Source.Actions;
 using AnySilkBoss.Source.Managers;
 using AnySilkBoss.Source.Tools;
+using AnySilkBoss.Source.Behaviours.Common;
 
 namespace AnySilkBoss.Source.Behaviours.Memory
 {
@@ -685,7 +686,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             float spawnRadius = 1f;  // 丝球生成时距离圆心的距离
 
             // 保存生成的丝球和它们的方向
-            var silkBalls = new List<(MemorySilkBallBehavior ball, Vector2 direction)>();
+            var silkBalls = new List<(SilkBallBehavior ball, Vector2 direction)>();
 
             // 第一阶段：生成所有丝球（处于 Prepare 状态）
             for (int i = 0; i < silkBallCount; i++)
@@ -696,7 +697,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
                 // 在圆周上生成丝球（距离中心 spawnRadius）
                 Vector3 spawnPos = center + new Vector3(direction.x, direction.y, 0) * spawnRadius;
-                var silkBall = _silkBallManager.SpawnMemorySilkBall(
+                var silkBall = _silkBallManager.SpawnSilkBall(
                     spawnPos,
                     acceleration: 0f,
                     maxSpeed: useReverseAccelMode ? maxInwardSpeed : radialBurstSpeed,

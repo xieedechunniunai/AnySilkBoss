@@ -34,7 +34,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         private FsmGameObject? _fingerBladeLFsmVar;
         private FsmGameObject? _fingerBladeMFsmVar;
         private FsmGameObject? _fingerBladeRFsmVar;
-
+        private FsmBool? _ReadyVar;
         // 事件引用缓存
         private FsmEvent? _orbitStartEvent;
         private FsmEvent? _shootEvent;
@@ -533,7 +533,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             _fingerBladeLFsmVar = vars.FindFsmGameObject("Finger Blade L");
             _fingerBladeMFsmVar = vars.FindFsmGameObject("Finger Blade M");
             _fingerBladeRFsmVar = vars.FindFsmGameObject("Finger Blade R");
-
+            _ReadyVar = vars.FindFsmBool("Ready");
             // 使用 FSM 变量获取 Finger Blade 引用
             fingerBlades[0] = _fingerBladeLFsmVar?.Value?.transform;
             fingerBlades[1] = _fingerBladeMFsmVar?.Value?.transform;
@@ -810,7 +810,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             {
                 var phaseControlFSM = _silkBossFsmVar.Value.GetComponents<PlayMakerFSM>()
                     .FirstOrDefault(fsm => fsm.FsmName == "Phase Control");
-                
+
                 if (phaseControlFSM != null)
                 {
                     var specialAttackVar = phaseControlFSM.FsmVariables.GetFsmBool("Special Attack");
@@ -820,7 +820,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                     }
                 }
             }
-            
+
             for (int i = 0; i < fingerBladeBehaviors.Length; i++)
             {
                 if (fingerBladeBehaviors[i] == null) continue;
@@ -866,6 +866,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 string shootEventName = $"SHOOT {handName} Blade {globalIndex}";
                 controlFSM.SendEvent(shootEventName);
             }
+            _ReadyVar!.Value = false;
         }
 
         private void OnDestroy()

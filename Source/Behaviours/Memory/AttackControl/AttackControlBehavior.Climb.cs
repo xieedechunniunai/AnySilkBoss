@@ -273,9 +273,9 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             Vector3 rotation = new Vector3(0f, 0f, angle);
 
-            // 使用 Memory 版本的丝线
-            webManager.SpawnMemoryWebAndAttack(playerPos, rotation, new Vector3(2f, 1f, 1f), 0f, 0.75f);
-            Log.Info($"在玩家位置生成 Memory 网，角度: {angle}°");
+            // 使用统一版本的丝线
+            webManager.SpawnAndAttack(playerPos, rotation, new Vector3(2f, 1f, 1f), 0f, 0.75f);
+            Log.Info($"在玩家位置生成网，角度: {angle}°");
         }
 
         public void ExecuteClimbSilkBallAttack()
@@ -312,8 +312,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             var ballObjects = new List<GameObject>();
             foreach (var pos in positions)
             {
-                // 使用 Memory 版本的丝球
-                var behavior = _silkBallManager.SpawnMemorySilkBall(
+                // 使用统一版本的丝球
+                var behavior = _silkBallManager.SpawnSilkBall(
                     pos,
                     acceleration: 15f,
                     maxSpeed: 20f,

@@ -211,7 +211,7 @@ namespace AnySilkBoss.Source.Actions
         }
 
         /// <summary>
-        /// 解析追踪目标
+        /// 解析追踪目标（优化版本：移除 FindFirstObjectByType 回退，强制要求调用前设置目标）
         /// </summary>
         private Transform? ResolveTarget()
         {
@@ -221,15 +221,15 @@ namespace AnySilkBoss.Source.Actions
                 return targetTransform;
             }
 
-            // 其次使用 FsmGameObject
+            // 使用 FsmGameObject（必须在调用前设置，通过 FSM 变量缓存）
             if (targetGameObject != null && targetGameObject.Value != null)
             {
                 return targetGameObject.Value.transform;
             }
 
-            // 默认追踪玩家
-            var heroController = Object.FindFirstObjectByType<HeroController>();
-            return heroController?.transform;
+            // 不再有 FindFirstObjectByType 回退逻辑
+            // 目标必须通过 targetTransform 或 targetGameObject 提供
+            return null;
         }
     }
 }

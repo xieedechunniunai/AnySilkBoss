@@ -599,38 +599,23 @@ namespace AnySilkBoss.Source.Managers
         #region 池子切换
 
         /// <summary>
-        /// 切换到梦境池子（加载梦境池，销毁普通池）
+        /// 切换到梦境池子（统一池已自动初始化，无需手动切换）
         /// </summary>
         private void SwitchToMemoryPool()
         {
-            var silkBallManager = UnityEngine.Object.FindFirstObjectByType<SilkBallManager>();
-            if (silkBallManager == null)
-            {
-                Log.Error("[MemoryManager] 无法找到 SilkBallManager，无法切换池子");
-                return;
-            }
-
-            Log.Info("[MemoryManager] 切换到梦境池子");
-            silkBallManager.LoadMemoryPool();
+            // 统一池机制：SilkBallManager 在 Start 时自动初始化统一池
+            // 不再需要手动切换池子
+            Log.Info("[MemoryManager] 统一池机制已启用，无需手动切换池子");
         }
 
         /// <summary>
-        /// 如果梦境池已加载，切换回普通池子
+        /// 如果梦境池已加载，切换回普通池子（统一池机制下无需操作）
         /// </summary>
         private void SwitchToNormalPoolIfNeeded()
         {
-            var silkBallManager = UnityEngine.Object.FindFirstObjectByType<SilkBallManager>();
-            if (silkBallManager == null)
-            {
-                Log.Error("[MemoryManager] 无法找到 SilkBallManager，无法切换池子");
-                return;
-            }
-
-            if (silkBallManager.IsMemoryPoolLoaded)
-            {
-                Log.Info("[MemoryManager] 检测到梦境池子已加载，切换回普通池子");
-                silkBallManager.LoadNormalPool();
-            }
+            // 统一池机制：不再区分普通池和梦境池
+            // 无需切换操作
+            Log.Info("[MemoryManager] 统一池机制已启用，无需切换池子");
         }
 
         #endregion

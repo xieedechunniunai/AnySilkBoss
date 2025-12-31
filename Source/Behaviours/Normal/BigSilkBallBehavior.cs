@@ -4,7 +4,7 @@ using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
 using AnySilkBoss.Source.Tools;
 using AnySilkBoss.Source.Managers;
-using AnySilkBoss.Source.Behaviours.Normal;
+using AnySilkBoss.Source.Behaviours.Common;
 using System.Linq;
 using static AnySilkBoss.Source.Tools.FsmStateBuilder;
 
@@ -824,7 +824,6 @@ internal class BigSilkBallBehavior : MonoBehaviour
         if (!isAbsorbing)
         {
             // 吸收阶段已结束，但仍然回收还没来得及吸收的小丝球
-            Log.Info("吸收阶段已结束，回收遗留的可吸收小丝球");
             silkBall.RecycleToPoolWithZTransition();
             return;
         }
@@ -1214,7 +1213,7 @@ internal class BigSilkBallBehavior : MonoBehaviour
 
                 // 启动1秒保护时间（避免刚生成就碰到Terrain层的大丝球而消失）
                 behavior.StartProtectionTime(2f);
-                behavior.SendEvent("SILK BALL RELEASE");
+                behavior.SendFsmEvent("SILK BALL RELEASE");
                 return behavior.gameObject;
             }
         }

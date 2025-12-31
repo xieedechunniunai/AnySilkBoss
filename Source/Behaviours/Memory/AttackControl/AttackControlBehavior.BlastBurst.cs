@@ -730,7 +730,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 Vector2 direction = new Vector2(Mathf.Cos(angleRad), Mathf.Sin(angleRad));
                 Vector3 spawnPos = center + new Vector3(direction.x, direction.y, 0) * radius;
 
-                var silkBall = _silkBallManager.SpawnMemorySilkBall(
+                var silkBall = _silkBallManager.SpawnSilkBall(
                     spawnPos,
                     acceleration: 0f,
                     maxSpeed: speed,

@@ -176,38 +176,25 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             }
 
             Vector3 spawnPos = new Vector3(position.x, position.y, 0f);
-            // 使用 Memory 版本的丝球
-            var behavior = _silkBallManager.SpawnMemorySilkBall(spawnPos, 35f, 25f, 8f, 1f, true);
+            // 使用统一版本的丝球，delayDamageActivation=false 立即激活伤害
+            var behavior = _silkBallManager.SpawnSilkBall(
+                spawnPos, 
+                acceleration: 35f, 
+                maxSpeed: 25f, 
+                chaseTime: 8f, 
+                scale: 1f, 
+                enableRotation: true,
+                customTarget: null,
+                ignoreWall: false
+            );
 
             if (behavior != null)
             {
                 // 设置为撞墙/撞人时触发 Blast
                 behavior.triggerBlastOnDestroy = true;
-                StartCoroutine(DelayedReleaseSilkBallForDash(behavior.gameObject));
-            }
-        }
-
-        private IEnumerator DelayedReleaseSilkBallForDash(GameObject silkBall)
-        {
-            if (silkBall == null)
-            {
-                yield break;
-            }
-
-            var behavior = silkBall.GetComponent<MemorySilkBallBehavior>();
-
-            float waited = 0f;
-            const float maxWait = 0.5f;
-            while (behavior != null && !behavior.isPrepared && waited < maxWait)
-            {
-                waited += Time.deltaTime;
-                yield return null;
-            }
-
-            var controlFsm = silkBall.LocateMyFSM("Control");
-            if (controlFsm != null)
-            {
-                controlFsm.SendEvent("SILK BALL RELEASE");
+                // ⚠️ 优化：直接发送 RELEASE 事件，不再等待
+                // PrepareForUse 已经发送了 PREPARE 事件，FSM 已经在 Prepare 状态
+                behavior.SendFsmEvent("SILK BALL RELEASE");
             }
         }
 

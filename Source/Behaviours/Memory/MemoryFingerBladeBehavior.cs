@@ -33,6 +33,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         private FsmVector3? _pinArraySlotTargetVar;
 
         private FsmBool? _dashReadyVar;
+        private FsmBool? _ReadyVar;
         private FsmVector3? _dashOrbitTargetPosVar;
         private FsmFloat? _dashOrbitTargetRotationVar;
 
@@ -316,6 +317,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             _dashRotationOffsetVar = new FsmFloat("Dash Rotation Offset") { Value = 45f };
             floatVars.Add(_dashRotationOffsetVar);
             controlFSM.FsmVariables.FloatVariables = floatVars.ToArray();
+            _ReadyVar = controlFSM.FsmVariables.FindFsmBool("Ready");
         }
         /// <summary>
         /// 注册Finger Blade FSM的所有事件
@@ -467,6 +469,12 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 {
                     boolVariable = _dashReadyVar,
                     boolValue = new FsmBool(true),
+                    everyFrame = false
+                },
+                new SetBoolValue
+                {
+                    boolVariable = _ReadyVar,
+                    boolValue = new FsmBool(false),
                     everyFrame = false
                 },
                 new SetLayer

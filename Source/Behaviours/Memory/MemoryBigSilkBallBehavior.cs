@@ -4,7 +4,7 @@ using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
 using AnySilkBoss.Source.Tools;
 using AnySilkBoss.Source.Managers;
-using AnySilkBoss.Source.Behaviours.Normal;
+using AnySilkBoss.Source.Behaviours.Common;
 using System.Linq;
 using static AnySilkBoss.Source.Tools.FsmStateBuilder;
 
@@ -828,7 +828,7 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     /// <summary>
     /// 处理吸收单个小丝球
     /// </summary>
-    public void OnAbsorbBall(MemorySilkBallBehavior silkBall)
+    public void OnAbsorbBall(SilkBallBehavior silkBall)
     {
         // 检查小丝球是否可以被吸收
         if (silkBall == null || !silkBall.canBeAbsorbed)
@@ -839,7 +839,6 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
         if (!isAbsorbing)
         {
             // 吸收阶段已结束，但仍然回收还没来得及吸收的小丝球
-            Log.Info("吸收阶段已结束，回收遗留的可吸收小丝球");
             silkBall.RecycleToPoolWithZTransition();
             return;
         }
@@ -909,8 +908,8 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
         // 生成位置（从碰撞箱的世界位置计算）
         Vector3 spawnPosition = collisionBoxTransform.position + new Vector3(direction.x, direction.y, 0f) * absorbSpawnRadius;
 
-        // 使用 Memory 版本的丝球
-        var behavior = silkBallManager.SpawnMemorySilkBall(
+        // 使用统一版本的丝球
+        var behavior = silkBallManager.SpawnSilkBall(
             spawnPosition,
             acceleration: 10f,
             maxSpeed: 15f,
@@ -960,7 +959,7 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     /// <summary>
     /// 过期回收吸收小丝球（防止遗留）
     /// </summary>
-    private IEnumerator RecycleAbsorbBallAfterTimeout(MemorySilkBallBehavior behavior, float timeout)
+    private IEnumerator RecycleAbsorbBallAfterTimeout(SilkBallBehavior behavior, float timeout)
     {
         yield return new WaitForSeconds(timeout);
 
@@ -1047,8 +1046,8 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
         float speedOffset = Random.Range(-shootSpeedRandomRange, shootSpeedRandomRange);
         float finalShootSpeed = shootSpeed + speedOffset;
 
-        // 使用 Memory 版本的丝球（Has Gravity 状态，不持续追踪）
-        var behavior = silkBallManager.SpawnMemorySilkBall(
+        // 使用统一版本的丝球（Has Gravity 状态，不持续追踪）
+        var behavior = silkBallManager.SpawnSilkBall(
             spawnPosition,
             acceleration: 0f,  // 加速度为0，不持续追踪
             maxSpeed: 25f,     // 稍高的最大速度
@@ -1075,7 +1074,7 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     /// <summary>
     /// 延迟发送 HAS_GRAVITY 事件
     /// </summary>
-    private IEnumerator DelayedSendHasGravityEvent(MemorySilkBallBehavior behavior)
+    private IEnumerator DelayedSendHasGravityEvent(SilkBallBehavior behavior)
     {
         yield return new WaitForSeconds(0.01f);
         if (behavior != null)
@@ -1095,7 +1094,7 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
         if (silkBallManager != null)
         {
             Log.Info($"[MemoryBigSilkBall] FinalBurst需求数量: {finalBurstRings * ballsPerRing} (圈数:{finalBurstRings}, 每圈:{ballsPerRing})");
-            silkBallManager.LogMemoryPoolStatus();
+            silkBallManager.LogPoolStatus();
         }
         
         // 禁用碰撞箱位置更新，固定位置避免影响小丝球受力计算
@@ -1127,13 +1126,13 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
 
         yield return new WaitForSeconds(2f);
         // 1. 先全部生成所有圈的小丝球，保存每一圈
-        var allRingsBalls = new System.Collections.Generic.List<System.Collections.Generic.List<MemorySilkBallBehavior>>();
+        var allRingsBalls = new System.Collections.Generic.List<System.Collections.Generic.List<SilkBallBehavior>>();
         for (int ring = 0; ring < finalBurstRings && ring < ringRadii.Length; ring++)
         {
             float radius = ringRadii[ring];
             float angleStep = 360f / ballsPerRing;
             float angleOffset = (ring % 2 == 1) ? (angleStep / 2f) : 0f;
-            var currentRingBalls = new System.Collections.Generic.List<MemorySilkBallBehavior>();
+            var currentRingBalls = new System.Collections.Generic.List<SilkBallBehavior>();
             for (int i = 0; i < ballsPerRing; i++)
             {
                 float angle = i * angleStep + angleOffset;
@@ -1181,7 +1180,7 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     /// 在圆环上生成小丝球（静止状态）
     /// </summary>
     /// <returns>生成的小丝球Behavior</returns>
-    private MemorySilkBallBehavior? SpawnRingBall(float radius, float angle)
+    private SilkBallBehavior? SpawnRingBall(float radius, float angle)
     {
         if (silkBallManager == null) return null;
 
@@ -1190,8 +1189,8 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
 
         Vector3 spawnPosition = savedBurstCenter + new Vector3(direction.x, direction.y, 0f) * radius;
 
-        // 使用 Memory 版本的丝球
-        var behavior = silkBallManager.SpawnMemorySilkBall(
+        // 使用统一版本的丝球
+        var behavior = silkBallManager.SpawnSilkBall(
             spawnPosition,
             acceleration: 0f,
             maxSpeed: burstSpeed,
@@ -1217,7 +1216,7 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     /// </summary>
     /// <param name="behavior">小丝球Behavior</param>
     /// <param name="ringIndex">圈索引（0=第一圈，1=第二圈...）</param>
-    private void BurstRingBall(MemorySilkBallBehavior behavior, int ringIndex)
+    private void BurstRingBall(SilkBallBehavior behavior, int ringIndex)
     {
         if (behavior == null) return;
 
