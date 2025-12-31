@@ -120,11 +120,11 @@ namespace AnySilkBoss.Source.Managers
         {
             if (damageSource == null) return DamageSourceType.None;
 
-            // 检查是否是丝球：向上查找父物体是否有 MemorySilkBallBehavior
+            // 检查是否是丝球：向上查找父物体是否有 SilkBallBehavior
             Transform current = damageSource.transform;
             while (current != null)
             {
-                if (current.GetComponent<Behaviours.Memory.MemorySilkBallBehavior>() != null)
+                if (current.GetComponent<Behaviours.Common.SilkBallBehavior>() != null)
                 {
                     return DamageSourceType.SilkBall;
                 }

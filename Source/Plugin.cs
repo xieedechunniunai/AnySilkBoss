@@ -59,6 +59,8 @@ public class Plugin : BaseUnityPlugin
             _harmony = new Harmony(MyPluginInfo.PLUGIN_GUID);
             _harmony.PatchAll(typeof(BossPatches));
             _harmony.PatchAll(typeof(MemorySceneTransitionPatch));
+            _harmony.PatchAll(typeof(MemoryClashTinkPatch));
+            _harmony.PatchAll(typeof(MemoryParryDownspikePatch));
             _harmony.PatchAll(typeof(HeroDamageStackPatch));
             Log.Info("Harmony patches applied successfully");
         }
@@ -74,6 +76,18 @@ public class Plugin : BaseUnityPlugin
         // 更新是否在Boss房间的状态
         Plugin.IsInBossRoom = newScene.name == "Cradle_03";
 
+        // 当切换到主菜单时，清空所有丝球池和缓存
+        if (newScene.name == "Menu_Title")
+        {
+            Log.Info("[Plugin] 切换到主菜单，清空丝球池和缓存...");
+            var silkBallManager = AnySilkBossManager?.GetComponent<SilkBallManager>();
+            if (silkBallManager != null)
+            {
+                silkBallManager.ResetOnReturnToMenu();
+            }
+            return;
+        }
+
         if (newScene.name == "Cradle_03")
         {
             // 重置所有平台状态
@@ -85,7 +99,25 @@ public class Plugin : BaseUnityPlugin
         if (oldScene.name == "Menu_Title")
         {
             CreateManager();
+            
+            // 重新初始化丝球管理器（获取玩家引用和重建池子）
+            StartCoroutine(ReinitializeSilkBallManagerDelayed());
             return;
+        }
+    }
+
+    /// <summary>
+    /// 延迟重新初始化丝球管理器（等待玩家加载完成）
+    /// </summary>
+    private IEnumerator ReinitializeSilkBallManagerDelayed()
+    {
+        // 等待一小段时间，确保玩家已经加载
+        yield return new WaitForSeconds(0.5f);
+
+        var silkBallManager = AnySilkBossManager?.GetComponent<SilkBallManager>();
+        if (silkBallManager != null)
+        {
+            silkBallManager.ReinitializeOnEnterGame();
         }
     }
 

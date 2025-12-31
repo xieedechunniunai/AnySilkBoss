@@ -44,7 +44,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 );
                 Vector3 spawnPosition = bossPosition + offset;
                 spawnPosition.z = 0f;
-                var behavior = _silkBallManager?.SpawnMemorySilkBall(spawnPosition, 30f, 25f, 8f, 1f, true);
+                var behavior = _silkBallManager?.SpawnSilkBall(spawnPosition, 30f, 25f, 8f, 1f, true);
                 if (behavior != null)
                 {
                     _activeSilkBalls.Add(behavior.gameObject);
@@ -76,7 +76,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 );
                 Vector3 outerSpawnPosition = bossPosition + outerOffset;
                 outerSpawnPosition.z = 0f;
-                var outerBehavior = _silkBallManager?.SpawnMemorySilkBall(outerSpawnPosition, 30f, 25f, 8f, 1f, true);
+                var outerBehavior = _silkBallManager?.SpawnSilkBall(outerSpawnPosition, 30f, 25f, 8f, 1f, true);
                 if (outerBehavior != null)
                 {
                     _activeSilkBalls.Add(outerBehavior.gameObject);
@@ -93,7 +93,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 );
                 Vector3 innerSpawnPosition = bossPosition + innerOffset;
                 innerSpawnPosition.z = 0f;
-                var innerBehavior = _silkBallManager?.SpawnMemorySilkBall(innerSpawnPosition, 30f, 25f, 8f, 1f, true);
+                var innerBehavior = _silkBallManager?.SpawnSilkBall(innerSpawnPosition, 30f, 25f, 8f, 1f, true);
                 if (innerBehavior != null)
                 {
                     _activeSilkBalls.Add(innerBehavior.gameObject);

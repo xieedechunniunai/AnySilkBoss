@@ -7,6 +7,7 @@ using HutongGames.PlayMaker.Actions;
 using AnySilkBoss.Source.Tools;
 using static AnySilkBoss.Source.Tools.FsmStateBuilder;
 using AnySilkBoss.Source.Managers;
+using AnySilkBoss.Source.Behaviours.Common;
 
 namespace AnySilkBoss.Source.Behaviours.Memory
 {
@@ -24,14 +25,14 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         {
             public Vector3 Position;           // 世界坐标
             public float Angle;                // Z轴旋转角度
-            public MemorySingleWebBehavior[] WebPair; // 双web轮换 [0]和[1]
+            public SingleWebBehavior[] WebPair; // 双web轮换 [0]和[1]
             public int CurrentWebIndex;        // 当前使用哪根 (0或1)
 
             public WebSlotInfo(Vector3 position, float angle)
             {
                 Position = position;
                 Angle = angle;
-                WebPair = new MemorySingleWebBehavior[2];
+                WebPair = new SingleWebBehavior[2];
                 CurrentWebIndex = 0;
             }
         }
@@ -395,7 +396,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             // 如果两根都不可用，创建新的
             if (slot.WebPair[webIndex] == null || !slot.WebPair[webIndex].IsAvailable)
             {
-                var newWeb = _singleWebManager.SpawnMemoryWebAndAttack(
+                var newWeb = _singleWebManager.SpawnAndAttack(
                     slot.Position,
                     new Vector3(0f, 0f, slot.Angle),
                     new Vector3(3.2f, 1f, 1f),

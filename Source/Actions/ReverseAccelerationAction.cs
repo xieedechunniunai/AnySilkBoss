@@ -1,6 +1,6 @@
 using UnityEngine;
 using HutongGames.PlayMaker;
-using AnySilkBoss.Source.Behaviours.Memory;
+using AnySilkBoss.Source.Behaviours.Common;
 
 namespace AnySilkBoss.Source.Actions
 {
@@ -91,7 +91,7 @@ namespace AnySilkBoss.Source.Actions
             // 重要：ReverseAccelerationAction 的参数对象是在 FSM 构建时创建的。
             // 运行时 ConfigureReverseAcceleration() 修改的是 MemorySilkBallBehavior 的字段，
             // 这里需要在进入状态时从 Owner 读取最新值，避免 centerPoint 仍为默认值导致方向异常。
-            var silkBallBehavior = Owner.GetComponent<MemorySilkBallBehavior>();
+            var silkBallBehavior = Owner.GetComponent<SilkBallBehavior>();
             if (silkBallBehavior != null)
             {
                 centerPoint.Value = silkBallBehavior.reverseAccelCenter;

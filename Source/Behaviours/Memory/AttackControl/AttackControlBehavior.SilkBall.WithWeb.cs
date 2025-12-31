@@ -4,6 +4,7 @@ using UnityEngine;
 using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
 using AnySilkBoss.Source.Managers;
+using AnySilkBoss.Source.Behaviours.Common;
 using static AnySilkBoss.Source.Tools.FsmStateBuilder;
 
 namespace AnySilkBoss.Source.Behaviours.Memory
@@ -154,11 +155,11 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 Vector3 leftSpawn = heroPos + new Vector3(-8f, 6f, 0f);
                 Vector3 rightSpawn = heroPos + new Vector3(8f, 6f, 0f);
 
-                var silkBalls = new List<MemorySilkBallBehavior?>();
-                var webAngleOffsets = new Dictionary<MemorySilkBallBehavior, float>();
+                var silkBalls = new List<SilkBallBehavior?>();
+                var webAngleOffsets = new Dictionary<SilkBallBehavior, float>();
                 float? firstOffset = null;
 
-                var leftBall = _silkBallManager.SpawnMemorySilkBall(
+                var leftBall = _silkBallManager.SpawnSilkBall(
                     leftSpawn,
                     acceleration: 12f,
                     maxSpeed: 8f,
@@ -178,7 +179,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                     firstOffset = offset;
                 }
 
-                var rightBall = _silkBallManager.SpawnMemorySilkBall(
+                var rightBall = _silkBallManager.SpawnSilkBall(
                     rightSpawn,
                     acceleration: 12f,
                     maxSpeed: 8f,
@@ -258,7 +259,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             }
         }
 
-        private IEnumerator WaitForSilkBallPrepared(MemorySilkBallBehavior ball, float maxWait)
+        private IEnumerator WaitForSilkBallPrepared(SilkBallBehavior ball, float maxWait)
         {
             float waited = 0f;
             while (!ball.isPrepared && waited < maxWait)
@@ -275,14 +276,14 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             Vector3 pos = followTarget.position;
             Vector3 scale = new Vector3(2.4f, 1.1f, 1f);
 
-            var w1 = _singleWebManager.SpawnMemoryWebAndAttack(pos, new Vector3(0f, 0f, baseAngle), scale, 0f, 0.75f);
+            var w1 = _singleWebManager.SpawnAndAttack(pos, new Vector3(0f, 0f, baseAngle), scale, 0f, 0.75f);
             if (w1 != null)
             {
                 w1.ConfigureFollowTarget(followTarget);
                 w1.ConfigureContinuousRotation(true, rotationSpeed);
             }
 
-            var w2 = _singleWebManager.SpawnMemoryWebAndAttack(pos, new Vector3(0f, 0f, baseAngle + 90f), scale, 0f, 0.75f);
+            var w2 = _singleWebManager.SpawnAndAttack(pos, new Vector3(0f, 0f, baseAngle + 90f), scale, 0f, 0.75f);
             if (w2 != null)
             {
                 w2.ConfigureFollowTarget(followTarget);

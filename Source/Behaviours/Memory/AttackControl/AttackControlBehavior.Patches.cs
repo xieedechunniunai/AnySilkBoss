@@ -369,49 +369,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             });
             attackStopState.Actions = actions.ToArray();
         }
-
-        private void ModifyDashAttackState()
-        {
-            var dashAttackState = _dashAttackState;
-            if (dashAttackState == null) { return; }
-            var dashAttackAnticState = _dashAttackAnticState;
-            if (dashAttackAnticState == null) { return; }
-
-            var dashAttackactions = dashAttackAnticState.Actions.ToList();
-            foreach (var action in dashAttackactions)
-            {
-                if (action is SendEventByName sendEventByName &&
-                    sendEventByName.sendEvent?.Value != null &&
-                    sendEventByName.sendEvent.Value.Contains("STOMP DASH"))
-                {
-                    sendEventByName.delay = new FsmFloat(0.28f);
-                }
-            }
-            dashAttackAnticState.Actions = dashAttackactions.ToArray();
-
-            var dashAttackEndState = _dashAttackEndState;
-            if (dashAttackEndState == null) { return; }
-
-            var dashAttackEndactions = dashAttackEndState.Actions.ToList();
-
-            if (laceCircleSlash != null)
-            {
-                dashAttackEndactions.Insert(0, new SpawnObjectFromGlobalPool
-                {
-                    gameObject = new FsmGameObject { Value = laceCircleSlash },
-                    spawnPoint = new FsmGameObject { Value = this.gameObject },
-                    position = new FsmVector3 { Value = Vector3.zero },
-                    rotation = new FsmVector3 { Value = Vector3.zero },
-                    storeObject = _laceSlashObj
-                });
-            }
-            else
-            {
-                Log.Warn("laceCircleSlash 为 null，跳过 Dash Attack End 的斩击特效生成");
-            }
-            dashAttackEndState.Actions = dashAttackEndactions.ToArray();
-        }
-
         private void PatchDashOrbitForDashAttack()
         {
             if (_attackControlFsm == null) return;
@@ -420,13 +377,20 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             if (_moveRestart3State == null) return;
             if (_waitForHandsReadyState == null) return;
 
-
-
+            // === 1. 创建 Dash Orbit Wait Hands Dash Ready 状态 ===
             var dashOrbitWaitHandsReadyState = _attackControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Dash Orbit Wait Hands Dash Ready");
             if (dashOrbitWaitHandsReadyState == null)
             {
                 dashOrbitWaitHandsReadyState = CreateState(_attackControlFsm.Fsm, "Dash Orbit Wait Hands Dash Ready");
                 AddStateToFsm(_attackControlFsm, dashOrbitWaitHandsReadyState);
+            }
+
+            // === 2. 创建 Dash Orbit Pre-Spin Wait 状态（等待 Finger 转起来） ===
+            var dashOrbitPreSpinWaitState = _attackControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Dash Orbit Pre-Spin Wait");
+            if (dashOrbitPreSpinWaitState == null)
+            {
+                dashOrbitPreSpinWaitState = CreateState(_attackControlFsm.Fsm, "Dash Orbit Pre-Spin Wait", "等待 Finger 环绕 0.5s 后再冲刺");
+                AddStateToFsm(_attackControlFsm, dashOrbitPreSpinWaitState);
             }
 
             var boolVars = _attackControlFsm.FsmVariables.BoolVariables.ToList();
@@ -443,7 +407,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 boolVars.Add(dashReadyHandR);
             }
             _attackControlFsm.FsmVariables.BoolVariables = boolVars.ToArray();
-
 
             var getHandLDashReady = new GetFsmBool
             {
@@ -492,8 +455,23 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 allHandsReady
             };
 
-            // 使用 DASH HANDS READY 事件跳转到 Dash Attack 状态
-            AddTransition(dashOrbitWaitHandsReadyState, CreateTransition(dashHandsReadyEvent, _dashAttackState));
+            // === 3. 设置 Dash Orbit Pre-Spin Wait 状态的动作（等待 0.3s） ===
+            dashOrbitPreSpinWaitState.Actions = new FsmStateAction[]
+            {
+                new Wait
+                {
+                    time = new FsmFloat(0.3f),
+                    finishEvent = FsmEvent.Finished
+                }
+            };
+
+            // === 4. 设置状态跳转 ===
+            // Dash Orbit Wait Hands Dash Ready -> Dash Orbit Pre-Spin Wait (通过 DASH HANDS READY 事件)
+            AddTransition(dashOrbitWaitHandsReadyState, CreateTransition(dashHandsReadyEvent, dashOrbitPreSpinWaitState));
+            // Dash Orbit Pre-Spin Wait -> Dash Attack (通过 FINISHED 事件)
+            SetFinishedTransition(dashOrbitPreSpinWaitState, _dashAttackState);
+
+            Log.Info("已添加 Dash Orbit Pre-Spin Wait 状态，Finger 将先环绕 0.5s 再冲刺");
 
             // 移除 Dash Attack Antic 中发送 STOMP DASH L/R 的 SendEventByName 动作
             var dashAttackAnticActions = _dashAttackAnticState.Actions?.ToList() ?? new List<FsmStateAction>();
@@ -524,7 +502,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             }
             _dashAttackAnticState.Actions = dashAttackAnticActions.ToArray();
 
-            // 修改 Dash Attack Antic 的跳转：从 Dash Attack 或 Dash Orbit Antic 改为直接跳转到 Dash Orbit Wait Hands Dash Ready
+            // 修改 Dash Attack Antic 的跳转：从 Dash Attack 改为直接跳转到 Dash Orbit Wait Hands Dash Ready
             foreach (var t in _dashAttackAnticState.Transitions)
             {
                 if (t.FsmEvent == FsmEvent.Finished && (t.toState == _dashAttackState.Name || t.toFsmState == _dashAttackState))
@@ -672,7 +650,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 if (silkBallManager != null)
                 {
                     silkBallManager.RecycleAllActiveSilkBalls();
-                    silkBallManager.RecycleAllActiveMemorySilkBalls();
                     Log.Info("已通过SilkBallManager清理所有丝球");
                 }
                 else
@@ -683,8 +660,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 var singleWebManager = managerObj.GetComponent<SingleWebManager>();
                 if (singleWebManager != null)
                 {
-                    singleWebManager.ClearMemoryPool();
-                    Log.Info("已通过SingleWebManager清理所有 Memory 丝线");
+                    singleWebManager.ClearPool();
+                    Log.Info("已通过SingleWebManager清理所有丝线");
                 }
                 else
                 {
