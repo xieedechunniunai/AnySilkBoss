@@ -72,13 +72,13 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     // 半径基于碰撞箱radius=5
     private readonly (float spawnAngle, float radiusMult, float shootAngle, int ballCount, float interval)[] _shootWaveConfigs = new[]
     {
-            (352.5f, 0.5f, 65f, 7, 0.7f),    // 第1波：3.15位置，半径一半，更朝上
-            (0f, 0f, 60f, 6, 0.35f),         // 第2波：中心，更朝上
-            (45f, 0.125f, 65f, 6, 0.35f),    // 第3波：1.30方向，半径1/8，更朝上
-            (130f, 0.5f, 105f, 10, 0.5f),    // 第4波：10.40位置，半径一半，更朝上
-            (0f, 0f, 80f, 6, 0.35f),         // 第5波：中心，更朝上
-            (0f, 0f, 120f, 10, 1.0f),        // 第6波：中心，更朝上
-            (0f, 0f, 90f, 10, 0.5f)          // 第7波：中心，向正上方
+            (352.5f, 0.5f, 65f, 5, 0.7f),    // 第1波：3.15位置，半径一半，更朝上
+            (0f, 0f, 60f, 4, 0.35f),         // 第2波：中心，更朝上
+            (45f, 0.125f, 65f, 4, 0.35f),    // 第3波：1.30方向，半径1/8，更朝上
+            (130f, 0.5f, 105f, 8, 0.5f),    // 第4波：10.40位置，半径一半，更朝上
+            (0f, 0f, 80f, 4, 0.35f),         // 第5波：中心，更朝上
+            (0f, 0f, 120f, 8, 1.0f),        // 第6波：中心，更朝上
+            (0f, 0f, 90f, 8, 0.5f)          // 第7波：中心，向正上方
         };
 
     [Header("最终爆炸参数")]
@@ -1076,7 +1076,7 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     /// </summary>
     private IEnumerator DelayedSendHasGravityEvent(SilkBallBehavior behavior)
     {
-        yield return new WaitForSeconds(0.01f);
+        yield return null;
         if (behavior != null)
         {
             behavior.SendFsmEvent("HAS_GRAVITY");

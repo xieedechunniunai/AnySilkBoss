@@ -181,31 +181,20 @@ namespace AnySilkBoss.Source.Behaviours.Normal
 
             if (behavior != null)
             {
-                StartCoroutine(DelayedReleaseSilkBallForDash(behavior.gameObject));
+                StartCoroutine(DelayedReleaseSilkBallForDash(behavior));
             }
         }
 
-        private IEnumerator DelayedReleaseSilkBallForDash(GameObject silkBall)
+        private IEnumerator DelayedReleaseSilkBallForDash(SilkBallBehavior behavior)
         {
-            if (silkBall == null)
+            if (behavior == null)
             {
                 yield break;
             }
-
-            var behavior = silkBall.GetComponent<SilkBallBehavior>();
-
-            float waited = 0f;
-            const float maxWait = 0.5f;
-            while (behavior != null && !behavior.isPrepared && waited < maxWait)
+            else
             {
-                waited += Time.deltaTime;
-                yield return null;
-            }
-
-            var controlFsm = silkBall.LocateMyFSM("Control");
-            if (controlFsm != null)
-            {
-                controlFsm.SendEvent("SILK BALL RELEASE");
+                yield return new WaitForSeconds(0.2f);
+                behavior.SendFsmEvent("SILK BALL RELEASE");
             }
         }
 

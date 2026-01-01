@@ -83,6 +83,9 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         private PlayMakerFSM? _handLControlFsm;
         private PlayMakerFSM? _handRControlFsm;
 
+        // 阶段判断变量缓存（Special Attack = true 表示 P2 阶段）
+        private FsmBool? _specialAttackVar;
+
         // P6 Web攻击相关事件与状态（领域次元斩）
         private FsmEvent? _p6WebAttackEvent;
         private FsmState? _p6DomainSlashState;
@@ -177,6 +180,9 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             _handRFsmVar = _attackControlFsm.FsmVariables.FindFsmGameObject("Hand R");
             handL = _handLFsmVar?.Value;
             handR = _handRFsmVar?.Value;
+
+            // 缓存阶段判断变量（Special Attack = true 表示 P2 阶段）
+            _specialAttackVar = _attackControlFsm.FsmVariables.FindFsmBool("Special Attack");
 
             // 获取 Hand Control FSM（注意名称是 "Hand Control" 不是 "Control"）
             _handLControlFsm = handL != null ? FSMUtility.LocateMyFSM(handL, "Hand Control") : null;

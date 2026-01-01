@@ -2,7 +2,9 @@ using System.Collections;
 using System.Linq;
 using UnityEngine;
 using HutongGames.PlayMaker;
+using HutongGames.PlayMaker.Actions;
 using AnySilkBoss.Source.Tools;
+using AnySilkBoss.Source.Managers;
 
 namespace AnySilkBoss.Source.Behaviours.Common
 {
@@ -37,6 +39,16 @@ namespace AnySilkBoss.Source.Behaviours.Common
         private bool _enableFollowTarget = false;
         private bool _enableContinuousRotation = false;
         private float _continuousRotationSpeed = 0f;
+
+        // 音频资源引用（从 SingleWebManager 获取）
+        private AudioClip? _appearAudioClip;
+        private AudioClip? _burstAudioClip;
+        private GameObject? _audioPlayerPrefab;
+
+        // 音效控制
+        private bool _enableAudio = true;  // 是否启用音效
+        private FsmStateAction? _appearAudioAction;  // 出现音效 Action 引用
+        private FsmStateAction? _burstAudioAction;   // 爆发音效 Action 引用
 
         // 初始化标志
         private bool _initialized = false;
@@ -141,10 +153,13 @@ namespace AnySilkBoss.Source.Behaviours.Common
                 _damageHero.enabled = false;
             }
 
-            // 4. 修改 Control FSM
+            // 4. 获取音频资源（从 SingleWebManager）
+            CacheAudioResources();
+
+            // 5. 修改 Control FSM
             ModifyControlFsm();
 
-            // 5. 禁用 Hornet Catch FSM
+            // 6. 禁用 Hornet Catch FSM
             DisableHornetCatchFsm();
 
             _initialized = true;
@@ -152,7 +167,36 @@ namespace AnySilkBoss.Source.Behaviours.Common
         }
 
         /// <summary>
-        /// 修改 Control FSM，简化攻击流程
+        /// 从 SingleWebManager 缓存音频资源
+        /// </summary>
+        private void CacheAudioResources()
+        {
+            var managerObj = GameObject.Find("AnySilkBossManager");
+            if (managerObj == null)
+            {
+                Log.Warn("未找到 AnySilkBossManager，无法获取音频资源");
+                return;
+            }
+
+            var singleWebManager = managerObj.GetComponent<SingleWebManager>();
+            if (singleWebManager == null)
+            {
+                Log.Warn("未找到 SingleWebManager 组件，无法获取音频资源");
+                return;
+            }
+
+            _appearAudioClip = singleWebManager.AppearAudioClip;
+            _burstAudioClip = singleWebManager.BurstAudioClip;
+            _audioPlayerPrefab = singleWebManager.AudioPlayerPrefab;
+
+            if (_appearAudioClip != null && _burstAudioClip != null)
+            {
+                Log.Debug($"音频资源已缓存: appear={_appearAudioClip.name}, burst={_burstAudioClip.name}");
+            }
+        }
+
+        /// <summary>
+        /// 修改 Control FSM，简化攻击流程并添加音效
         /// </summary>
         private void ModifyControlFsm()
         {
@@ -162,7 +206,13 @@ namespace AnySilkBoss.Source.Behaviours.Common
                 return;
             }
 
-            // 找到 Catch Hero 状态
+            // 1. 在 Appear 状态添加出现音效
+            AddAppearAudio();
+
+            // 2. 在 Burst Start 状态添加爆发音效
+            AddBurstAudio();
+
+            // 3. 修改 Catch Hero 状态（移除投技相关逻辑）
             var catchHeroState = _controlFsm.FsmStates.FirstOrDefault(s => s.Name == "Catch Hero");
             if (catchHeroState == null)
             {
@@ -192,6 +242,95 @@ namespace AnySilkBoss.Source.Behaviours.Common
 
             // 重新初始化 FSM
             _controlFsm.Fsm.InitData();
+        }
+
+        /// <summary>
+        /// 在 Appear 状态开头添加出现音效（PlayAudioEvent）
+        /// </summary>
+        private void AddAppearAudio()
+        {
+            if (_controlFsm == null || _appearAudioClip == null || _audioPlayerPrefab == null)
+            {
+                return;
+            }
+
+            var appearState = _controlFsm.FsmStates.FirstOrDefault(s => s.Name == "Appear");
+            if (appearState == null)
+            {
+                Log.Warn("未找到 Appear 状态，无法添加出现音效");
+                return;
+            }
+
+            // 创建 PlayAudioEvent Action
+            var playAudioAction = new PlayAudioEvent
+            {
+                Fsm = _controlFsm.Fsm,
+                audioClip = new FsmObject { Value = _appearAudioClip },
+                audioPlayerPrefab = new FsmObject { Value = _audioPlayerPrefab.GetComponent<AudioSource>() },
+                pitchMin = new FsmFloat { Value = 1f },
+                pitchMax = new FsmFloat { Value = 1f },
+                volume = new FsmFloat { Value = 1f },
+                spawnPoint = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                spawnPosition = new FsmVector3 { Value = Vector3.zero },
+                SpawnedPlayerRef = new FsmGameObject { Value = null },
+                Enabled = _enableAudio  // 根据初始设置决定是否启用
+            };
+
+            // 保存引用以便后续控制
+            _appearAudioAction = playAudioAction;
+
+            // 在状态开头插入音效 Action
+            var actions = appearState.Actions.ToList();
+            actions.Insert(0, playAudioAction);
+            appearState.Actions = actions.ToArray();
+
+            Log.Debug($"已在 Appear 状态添加出现音效: {_appearAudioClip.name}, Enabled={_enableAudio}");
+        }
+
+        /// <summary>
+        /// 在 Burst Start 状态开头添加爆发音效（AudioPlayerOneShotSingleV2）
+        /// </summary>
+        private void AddBurstAudio()
+        {
+            if (_controlFsm == null || _burstAudioClip == null || _audioPlayerPrefab == null)
+            {
+                return;
+            }
+
+            var burstStartState = _controlFsm.FsmStates.FirstOrDefault(s => s.Name == "Burst Start");
+            if (burstStartState == null)
+            {
+                Log.Warn("未找到 Burst Start 状态，无法添加爆发音效");
+                return;
+            }
+
+            // 创建 AudioPlayerOneShotSingleV2 Action
+            // 必须初始化所有字段，否则 DoPlayRandomClip 会空引用
+            var audioAction = new AudioPlayerOneShotSingleV2
+            {
+                Fsm = _controlFsm.Fsm,
+                audioPlayer = new FsmGameObject { Value = _audioPlayerPrefab },
+                spawnPoint = new FsmGameObject { Value = gameObject },
+                audioClip = new FsmObject { Value = _burstAudioClip },
+                pitchMin = new FsmFloat { Value = 1f },
+                pitchMax = new FsmFloat { Value = 1f },
+                volume = new FsmFloat { Value = 1f },
+                delay = new FsmFloat { Value = 0.5f },
+                playVibration = new FsmBool { Value = false },
+                vibrationDataAsset = new FsmObject { Value = null },
+                storePlayer = new FsmGameObject { Value = null },
+                Enabled = _enableAudio  // 根据初始设置决定是否启用
+            };
+
+            // 保存引用以便后续控制
+            _burstAudioAction = audioAction;
+
+            // 在状态开头插入音效 Action
+            var actions = burstStartState.Actions.ToList();
+            actions.Insert(0, audioAction);
+            burstStartState.Actions = actions.ToArray();
+
+            Log.Debug($"已在 Burst Start 状态添加爆发音效: {_burstAudioClip.name}, Enabled={_enableAudio}");
         }
 
         /// <summary>
@@ -247,6 +386,25 @@ namespace AnySilkBoss.Source.Behaviours.Common
         {
             _enableContinuousRotation = enable;
             _continuousRotationSpeed = enable ? rotationSpeed : 0f;
+        }
+
+        /// <summary>
+        /// 设置是否启用音效（用于避免多根丝线同时播放导致音量过大）
+        /// 通过控制 FSM Action 的 Enabled 属性实现
+        /// </summary>
+        public void SetAudioEnabled(bool enabled)
+        {
+            _enableAudio = enabled;
+            
+            // 动态更新已添加的音效 Action 的 Enabled 状态
+            if (_appearAudioAction != null)
+            {
+                _appearAudioAction.Enabled = enabled;
+            }
+            if (_burstAudioAction != null)
+            {
+                _burstAudioAction.Enabled = enabled;
+            }
         }
 
 

@@ -625,10 +625,10 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                         hpVar.Value = 280;
                         break;
                     case 2:
-                        hpVar.Value = 38;//380;
+                        hpVar.Value = 380;//380;
                         break;
                     case 3:
-                        hpVar.Value = 50;//500;
+                        hpVar.Value = 500;//500;
                         break;
                     case 4:
                         hpVar.Value = 640;//640;

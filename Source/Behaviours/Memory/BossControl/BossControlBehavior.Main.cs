@@ -941,6 +941,25 @@ internal partial class MemoryBossBehavior : MonoBehaviour
     {
         var actions = new List<FsmStateAction>();
 
+        // 0. 播放二阶段音乐（原版在 Bound 2 状态中执行，现在移到这里）
+        // 复制原版 Bound 2 的 ApplyMusicCue 行为
+        var musicCue = Resources.FindObjectsOfTypeAll<MusicCue>()
+            .FirstOrDefault(mc => mc.name == "Silk Boss B");
+        if (musicCue != null)
+        {
+            actions.Add(new ApplyMusicCue
+            {
+                musicCue = new FsmObject { Value = musicCue },
+                delayTime = new FsmFloat(0f),
+                transitionTime = new FsmFloat(0f)
+            });
+            Log.Info("已添加二阶段音乐 ApplyMusicCue (Silk Boss B)");
+        }
+        else
+        {
+            Log.Warn("未找到 Silk Boss B MusicCue，二阶段音乐可能无法播放");
+        }
+
         // 1. 发送 CLIMB ROAR DONE 给 Phase Control
         actions.Add(new SendEventByName
         {

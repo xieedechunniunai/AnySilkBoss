@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using HutongGames.PlayMaker;
@@ -11,6 +10,21 @@ namespace AnySilkBoss.Source.Behaviours.Normal
 {
     internal partial class AttackControlBehavior
     {
+        #region Dash Slash 相关常量和变量
+        // Dash Slash 配置
+        private const float DASH_SLASH_DISTANCE_THRESHOLD = 5f;  // 每移动7单位生成一个Slash
+        private const float DASH_SLASH_SCALE_PHASE1 = 1.75f;     // 一阶段 End 时的 Slash 大小
+        private const float DASH_SLASH_SCALE_PHASE2 = 1f;        // 二阶段移动时的 Slash 大小
+        private const float DASH_SLASH_OFFSET_Y_ATTACK = 0f;     // Dash Attack 状态时的 Y 偏移
+        private const float DASH_SLASH_OFFSET_Y_END = 0f;      // Dash Attack End 状态时的 Y 偏移
+
+        // Dash Slash 状态变量
+        private bool _isGeneratingDashSlash = false;
+        private float _dashSlashDistanceTraveled = 0f;
+        private Vector2 _lastDashSlashPosition = Vector2.zero;
+        private bool _isDashAttackEndState = false;  // 标记当前是否在 Dash Attack End 状态
+        #endregion
+
         #region 原版AttackControl调整
         private void PatchOriginalAttackPatterns()
         {
@@ -201,38 +215,164 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             }
             dashAttackAnticState.Actions = dashAttackactions.ToArray();
 
+            // 修改 Dash Attack 状态：添加开始生成 Slash 的调用
+            var dashAttackActions = dashAttackState.Actions.ToList();
+            dashAttackActions.Insert(0, new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("StartGeneratingDashSlash") { Value = "StartGeneratingDashSlash" },
+                parameters = new FsmVar[0],
+                everyFrame = false
+            });
+            dashAttackState.Actions = dashAttackActions.ToArray();
+            Log.Info("已修改 Dash Attack 状态，添加 StartGeneratingDashSlash 调用");
+
             var dashAttackEndState = _attackControlFsm?.FsmStates.FirstOrDefault(x => x.Name == "Dash Attack End");
             if (dashAttackEndState == null) { return; }
 
             var dashAttackEndactions = dashAttackEndState.Actions.ToList();
 
-            // 使用 CallMethod 调用 SpawnLaceCircleSlashMethod 方法
+            // 使用 CallMethod 调用 OnDashAttackEnd 方法（处理一阶段/二阶段不同逻辑）
             dashAttackEndactions.Insert(0, new CallMethod
             {
                 behaviour = new FsmObject { Value = this },
-                methodName = new FsmString("SpawnLaceCircleSlashMethod") { Value = "SpawnLaceCircleSlashMethod" },
+                methodName = new FsmString("OnDashAttackEnd") { Value = "OnDashAttackEnd" },
+                parameters = new FsmVar[0],
+                everyFrame = false
+            });
+
+            // 在状态结束时停止生成 Slash
+            dashAttackEndactions.Add(new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("StopGeneratingDashSlash") { Value = "StopGeneratingDashSlash" },
                 parameters = new FsmVar[0],
                 everyFrame = false
             });
 
             dashAttackEndState.Actions = dashAttackEndactions.ToArray();
-            Log.Info("已修改 Dash Attack End 状态，添加 SpawnLaceCircleSlashMethod 调用");
+            Log.Info("已修改 Dash Attack End 状态，添加 OnDashAttackEnd 和 StopGeneratingDashSlash 调用");
         }
 
         /// <summary>
-        /// 供 FSM CallMethod 调用的方法，用于生成 LaceCircleSlash
+        /// 开始生成 Dash Slash（在 Dash Attack 状态开始时调用）
+        /// </summary>
+        public void StartGeneratingDashSlash()
+        {
+            var specialAttackVar = _attackControlFsm?.FsmVariables.FindFsmBool("Special Attack");
+            bool isPhase2 = specialAttackVar != null && specialAttackVar.Value;
+
+            // 只有二阶段才启用移动生成 Slash
+            if (isPhase2)
+            {
+                _isGeneratingDashSlash = true;
+                _dashSlashDistanceTraveled = 0f;
+                _lastDashSlashPosition = transform.position;
+                _isDashAttackEndState = false;
+                Log.Info("二阶段 Dash Attack：开始生成移动 Slash");
+            }
+        }
+
+        /// <summary>
+        /// Dash Attack End 状态开始时调用
+        /// </summary>
+        public void OnDashAttackEnd()
+        {
+            var specialAttackVar = _attackControlFsm?.FsmVariables.FindFsmBool("Special Attack");
+            bool isPhase2 = specialAttackVar != null && specialAttackVar.Value;
+
+            if (isPhase2)
+            {
+                // 二阶段：标记进入 End 状态，继续生成移动 Slash（偏移量不同）
+                _isDashAttackEndState = true;
+                Log.Info("二阶段 Dash Attack End：继续生成移动 Slash（偏移量 0.1）");
+            }
+            else
+            {
+                // 一阶段：在 Boss 当前位置生成一个 1.75 倍大小的 Slash
+                SpawnDashSlashAtCurrentPosition(DASH_SLASH_SCALE_PHASE1, 0f);
+                Log.Info("一阶段 Dash Attack End：生成 1.75 倍 Slash");
+            }
+        }
+
+        /// <summary>
+        /// 停止生成 Dash Slash
+        /// </summary>
+        public void StopGeneratingDashSlash()
+        {
+            if (_isGeneratingDashSlash)
+            {
+                _isGeneratingDashSlash = false;
+                _dashSlashDistanceTraveled = 0f;
+                _lastDashSlashPosition = Vector2.zero;
+                _isDashAttackEndState = false;
+                Log.Info("停止生成 Dash Slash");
+            }
+        }
+
+        /// <summary>
+        /// 检查并生成 Dash Slash（在 Update 中调用）
+        /// </summary>
+        private void CheckAndSpawnDashSlash()
+        {
+            if (!_isGeneratingDashSlash) return;
+
+            Vector2 currentPos = transform.position;
+
+            if (_lastDashSlashPosition == Vector2.zero)
+            {
+                _lastDashSlashPosition = currentPos;
+                return;
+            }
+
+            float distance = Vector2.Distance(currentPos, _lastDashSlashPosition);
+            _dashSlashDistanceTraveled += distance;
+            _lastDashSlashPosition = currentPos;
+
+            if (_dashSlashDistanceTraveled >= DASH_SLASH_DISTANCE_THRESHOLD)
+            {
+                // 根据当前状态选择不同的 Y 偏移
+                float yOffset = _isDashAttackEndState ? DASH_SLASH_OFFSET_Y_END : DASH_SLASH_OFFSET_Y_ATTACK;
+                SpawnDashSlashAtCurrentPosition(DASH_SLASH_SCALE_PHASE2, yOffset);
+                _dashSlashDistanceTraveled = 0f;
+            }
+        }
+
+        /// <summary>
+        /// 在当前位置生成 Dash Slash
+        /// </summary>
+        private void SpawnDashSlashAtCurrentPosition(float scaleMultiplier, float yOffset)
+        {
+            if (_laceCircleSlashManager == null)
+            {
+                Log.Warn("SpawnDashSlashAtCurrentPosition: _laceCircleSlashManager 为 null");
+                return;
+            }
+
+            var spawnPosition = transform.position + new Vector3(0f, yOffset, 0f);
+            bool success = _laceCircleSlashManager.SpawnLaceCircleSlash(spawnPosition, scaleMultiplier);
+
+            if (success)
+            {
+                Log.Info($"生成 Dash Slash: 位置={spawnPosition}, 缩放={scaleMultiplier}x");
+            }
+        }
+
+        /// <summary>
+        /// 供 FSM CallMethod 调用的方法，用于生成 LaceCircleSlash（保留兼容性）
         /// </summary>
         public void SpawnLaceCircleSlashMethod()
         {
+            // 此方法保留用于兼容性，实际逻辑已移至 OnDashAttackEnd
+            // 如果需要在其他地方调用，可以使用此方法
             if (_laceCircleSlashManager == null)
             {
                 Log.Warn("SpawnLaceCircleSlashMethod: _laceCircleSlashManager 为 null");
                 return;
             }
 
-            // 在 Boss 当前位置生成 LaceCircleSlash
             var spawnPosition = transform.position;
-            bool success = _laceCircleSlashManager.SpawnLaceCircleSlash(spawnPosition);
+            bool success = _laceCircleSlashManager.SpawnLaceCircleSlash(spawnPosition, DASH_SLASH_SCALE_PHASE1);
             
             if (success)
             {

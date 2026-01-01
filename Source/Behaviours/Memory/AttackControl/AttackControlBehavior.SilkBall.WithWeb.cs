@@ -228,6 +228,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 // 持续刷波次，确保覆盖整个 attackDuration
                 while (elapsed < attackDuration)
                 {
+                    bool isFirstBall = true;
                     foreach (var ball in silkBalls)
                     {
                         if (ball == null) continue;
@@ -235,7 +236,10 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                         float offset = 0f;
                         webAngleOffsets.TryGetValue(ball, out offset);
                         float baseAngle = (wave * 15f + offset) % 90f;
-                        SpawnCrossWeb(ball.transform, baseAngle, rotationSpeed);
+                        
+                        // 每波只让第一个球播放音效，第二个球静音
+                        SpawnCrossWeb(ball.transform, baseAngle, rotationSpeed, playAudio: isFirstBall);
+                        isFirstBall = false;
                     }
 
                     wave++;
@@ -269,23 +273,30 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             }
         }
 
-        private void SpawnCrossWeb(Transform followTarget, float baseAngle, float rotationSpeed)
+        private void SpawnCrossWeb(Transform followTarget, float baseAngle, float rotationSpeed, bool playAudio = false)
         {
             if (_singleWebManager == null) return;
 
             Vector3 pos = followTarget.position;
             Vector3 scale = new Vector3(2.4f, 1.1f, 1f);
 
+            // 第一根丝线：根据参数决定是否播放音效
             var w1 = _singleWebManager.SpawnAndAttack(pos, new Vector3(0f, 0f, baseAngle), scale, 0f, 0.75f);
             if (w1 != null)
             {
+                if (!playAudio)
+                {
+                    w1.SetAudioEnabled(false);
+                }
                 w1.ConfigureFollowTarget(followTarget);
                 w1.ConfigureContinuousRotation(true, rotationSpeed);
             }
 
+            // 第二根丝线：始终静音
             var w2 = _singleWebManager.SpawnAndAttack(pos, new Vector3(0f, 0f, baseAngle + 90f), scale, 0f, 0.75f);
             if (w2 != null)
             {
+                w2.SetAudioEnabled(false);
                 w2.ConfigureFollowTarget(followTarget);
                 w2.ConfigureContinuousRotation(true, rotationSpeed);
             }

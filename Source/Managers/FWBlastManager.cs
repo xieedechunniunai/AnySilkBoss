@@ -112,11 +112,17 @@ namespace AnySilkBoss.Source.Managers
 
         private void OnSceneChanged(Scene oldScene, Scene newScene)
         {
-            // 只有真正离开 BOSS 场景（到其他场景）时才清理，同场景重载（如死亡复活）不清理
+            // 离开 BOSS 场景（到其他场景）时完全清理
             if (oldScene.name == BOSS_SCENE_NAME && newScene.name != BOSS_SCENE_NAME)
             {
                 Log.Info($"[FWBlastManager] 离开 BOSS 场景 {oldScene.name}，清理缓存");
                 CleanupPool();
+            }
+            // 同场景重载（如死亡复活）时，回收所有活跃的 Blast 到池中
+            else if (oldScene.name == BOSS_SCENE_NAME && newScene.name == BOSS_SCENE_NAME)
+            {
+                Log.Info($"[FWBlastManager] 检测到场景重载（死亡复活），回收所有活跃的 Blast");
+                RecycleAllBombBlasts();
             }
         }
         #endregion
