@@ -3,15 +3,16 @@ using System.Collections;
 using UnityEngine;
 using HarmonyLib;
 using AnySilkBoss.Source.Tools;
-using TeamCherry.SharedUtils;
 
 namespace AnySilkBoss.Source.Managers
 {
     /// <summary>
-    /// 死亡管理器（简化版）
+    /// 死亡管理器
     /// 
-    /// 简化后不再拦截梦境死亡，玩家在梦境中死亡会正常复活
-    /// 只有退出梦境场景（场景切换/弹琴）才会返回原场景
+    /// 功能：
+    /// 1. 监听玩家死亡和重生事件
+    /// 2. 在重生后自动恢复工具和贝壳碎片
+    /// 3. 支持普通重生、危险重生、梦境重生
     /// </summary>
     internal class DeathManager : MonoBehaviour
     {
@@ -42,7 +43,11 @@ namespace AnySilkBoss.Source.Managers
             }
 
             Instance = this;
-            Log.Info("[DeathManager] 初始化完成（简化版）");
+            
+            // 订阅自身的重生事件，用于恢复工具
+            OnPlayerFullyRespawned += RestorePlayerTools;
+            
+            Log.Info("[DeathManager] 初始化完成");
         }
 
         private void OnEnable()
@@ -66,6 +71,9 @@ namespace AnySilkBoss.Source.Managers
 
         private void OnDestroy()
         {
+            // 取消订阅
+            OnPlayerFullyRespawned -= RestorePlayerTools;
+            
             if (Instance == this) Instance = null;
         }
 
@@ -113,8 +121,42 @@ namespace AnySilkBoss.Source.Managers
         }
         #endregion
 
+        #region Tool Restore
+        /// <summary>
+        /// 恢复玩家工具和贝壳碎片
+        /// </summary>
+        private void RestorePlayerTools()
+        {
+            try
+            {
+                Log.Info("[DeathManager] 开始恢复道具...");
+                
+                // 恢复工具
+                ToolItemManager.TryReplenishTools(true, ToolItemManager.ReplenishMethod.QuickCraft);
+                
+                // 恢复贝壳碎片
+                GameManager.instance.playerData.ShellShards = 700;
+
+                Log.Info("[DeathManager] 道具恢复完成");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"[DeathManager] 恢复道具失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 公开方法：手动触发道具恢复
+        /// </summary>
+        public void ManualRestoreTools()
+        {
+            Log.Info("[DeathManager] 手动触发道具恢复");
+            RestorePlayerTools();
+        }
+        #endregion
+
         #region Private Methods
-        private IEnumerator WaitForFullRespawn()
+        internal IEnumerator WaitForFullRespawn()
         {
             yield return new WaitUntil(() => !IsPlayerDead());
             yield return new WaitForSeconds(0.5f);
@@ -122,6 +164,24 @@ namespace AnySilkBoss.Source.Managers
             if (IsPlayerOnGround() && !IsPlayerDead())
             {
                 Log.Info("[DeathManager] 玩家完全重生");
+                OnPlayerFullyRespawned?.Invoke();
+            }
+        }
+
+        /// <summary>
+        /// 等待梦境中的重生完成
+        /// </summary>
+        internal IEnumerator WaitForMemoryRespawn()
+        {
+            // 等待死亡状态结束
+            yield return new WaitUntil(() => !IsPlayerDead());
+            // 等待玩家落地
+            yield return new WaitUntil(() => IsPlayerOnGround());
+            yield return new WaitForSeconds(0.3f);
+            
+            if (!IsPlayerDead())
+            {
+                Log.Info("[DeathManager] 梦境中玩家完全重生");
                 OnPlayerFullyRespawned?.Invoke();
             }
         }
@@ -188,8 +248,9 @@ namespace AnySilkBoss.Source.Managers
                 {
                     if (MemoryManager.IsInMemoryMode)
                     {
-                        // 简化：梦境中死亡只记录日志，让游戏正常处理复活
-                        Log.Info($"[DeathManager] 梦境中死亡，nonLethal={nonLethal}，正常复活");
+                        // 梦境中死亡，启动协程等待重生完成后触发事件
+                        Log.Info($"[DeathManager] 梦境中死亡，nonLethal={nonLethal}，等待重生完成");
+                        DeathManager.Instance.StartCoroutine(DeathManager.Instance.WaitForMemoryRespawn());
                     }
                     else
                     {

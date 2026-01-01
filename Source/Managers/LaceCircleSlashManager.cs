@@ -17,7 +17,7 @@ namespace AnySilkBoss.Source.Managers
     {
         #region 常量配置
         private const string BossSceneName = "Cradle_03";
-        private const int InstanceCount = 2;          // 实例数量
+        private const int InstanceCount = 5;          // 实例数量
         private const float ScaleMultiplier = 2f;     // 缩放倍数
         private const float DeactivateTime = 2f;      // 自动禁用时间
         #endregion
@@ -161,12 +161,24 @@ namespace AnySilkBoss.Source.Managers
 
         #region 公开方法
         /// <summary>
-        /// 在指定位置生成 LaceCircleSlash
+        /// 在指定位置生成 LaceCircleSlash（使用默认缩放倍数）
         /// 会找到一个未激活的实例，设置位置并激活
         /// </summary>
         /// <param name="position">生成位置</param>
         /// <returns>是否成功生成</returns>
         public bool SpawnLaceCircleSlash(Vector3 position)
+        {
+            return SpawnLaceCircleSlash(position, ScaleMultiplier);
+        }
+
+        /// <summary>
+        /// 在指定位置生成 LaceCircleSlash（指定缩放倍数）
+        /// 会找到一个未激活的实例，设置位置并激活
+        /// </summary>
+        /// <param name="position">生成位置</param>
+        /// <param name="scaleMultiplier">缩放倍数</param>
+        /// <returns>是否成功生成</returns>
+        public bool SpawnLaceCircleSlash(Vector3 position, float scaleMultiplier)
         {
             if (!_initialized || _instances.Count == 0)
             {
@@ -186,13 +198,16 @@ namespace AnySilkBoss.Source.Managers
             // 设置位置
             availableInstance.transform.position = position;
             
+            // 设置缩放倍数
+            availableInstance.SetScaleMultiplier(scaleMultiplier);
+            
             // 重置定时器
             availableInstance.ResetTimer();
             
             // 激活
             availableInstance.gameObject.SetActive(true);
 
-            Log.Info($"LaceCircleSlashManager: 在位置 {position} 生成 LaceCircleSlash");
+            Log.Info($"LaceCircleSlashManager: 在位置 {position} 生成 LaceCircleSlash (缩放: {scaleMultiplier}x)");
             return true;
         }
 

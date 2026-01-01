@@ -35,9 +35,11 @@
     </ItemGroup>
 
     <ItemGroup>
-        <EmbeddedResource Include="Assets/*.png"/>
-        <EmbeddedResource Include="Assets/*.dat"/>
+        <EmbeddedResource Include="Assets\*.png"/>
+        <EmbeddedResource Include="Assets\*.dat"/>
     </ItemGroup>
+
+    <!-- FLAC 音频文件由 SDK 自动包含为嵌入资源 -->
 
     <ItemGroup>
         <Binaries Include="$(TargetPath)"/>

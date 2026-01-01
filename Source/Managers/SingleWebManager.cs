@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using HutongGames.PlayMaker;
+using HutongGames.PlayMaker.Actions;
 using AnySilkBoss.Source.Tools;
 using AnySilkBoss.Source.Behaviours.Common;
 
@@ -18,6 +20,16 @@ namespace AnySilkBoss.Source.Managers
         // 原版丝线资源
         private GameObject? _strandPatterns;
         private GameObject? _pattern1Template;
+
+        // 音频资源缓存（从 Pattern 1 的 silk_boss_pattern_control FSM 获取）
+        private AudioClip? _appearAudioClip;           // silk_boss_web_attack_buildup
+        private AudioClip? _burstAudioClip;            // silk_boss_web_attack_burst
+        private GameObject? _audioPlayerPrefab;        // Audio Player Actor 2D
+        
+        // 音频资源公开属性
+        public AudioClip? AppearAudioClip => _appearAudioClip;
+        public AudioClip? BurstAudioClip => _burstAudioClip;
+        public GameObject? AudioPlayerPrefab => _audioPlayerPrefab;
 
         // 单根丝线预制体（模板，用于后续生成实例）
         private GameObject? _singleWebStrandPrefab;
@@ -87,6 +99,7 @@ namespace AnySilkBoss.Source.Managers
 
             GetStrandPatterns();
             GetPattern1Template();
+            CacheAudioResources();  // 缓存音频资源
             yield return CreateSingleWebStrandPrefab();
 
             // 创建统一池容器
@@ -134,6 +147,64 @@ namespace AnySilkBoss.Source.Managers
             else
             {
                 Log.Error("未找到 Pattern 1 GameObject！");
+            }
+        }
+
+        /// <summary>
+        /// 从 Pattern 1 的 silk_boss_pattern_control FSM 缓存音频资源
+        /// </summary>
+        private void CacheAudioResources()
+        {
+            if (_pattern1Template == null)
+            {
+                Log.Error("Pattern 1 模板为 null，无法缓存音频资源");
+                return;
+            }
+
+            var patternControlFsm = FSMUtility.LocateMyFSM(_pattern1Template, "silk_boss_pattern_control");
+            if (patternControlFsm == null)
+            {
+                Log.Error("未找到 silk_boss_pattern_control FSM，无法缓存音频资源");
+                return;
+            }
+
+            // 从 Web Appear 状态获取 PlayAudioEvent
+            var webAppearState = patternControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Web Appear");
+            if (webAppearState != null)
+            {
+                var playAudioAction = webAppearState.Actions.FirstOrDefault(a => a is PlayAudioEvent) as PlayAudioEvent;
+                if (playAudioAction != null)
+                {
+                    _appearAudioClip = playAudioAction.audioClip.Value as AudioClip;
+                    _audioPlayerPrefab = (playAudioAction.audioPlayerPrefab.Value as AudioSource)?.gameObject;
+                    Log.Info($"缓存出现音效: {_appearAudioClip?.name ?? "null"}");
+                }
+            }
+
+            // 从 Web Burst Start 状态获取 AudioPlayerOneShotSingleV2
+            var webBurstStartState = patternControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Web Burst Start");
+            if (webBurstStartState != null)
+            {
+                var audioAction = webBurstStartState.Actions.FirstOrDefault(a => a is AudioPlayerOneShotSingleV2) as AudioPlayerOneShotSingleV2;
+                if (audioAction != null)
+                {
+                    _burstAudioClip = audioAction.audioClip.Value as AudioClip;
+                    // 如果之前没获取到 audioPlayerPrefab，从这里获取
+                    if (_audioPlayerPrefab == null)
+                    {
+                        _audioPlayerPrefab = audioAction.audioPlayer.Value;
+                    }
+                    Log.Info($"缓存爆发音效: {_burstAudioClip?.name ?? "null"}");
+                }
+            }
+
+            if (_appearAudioClip == null || _burstAudioClip == null)
+            {
+                Log.Warn("部分音频资源缓存失败，丝线攻击可能没有音效");
+            }
+            else
+            {
+                Log.Info("=== 音频资源缓存完成 ===");
             }
         }
 

@@ -147,6 +147,22 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                     CheckAndSpawnSilkBall();
                 }
             }
+
+            // 检查并生成 Dash Slash（二阶段移动生成）
+            if (_isGeneratingDashSlash && _attackControlFsm != null)
+            {
+                var currentStateName = _attackControlFsm.ActiveStateName;
+                // 只在 Dash Attack 或 Dash Attack End 状态时生成
+                if (currentStateName == "Dash Attack" || currentStateName == "Dash Attack End")
+                {
+                    CheckAndSpawnDashSlash();
+                }
+                else
+                {
+                    // 不在相关状态，停止生成
+                    StopGeneratingDashSlash();
+                }
+            }
         }
 
         /// <summary>

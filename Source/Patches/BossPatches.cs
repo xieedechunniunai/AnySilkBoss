@@ -195,68 +195,17 @@ internal static class BossPatches
         }
         else if ((__instance.name == "Rubble Field M" || __instance.name == "Rubble Field L" || __instance.name == "Rubble Field R") && __instance.FsmName == "FSM")
         {
-
-            if (MemoryManager.IsInMemoryMode)
+            if (__instance.gameObject.GetComponent<RubbleFieldBehavior>() == null)
             {
-                var normalRubbleField = __instance.gameObject.GetComponent<RubbleFieldBehavior>();
-                if (normalRubbleField != null)
-                {
-                    Object.Destroy(normalRubbleField);
-                    Log.Info("[Memory模式] 移除普通 RubbleFieldBehavior 组件");
-                }
-
-                if (__instance.gameObject.GetComponent<MemoryRubbleFieldBehavior>() == null)
-                {
-                    __instance.gameObject.AddComponent<MemoryRubbleFieldBehavior>();
-                    Log.Info("[Memory模式] 添加梦境版 MemoryRubbleFieldBehavior 组件");
-                }
-            }
-            else
-            {
-                var memoryRubbleField = __instance.gameObject.GetComponent<MemoryRubbleFieldBehavior>();
-                if (memoryRubbleField != null)
-                {
-                    Object.Destroy(memoryRubbleField);
-                    Log.Info("[普通模式] 移除梦境版 MemoryRubbleFieldBehavior 组件");
-                }
-
-                if (__instance.gameObject.GetComponent<RubbleFieldBehavior>() == null)
-                {
-                    __instance.gameObject.AddComponent<RubbleFieldBehavior>();
-                    Log.Info("检测到没有RubbleFieldBehavior组件，添加RubbleFieldBehavior组件");
-                }
+                __instance.gameObject.AddComponent<RubbleFieldBehavior>();
+                Log.Info("检测到没有RubbleFieldBehavior组件，添加RubbleFieldBehavior组件");
             }
         }
         else if (__instance.name.Contains("Silk Boulder") && __instance.FsmName == "Control")
         {
-            if (MemoryManager.IsInMemoryMode)
+            if (__instance.gameObject.GetComponent<RubbleRockBehavior>() == null)
             {
-                var normalRubbleRock = __instance.gameObject.GetComponent<RubbleRockBehavior>();
-                if (normalRubbleRock != null)
-                {
-                    Object.Destroy(normalRubbleRock);
-                    Log.Info("[Memory模式] 移除普通 RubbleRockBehavior 组件");
-                }
-
-                if (__instance.gameObject.GetComponent<MemoryRubbleRockBehavior>() == null)
-                {
-                    __instance.gameObject.AddComponent<MemoryRubbleRockBehavior>();
-                    Log.Info("[Memory模式] 添加梦境版 MemoryRubbleRockBehavior 组件");
-                }
-            }
-            else
-            {
-                var memoryRubbleRock = __instance.gameObject.GetComponent<MemoryRubbleRockBehavior>();
-                if (memoryRubbleRock != null)
-                {
-                    Object.Destroy(memoryRubbleRock);
-                    Log.Info("[普通模式] 移除梦境版 MemoryRubbleRockBehavior 组件");
-                }
-
-                if (__instance.gameObject.GetComponent<RubbleRockBehavior>() == null)
-                {
-                    __instance.gameObject.AddComponent<RubbleRockBehavior>();
-                }
+                __instance.gameObject.AddComponent<RubbleRockBehavior>();
             }
         }
     }

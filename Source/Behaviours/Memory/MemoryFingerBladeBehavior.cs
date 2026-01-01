@@ -486,7 +486,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                     },
                     layer = LayerMask.NameToLayer("Enemy Attack")
                 },
-                new ActivateGameObject
+                new ActivateGameObjectDelay
                 {
                     gameObject = new FsmOwnerDefault
                     {
@@ -494,8 +494,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                         gameObject = damagerVar
                     },
                     activate = new FsmBool(true),
-                    recursive = new FsmBool(false),
-                    resetOnExit = true
+                    resetOnExit = true,
+                    delay = new FsmFloat(0.4f)
                 },
                 new OrbitAroundTargetAction
                 {

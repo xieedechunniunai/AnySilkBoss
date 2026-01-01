@@ -9,6 +9,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using AnySilkBoss.Source.Tools;
 using AnySilkBoss.Source.Managers;
+using AnySilkBoss.Source.Handlers;
 using System.Linq;
 using System.Threading.Tasks;
 namespace AnySilkBoss.Source;
@@ -62,6 +63,11 @@ public class Plugin : BaseUnityPlugin
             _harmony.PatchAll(typeof(MemoryClashTinkPatch));
             _harmony.PatchAll(typeof(MemoryParryDownspikePatch));
             _harmony.PatchAll(typeof(HeroDamageStackPatch));
+
+            // 初始化音频替换系统
+            AudioHandler.Initialize();
+            AudioHandler.ApplyPatches(_harmony);
+
             Log.Info("Harmony patches applied successfully");
         }
         catch (System.Exception ex)
@@ -147,8 +153,6 @@ public class Plugin : BaseUnityPlugin
             // 添加死亡管理器组件
             AnySilkBossManager.AddComponent<DeathManager>();
 
-            // 添加工具恢复管理器组件
-            AnySilkBossManager.AddComponent<ToolRestoreManager>();
             // 添加单根丝线管理器组件
             AnySilkBossManager.AddComponent<SingleWebManager>();
 

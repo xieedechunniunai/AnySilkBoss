@@ -173,7 +173,9 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// <summary>
         /// BlastBurst1 攻击协程
         /// 场地范围: X:22-55, Y:135-145
-        /// 特点: 更大尺寸 + 丝球环（随机选择反向加速度或径向爆发模式）
+        /// 特点: 更大尺寸 + 丝球环
+        /// P1阶段：只使用径向爆发模式
+        /// P2阶段：随机选择反向加速度或径向爆发模式
         /// </summary>
         private IEnumerator BlastBurst1AttackCoroutine()
         {
@@ -183,16 +185,20 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 yield break;
             }
 
-            // 生成 6-9 个爆炸，每个带丝球连段
-            int blastCount = Random.Range(6, 9);
+            // 检测当前阶段（P2 = Special Attack 为 true）
+            bool isPhase2 = _specialAttackVar != null && _specialAttackVar.Value;
+
+            // 生成 6-8 个爆炸，每个带丝球连段
+            int blastCount = Random.Range(6, 8);
 
             for (int i = 0; i < blastCount; i++)
             {
                 // 随机位置（场地范围: X:22-55, Y:135-145）
                 Vector3 blastPos = GetBlastBurst1Position();
 
-                // 随机选择模式：50% 反向加速度，50% 径向爆发
-                bool useReverseAccel = Random.value > 0.5f;
+                // P1阶段：只使用径向爆发模式（useReverseAccel = false）
+                // P2阶段：随机选择模式（50% 反向加速度，50% 径向爆发）
+                bool useReverseAccel = isPhase2 && Random.value > 0.5f;
 
                 // 生成爆炸：较大尺寸(1.0) + 丝球环
                 _blastManagerRef.SpawnBombBlast(
@@ -214,7 +220,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 yield return new WaitForSeconds(Random.Range(0.3f, 0.6f));
             }
 
-            Log.Info($"[BlastBurst1] 攻击完成，共生成 {blastCount} 个爆炸+丝球环");
 
             // 协程完成后发送事件触发 FSM 状态跳转
             if (_attackControlFsm != null && _blastBurst1DoneEvent != null)

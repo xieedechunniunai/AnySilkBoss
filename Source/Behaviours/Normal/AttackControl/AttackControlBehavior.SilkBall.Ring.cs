@@ -59,7 +59,9 @@ namespace AnySilkBoss.Source.Behaviours.Normal
 
         private IEnumerator SummonPhase2DoubleSilkBalls()
         {
-            Log.Info("=== 开始召唤Phase2双圈12个丝球 ===");
+            // 随机决定内圈方向，外圈方向相反
+            bool innerClockwise = Random.value < 0.5f;
+            Log.Info($"=== 开始召唤Phase2双圈丝球（内圈{(innerClockwise ? "顺时针" : "逆时针")}6球 + 外圈{(innerClockwise ? "逆时针" : "顺时针")}5球）===");
             _activeSilkBalls.Clear();
             Vector3 bossPosition = transform.position;
             float innerRadius = 6f;
@@ -67,24 +69,8 @@ namespace AnySilkBoss.Source.Behaviours.Normal
 
             for (int i = 0; i < 6; i++)
             {
-                float outerAngle = 30f + i * 60f;
-                float outerRadians = outerAngle * Mathf.Deg2Rad;
-                Vector3 outerOffset = new Vector3(
-                    Mathf.Cos(outerRadians) * outerRadius,
-                    Mathf.Sin(outerRadians) * outerRadius,
-                    0f
-                );
-                Vector3 outerSpawnPosition = bossPosition + outerOffset;
-                outerSpawnPosition.z = 0f;
-                var outerBehavior = _silkBallManager?.SpawnSilkBall(outerSpawnPosition, 30f, 25f, 8f, 1f, true);
-                if (outerBehavior != null)
-                {
-                    _activeSilkBalls.Add(outerBehavior.gameObject);
-                    outerBehavior.StartProtectionTime(2.5f);
-                    Log.Info($"召唤第 {i + 1} 对：外圈丝球（{outerAngle}°）");
-                }
-
-                float innerAngle = i * 60f;
+                // 内圈：顺时针递减，逆时针递增
+                float innerAngle = innerClockwise ? -i * 60f : i * 60f;
                 float innerRadians = innerAngle * Mathf.Deg2Rad;
                 Vector3 innerOffset = new Vector3(
                     Mathf.Cos(innerRadians) * innerRadius,
@@ -97,13 +83,35 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 if (innerBehavior != null)
                 {
                     _activeSilkBalls.Add(innerBehavior.gameObject);
-                    Log.Info($"召唤第 {i + 1} 对：内圈丝球（{innerAngle}°）");
+                    Log.Info($"召唤内圈丝球 {i + 1}/6（{innerAngle}°）");
+                }
+
+                // 外圈：方向与内圈相反，最后一个不生成（只生成5个）
+                if (i < 5)
+                {
+                    // 外圈偏移30°，方向与内圈相反
+                    float outerAngle = innerClockwise ? 30f + i * 60f : 30f - i * 60f;
+                    float outerRadians = outerAngle * Mathf.Deg2Rad;
+                    Vector3 outerOffset = new Vector3(
+                        Mathf.Cos(outerRadians) * outerRadius,
+                        Mathf.Sin(outerRadians) * outerRadius,
+                        0f
+                    );
+                    Vector3 outerSpawnPosition = bossPosition + outerOffset;
+                    outerSpawnPosition.z = 0f;
+                    var outerBehavior = _silkBallManager?.SpawnSilkBall(outerSpawnPosition, 30f, 25f, 8f, 1f, true);
+                    if (outerBehavior != null)
+                    {
+                        _activeSilkBalls.Add(outerBehavior.gameObject);
+                        outerBehavior.StartProtectionTime(2.5f);
+                        Log.Info($"召唤外圈丝球 {i + 1}/5（{outerAngle}°）");
+                    }
                 }
 
                 yield return new WaitForSeconds(0.12f);
             }
 
-            Log.Info($"=== Phase2双圈12个丝球召唤完成，共 {_activeSilkBalls.Count} 个 ===");
+            Log.Info($"=== Phase2双圈丝球召唤完成，共 {_activeSilkBalls.Count} 个（内圈6 + 外圈5）===");
         }
 
         public void StartSilkBallSummonAtHighPoint()

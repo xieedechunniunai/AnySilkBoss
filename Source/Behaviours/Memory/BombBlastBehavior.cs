@@ -298,8 +298,31 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 rb.linearVelocity = Vector2.zero;
             }
 
+            // 清理 FSM 中 ChaseTargetAction 的目标引用（防止引用已销毁的对象）
+            ClearChaseTargetReferences();
+
             // 重置 FSM Start 状态的跳转
             ResetStartTransition();
+        }
+
+        /// <summary>
+        /// 清理 FSM 中所有 ChaseTargetAction 的目标引用
+        /// </summary>
+        private void ClearChaseTargetReferences()
+        {
+            if (_controlFsm == null) return;
+
+            foreach (var state in _controlFsm.FsmStates)
+            {
+                if (state.Actions == null) continue;
+                foreach (var action in state.Actions)
+                {
+                    if (action is ChaseTargetAction chaseAction)
+                    {
+                        chaseAction.targetTransform = null;
+                    }
+                }
+            }
         }
         #endregion
 
