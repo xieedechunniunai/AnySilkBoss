@@ -57,7 +57,6 @@ namespace AnySilkBoss.Source.Managers
             }
 
             // 每次进入 BOSS 场景都重新初始化
-            Log.Info($"检测到 BOSS 场景 {scene.name}，开始初始化 BigSilkBallManager...");
             StartCoroutine(Initialize());
         }
 
@@ -81,8 +80,6 @@ namespace AnySilkBoss.Source.Managers
         /// </summary>
         private IEnumerator Initialize()
         {
-            Log.Info("开始初始化 BigSilkBallManager...");
-
             // 每次进入场景都需要重新创建预制体，因为组件引用会随场景切换失效
             // 先销毁旧的预制体
             if (_bigSilkBallPrefab != null)
@@ -116,10 +113,6 @@ namespace AnySilkBoss.Source.Managers
                 Log.Error("未找到 silk_cocoon_core 对象");
                 yield break;
             }
-
-            Log.Info($"成功找到 silk_cocoon_core: {originalCore.name}");
-            // AnalyzeOriginalStructure(originalCore);
-
             // 复制整个对象
             _bigSilkBallPrefab = Object.Instantiate(originalCore);
             _bigSilkBallPrefab.name = "Big Silk Ball Prefab";
@@ -202,17 +195,8 @@ namespace AnySilkBoss.Source.Managers
 
             // 保留 CameraControlAnimationEvents（如果有）
             var camControlEvents = _bigSilkBallPrefab.GetComponent("CameraControlAnimationEvents");
-            if (camControlEvents != null)
-            {
-                Log.Info("保留 CameraControlAnimationEvents 组件");
-            }
-
             // 保留 CaptureAnimationEvent（如果有）
             var captureAnimEvent = _bigSilkBallPrefab.GetComponent("CaptureAnimationEvent");
-            if (captureAnimEvent != null)
-            {
-                Log.Info("保留 CaptureAnimationEvent 组件");
-            }
         }
 
         /// <summary>
@@ -221,25 +205,20 @@ namespace AnySilkBoss.Source.Managers
         private void ProcessChildObjects()
         {
             if (_bigSilkBallPrefab == null) return;
-
-            Log.Info("--- 处理子物体 ---");
             
             // 删除不需要的子物体
             foreach (Transform child in _bigSilkBallPrefab.transform)
             {
                 if (child.name == "scene_dust")
                 {
-                    Log.Info($"  删除子物体: {child.name}");
                     Object.Destroy(child.gameObject);
                 }
                 else if (child.name == "tendrils")
                 {
-                    Log.Info($"  删除子物体: {child.name}");
                     Object.Destroy(child.gameObject);
                 }
                 else if (child.name == "loom_threads")
                 {
-                    Log.Info($"  删除子物体: {child.name}");
                     Object.Destroy(child.gameObject);
                 }
             }
@@ -251,7 +230,6 @@ namespace AnySilkBoss.Source.Managers
                 Transform heartShadow = heart.Find("hanging_silk");
                 if (heartShadow != null)
                 {
-                    Log.Info($"  删除 heart/hanging_silk");
                     Object.Destroy(heartShadow.gameObject);
                 }
             }
@@ -265,11 +243,6 @@ namespace AnySilkBoss.Source.Managers
             // Audio Heartbeat - 心跳音效（保留）
 
             // 记录所有保留的子物体
-            Log.Info("保留的子物体:");
-            foreach (Transform child in _bigSilkBallPrefab.transform)
-            {
-                Log.Info($"  - {child.name}");
-            }
         }
         #endregion
 

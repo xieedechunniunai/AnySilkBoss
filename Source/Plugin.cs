@@ -58,11 +58,28 @@ public class Plugin : BaseUnityPlugin
         try
         {
             _harmony = new Harmony(MyPluginInfo.PLUGIN_GUID);
+
+            // Boss 行为补丁
             _harmony.PatchAll(typeof(BossPatches));
+
+            // 本地化补丁
+            _harmony.PatchAll(typeof(I18nPatches));
+
+            // 减伤系统补丁
+            _harmony.PatchAll(typeof(DamageReductionPatches));
+
+            // 梦境模式补丁
             _harmony.PatchAll(typeof(MemorySceneTransitionPatch));
             _harmony.PatchAll(typeof(MemoryClashTinkPatch));
             _harmony.PatchAll(typeof(MemoryParryDownspikePatch));
             _harmony.PatchAll(typeof(HeroDamageStackPatch));
+
+            // 死亡相关补丁
+            _harmony.PatchAll(typeof(HeroControllerDeathPatches));
+            _harmony.PatchAll(typeof(GameManagerRespawnPatches));
+
+            // 护符/道具补丁
+            _harmony.PatchAll(typeof(ToolItemPatches));
 
             // 初始化音频替换系统
             AudioHandler.Initialize();

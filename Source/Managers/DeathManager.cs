@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using UnityEngine;
-using HarmonyLib;
 using AnySilkBoss.Source.Tools;
 
 namespace AnySilkBoss.Source.Managers
@@ -10,29 +9,25 @@ namespace AnySilkBoss.Source.Managers
     /// 死亡管理器
     /// 
     /// 功能：
-    /// 1. 监听玩家死亡和重生事件
+    /// 1. 监听梦境模式下玩家死亡和重生事件
     /// 2. 在重生后自动恢复工具和贝壳碎片
-    /// 3. 支持普通重生、危险重生、梦境重生
+    /// 
+    /// 注意：Harmony 补丁已移至 Source/Patches/DeathPatches.cs
     /// </summary>
     internal class DeathManager : MonoBehaviour
     {
         #region Singleton
-        public static DeathManager Instance { get; private set; }
+        public static DeathManager? Instance { get; private set; }
 
         /// <summary>
         /// 当玩家完全重生后触发
         /// </summary>
-        public event Action OnPlayerFullyRespawned;
+        public event Action? OnPlayerFullyRespawned;
 
         /// <summary>
-        /// 当玩家死亡时触发
+        /// 标记是否正在等待梦境重生
         /// </summary>
-        public event Action OnPlayerDied;
-
-        /// <summary>
-        /// 当危险重生开始时触发
-        /// </summary>
-        public event Action OnHazardRespawnStart;
+        private bool _waitingForMemoryRespawn = false;
 
         private void Awake()
         {
@@ -52,20 +47,19 @@ namespace AnySilkBoss.Source.Managers
 
         private void OnEnable()
         {
-            StartCoroutine(DelayedPatchApplication());
+            // 订阅场景进入完成事件
+            if (GameManager.instance != null)
+            {
+                GameManager.instance.OnFinishedEnteringScene += OnSceneEntered;
+            }
         }
 
         private void OnDisable()
         {
-            try
+            // 取消订阅场景事件
+            if (GameManager.instance != null)
             {
-                var harmony = new Harmony(MyPluginInfo.PLUGIN_GUID + ".DeathManager");
-                harmony.UnpatchSelf();
-                Log.Info("[DeathManager] Harmony补丁已卸载");
-            }
-            catch (Exception ex)
-            {
-                Log.Error($"[DeathManager] 卸载补丁失败: {ex.Message}");
+                GameManager.instance.OnFinishedEnteringScene -= OnSceneEntered;
             }
         }
 
@@ -76,39 +70,33 @@ namespace AnySilkBoss.Source.Managers
             
             if (Instance == this) Instance = null;
         }
+        #endregion
 
-        private IEnumerator DelayedPatchApplication()
+        #region Scene Event Handler
+        /// <summary>
+        /// 场景进入完成时的回调
+        /// </summary>
+        private void OnSceneEntered()
         {
-            yield return new WaitForSeconds(2f);
-            
-            try
+            if (_waitingForMemoryRespawn && MemoryManager.IsInMemoryMode)
             {
-                var harmony = new Harmony(MyPluginInfo.PLUGIN_GUID + ".DeathManager");
-                harmony.PatchAll(typeof(HeroControllerDeathPatches));
-                harmony.PatchAll(typeof(GameManagerRespawnPatches));
-                Log.Info("[DeathManager] Harmony补丁已应用");
+                _waitingForMemoryRespawn = false;
+                Log.Info("[DeathManager] 梦境中玩家完全重生（通过 OnFinishedEnteringScene）");
+                OnPlayerFullyRespawned?.Invoke();
             }
-            catch (Exception ex)
-            {
-                Log.Error($"[DeathManager] 应用补丁失败: {ex.Message}");
-            }
+        }
+
+        /// <summary>
+        /// 设置等待梦境重生标志（供补丁调用）
+        /// </summary>
+        internal void SetWaitingForMemoryRespawn()
+        {
+            _waitingForMemoryRespawn = true;
+            Log.Info("[DeathManager] 设置等待梦境重生标志");
         }
         #endregion
 
         #region Public Methods
-        internal void TriggerPlayerDied()
-        {
-            Log.Info("[DeathManager] 检测到玩家死亡");
-            OnPlayerDied?.Invoke();
-        }
-
-        internal void TriggerHazardRespawnStart()
-        {
-            Log.Info("[DeathManager] 检测到危险重生开始");
-            OnHazardRespawnStart?.Invoke();
-            StartCoroutine(WaitForFullRespawn());
-        }
-
         public void ManualTriggerRespawn()
         {
             Log.Info("[DeathManager] 手动触发重生事件");
@@ -154,151 +142,5 @@ namespace AnySilkBoss.Source.Managers
             RestorePlayerTools();
         }
         #endregion
-
-        #region Private Methods
-        internal IEnumerator WaitForFullRespawn()
-        {
-            yield return new WaitUntil(() => !IsPlayerDead());
-            yield return new WaitForSeconds(0.5f);
-            
-            if (IsPlayerOnGround() && !IsPlayerDead())
-            {
-                Log.Info("[DeathManager] 玩家完全重生");
-                OnPlayerFullyRespawned?.Invoke();
-            }
-        }
-
-        /// <summary>
-        /// 等待梦境中的重生完成
-        /// </summary>
-        internal IEnumerator WaitForMemoryRespawn()
-        {
-            // 等待死亡状态结束
-            yield return new WaitUntil(() => !IsPlayerDead());
-            // 等待玩家落地
-            yield return new WaitUntil(() => IsPlayerOnGround());
-            yield return new WaitForSeconds(0.3f);
-            
-            if (!IsPlayerDead())
-            {
-                Log.Info("[DeathManager] 梦境中玩家完全重生");
-                OnPlayerFullyRespawned?.Invoke();
-            }
-        }
-
-        private bool IsPlayerDead()
-        {
-            try
-            {
-                if (HeroController.instance == null) return false;
-                return HeroController.instance.cState.dead;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private bool IsPlayerOnGround()
-        {
-            try
-            {
-                if (HeroController.instance == null) return false;
-                return HeroController.instance.cState.onGround;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-        #endregion
-    }
-
-    /// <summary>
-    /// Harmony补丁：监听死亡和重生（不拦截）
-    /// </summary>
-    [HarmonyPatch(typeof(HeroController))]
-    internal static class HeroControllerDeathPatches
-    {
-        [HarmonyPrefix]
-        [HarmonyPatch("HazardRespawn")]
-        private static void OnHazardRespawnStart(HeroController __instance)
-        {
-            try
-            {
-                DeathManager.Instance?.TriggerHazardRespawnStart();
-            }
-            catch (Exception ex)
-            {
-                Log.Error($"[DeathManager] HazardRespawn 补丁失败: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// 监听玩家死亡（不拦截，只通知）
-        /// 简化后：梦境中死亡正常复活，不返回原场景
-        /// </summary>
-        [HarmonyPostfix]
-        [HarmonyPatch("Die")]
-        private static void OnPlayerDiePostfix(HeroController __instance, bool nonLethal)
-        {
-            try
-            {
-                if (DeathManager.Instance != null)
-                {
-                    if (MemoryManager.IsInMemoryMode)
-                    {
-                        // 梦境中死亡，启动协程等待重生完成后触发事件
-                        Log.Info($"[DeathManager] 梦境中死亡，nonLethal={nonLethal}，等待重生完成");
-                        DeathManager.Instance.StartCoroutine(DeathManager.Instance.WaitForMemoryRespawn());
-                    }
-                    else
-                    {
-                        DeathManager.Instance.TriggerPlayerDied();
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Error($"[DeathManager] Die 补丁失败: {ex.Message}");
-            }
-        }
-    }
-
-    /// <summary>
-    /// Harmony补丁：在梦境模式下修改重生信息，让玩家在当前场景复活
-    /// 不拦截 PlayerDead，让死亡流程正常执行（尸体、音效、血量恢复等）
-    /// 只修改 GetRespawnInfo 返回的重生场景和标记
-    /// </summary>
-    [HarmonyPatch(typeof(GameManager))]
-    internal static class GameManagerRespawnPatches
-    {
-        /// <summary>
-        /// 拦截 GetRespawnInfo，在梦境模式下强制返回当前场景
-        /// 这样游戏会在当前场景重生，而不是跳转到 Tut_01
-        /// </summary>
-        [HarmonyPostfix]
-        [HarmonyPatch("GetRespawnInfo")]
-        private static void OnGetRespawnInfoPostfix(GameManager __instance, ref string scene, ref string marker)
-        {
-            try
-            {
-                if (MemoryManager.IsInMemoryMode)
-                {
-                    string originalScene = scene;
-                    string originalMarker = marker;
-                    
-                    // 强制设置为当前梦境场景和我们创建的重生标记
-                    scene = "Cradle_03";  // TARGET_SCENE
-                    marker = "MemoryRespawnMarker";  // MEMORY_RESPAWN_MARKER_NAME
-                    
-                    Log.Info($"[DeathManager] 梦境模式修改重生信息: {originalScene}/{originalMarker} → {scene}/{marker}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Error($"[DeathManager] GetRespawnInfo 补丁失败: {ex.Message}");
-            }
-        }
     }
 }

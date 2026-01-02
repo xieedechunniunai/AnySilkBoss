@@ -167,7 +167,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                     scale: 1.33f,
                     enableRotation: true,
                     customTarget: heroTransform,
-                    ignoreWall: true
+                    ignoreWall: true,
+                    canBeClearedByAttack:false
                 );
                 if (leftBall != null)
                 {
@@ -187,7 +188,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                     scale: 1.33f,
                     enableRotation: true,
                     customTarget: heroTransform,
-                    ignoreWall: true
+                    ignoreWall: true,
+                    canBeClearedByAttack:false
                 );
                 if (rightBall != null)
                 {

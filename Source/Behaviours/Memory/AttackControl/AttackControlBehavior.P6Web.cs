@@ -38,7 +38,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         }
 
         // 配置参数
-        private float[] _waveBaseAngles = { 45f, 60f, 30f, 75f, 15f }; // 每波基础角度
+        private float[] _waveBaseAngles = { 45f, 135f, 0f, 90f, 0f }; // 每波基础角度
         private float _angleRandomRange = 0f;  // 角度随机范围 ±10°
         private float _parallelDistance = 3f;   // 平行间距
         private float _burstDelay = 0.75f;      // 预警延迟
@@ -158,9 +158,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 }
             }
 
-            // 1. 准备阶段：Boss无敌 + 领域激活
-            SetBossInvincible(true);
-            
+            // 1. 准备阶段：领域激活（无敌逻辑已移除，改用基础减伤层数）
             if (_domainBehavior != null && gameObject != null)
             {
                 _domainBehavior.ActivateDomain(transform.position, _initialRadius);
@@ -202,9 +200,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             {
                 _domainBehavior.DeactivateDomain();
             }
-            
-            // 恢复Boss无敌状态
-            SetBossInvincible(false);
 
             Log.Info("=== P6 领域次元斩执行完成 ===");
 
@@ -420,17 +415,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             // 下次使用另一根
             slot.CurrentWebIndex = 1 - slot.CurrentWebIndex;
-        }
-
-        /// <summary>
-        /// 设置Boss无敌状态
-        /// </summary>
-        private void SetBossInvincible(bool invincible)
-        {
-            if (gameObject == null) return;
-
-            // 直接设置GameObject的Layer
-            gameObject.layer = invincible ? 2 : LayerMask.NameToLayer("Enemies");  // Layer 2 = Invincible
         }
 
         #endregion

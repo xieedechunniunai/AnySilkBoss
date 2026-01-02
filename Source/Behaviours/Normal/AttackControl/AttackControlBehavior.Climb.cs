@@ -317,16 +317,9 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                     maxSpeed: 20f,
                     chaseTime: 5f,
                     scale: 1f,
-                    enableRotation: true
+                    enableRotation: true,
+                    ignoreWall:true
                 );
-
-                if (behavior != null)
-                {
-                    ballObjects.Add(behavior.gameObject);
-                    behavior.gameObject.LocateMyFSM("Control").SendEvent("PREPARE");
-                    behavior.isPrepared = true;
-                    Log.Info($"在位置 {pos} 生成追踪丝球");
-                }
             }
 
             yield return new WaitForSeconds(0.6f);

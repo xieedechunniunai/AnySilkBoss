@@ -321,10 +321,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             // 2. 黑屏保持 0.3s
             yield return new WaitForSeconds(0.3f);
-
-            // 3. 隐藏 Boss
-            SetBossVisible(false);
-
             // 4. 密集爆炸
             int totalBlasts = Random.Range(10, 15);
             int predictiveBlasts = 4; // 其中 4 个使用预判
@@ -354,9 +350,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             // 5. 等待最后一个爆炸完成
             yield return new WaitForSeconds(0.5f);
-
-            // 6. 恢复 Boss
-            SetBossVisible(true);
 
             // 7. 淡出黑屏
             yield return StartCoroutine(FadeFromBlack(0.3f));
@@ -420,18 +413,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 }
             }
             yield return null;
-        }
-
-        /// <summary>
-        /// 设置 Boss 可见性
-        /// </summary>
-        private void SetBossVisible(bool visible)
-        {
-            var meshRenderer = GetComponent<MeshRenderer>();
-            if (meshRenderer != null)
-            {
-                meshRenderer.enabled = visible;
-            }
         }
         #endregion
 

@@ -70,16 +70,27 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         }
         
         /// <summary>
-        /// 场景加载后检查并重新初始化
+        /// 场景加载后检查并重置/重新初始化
         /// </summary>
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
-            // 检查关键对象是否被销毁
-            if (_domainMaskObject == null || _domainMaskRenderer == null)
+            // 只在 BOSS 场景时处理（玩家重生回 BOSS 场景）
+            if (scene.name == "Cradle_03")
             {
-                Log.Info($"[DomainBehavior] 场景切换后检测到对象丢失，重新初始化");
-                _initialized = false;
-                StartCoroutine(DelayedInitialize());
+                Log.Info($"[DomainBehavior] 检测到进入 BOSS 场景: {scene.name}，执行重置");
+                
+                // 检查关键对象是否被销毁
+                if (_domainMaskObject == null || _domainMaskRenderer == null)
+                {
+                    Log.Info($"[DomainBehavior] 场景切换后检测到对象丢失，重新初始化");
+                    _initialized = false;
+                    StartCoroutine(DelayedInitialize());
+                }
+                else
+                {
+                    // 对象存在，只需重置状态
+                    ResetDomain();
+                }
             }
         }
         
@@ -331,6 +342,48 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             StartCoroutine(FadeOutDomain());
             
             Log.Info("[DomainBehavior] 领域结界已停用");
+        }
+        
+        /// <summary>
+        /// 重置领域结界状态（场景重生时调用，不销毁对象）
+        /// </summary>
+        public void ResetDomain()
+        {
+            // 停止所有协程（淡入淡出等）
+            StopAllCoroutines();
+            
+            // 重置领域参数
+            _currentRadius = 12f;
+            _targetRadius = 12f;
+            _isActive = false;
+            _isShrinking = false;
+            
+            // 重置伤害检测
+            _damageTimer = 0f;
+            
+            // 重置缩圈插值
+            _shrinkStartRadius = 12f;
+            _shrinkElapsed = 0f;
+            _shrinkDuration = SHRINK_DURATION;
+            
+            // 重置透明度
+            _currentAlpha = 0f;
+            
+            // 清空引用（下次激活时重新获取）
+            _bossTransform = null;
+            _heroTransform = null;
+            
+            // 隐藏遮罩对象并重置透明度
+            if (_domainMaskObject != null)
+            {
+                _domainMaskObject.SetActive(false);
+            }
+            if (_domainMaskRenderer != null)
+            {
+                _domainMaskRenderer.color = new Color(1f, 1f, 1f, 0f);
+            }
+            
+            Log.Info("[DomainBehavior] 领域结界已重置");
         }
         
         #endregion

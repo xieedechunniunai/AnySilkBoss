@@ -5,6 +5,7 @@ using System.Reflection;
 using UnityEngine;
 using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
+using GlobalSettings;
 using AnySilkBoss.Source.Tools;
 using AnySilkBoss.Source.Behaviours.Common;
 
@@ -28,10 +29,35 @@ namespace AnySilkBoss.Source.Managers
         private static GameObject? _cachedManagerObject;
         private static DamageHero? _cachedOriginalDamageHero;
 
+        // Reaper 护符状态缓存
+        private static bool _isReaperCrestEquipped = false;
+
         // 公开属性供丝球访问
         public static Transform? CachedHeroTransform => _cachedHeroTransform;
         public static GameObject? CachedManagerObject => _cachedManagerObject;
         public static DamageHero? CachedOriginalDamageHero => _cachedOriginalDamageHero;
+
+        /// <summary>
+        /// 获取 Reaper 护符是否装备
+        /// </summary>
+        public static bool IsReaperCrestEquipped => _isReaperCrestEquipped;
+
+        /// <summary>
+        /// 更新 Reaper 护符状态（由 Harmony 补丁调用）
+        /// </summary>
+        public static void UpdateReaperCrestState()
+        {
+            try
+            {
+                _isReaperCrestEquipped = Gameplay.ReaperCrest.IsEquipped;
+                Log.Info($"[SilkBallManager] Reaper 护符状态更新: {_isReaperCrestEquipped}");
+            }
+            catch (System.Exception ex)
+            {
+                Log.Warn($"[SilkBallManager] 无法获取 Reaper 护符状态: {ex.Message}");
+                _isReaperCrestEquipped = false;
+            }
+        }
 
         /// <summary>
         /// 清空所有静态缓存（回到主菜单时调用）
@@ -42,6 +68,7 @@ namespace AnySilkBoss.Source.Managers
             _cachedHeroTransform = null;
             _cachedManagerObject = null;
             _cachedOriginalDamageHero = null;
+            _isReaperCrestEquipped = false;
         }
 
         // 音效参数缓存
@@ -170,6 +197,9 @@ namespace AnySilkBoss.Source.Managers
             {
                 Log.Warn("[SilkBallManager] 未找到 DamageHeroEventManager 组件");
             }
+
+            // 初始化 Reaper 护符状态
+            UpdateReaperCrestState();
         }
 
         /// <summary>
@@ -434,7 +464,7 @@ namespace AnySilkBoss.Source.Managers
         /// <summary>
         /// 生成并准备丝球（完整参数版本）
         /// </summary>
-        public SilkBallBehavior? SpawnSilkBall(Vector3 position, float acceleration, float maxSpeed, float chaseTime, float scale, bool enableRotation = true, Transform? customTarget = null, bool ignoreWall = false, bool delayDamageActivation = true)
+        public SilkBallBehavior? SpawnSilkBall(Vector3 position, float acceleration, float maxSpeed, float chaseTime, float scale, bool enableRotation = true, Transform? customTarget = null, bool ignoreWall = false, bool delayDamageActivation = true, bool canBeClearedByAttack = true)
         {
             var behavior = GetAvailableSilkBall();
             if (behavior == null)
@@ -443,7 +473,7 @@ namespace AnySilkBoss.Source.Managers
                 return null;
             }
 
-            behavior.PrepareForUse(position, acceleration, maxSpeed, chaseTime, scale, enableRotation, customTarget, ignoreWall, delayDamageActivation);
+            behavior.PrepareForUse(position, acceleration, maxSpeed, chaseTime, scale, enableRotation, customTarget, ignoreWall, delayDamageActivation, canBeClearedByAttack);
             return behavior;
         }
 

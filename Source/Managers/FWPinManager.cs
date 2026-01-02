@@ -477,6 +477,13 @@ namespace AnySilkBoss.Source.Managers
             var isGroundEvent = GetOrCreateEvent(fsm, "IS_GROUND");
             var isAirEvent = GetOrCreateEvent(fsm, "IS_AIR");
 
+            // 1.1 注册 ClimbPin 相关事件
+            var climbPinPrepareEvent = GetOrCreateEvent(fsm, "CLIMB_PIN_PREPARE");
+            var climbPinAimEvent = GetOrCreateEvent(fsm, "CLIMB_PIN_AIM");
+            var climbPinThreadEvent = GetOrCreateEvent(fsm, "CLIMB_PIN_THREAD");  // 新增：触发 Thread 动画
+            var climbPinFireEvent = GetOrCreateEvent(fsm, "CLIMB_PIN_FIRE");
+            var climbPinTimeoutEvent = GetOrCreateEvent(fsm, "CLIMB_PIN_TIMEOUT");
+
             // 2. 添加 FSM 变量（用于 Lift 和 Scramble）
             AddPinArrayFsmVariables(fsm);
 
@@ -507,7 +514,7 @@ namespace AnySilkBoss.Source.Managers
                         gameObject = new FsmOwnerDefault
                         {
                             OwnerOption = OwnerDefaultOption.SpecifyGameObject,
-                            GameObject = new FsmGameObject { Value = fsm.gameObject.transform.Find("Thread")?.gameObject }
+                            GameObject = new FsmGameObject { Value = GetThreadGameObject(fsm) }
                         },
                         active = new FsmBool(false)
                     }
@@ -588,11 +595,60 @@ namespace AnySilkBoss.Source.Managers
                 CreateTransition(attackEvent, anticState)
             };
 
+            // 4.1 创建 ClimbPin 状态链
+            var climbPinPrepareState = CreateAndAddState(fsm, "ClimbPin Prepare", "ClimbPin 准备阶段");
+            var climbPinFollowState = CreateAndAddState(fsm, "ClimbPin Follow", "ClimbPin 跟随阶段");
+            var climbPinAimState = CreateAndAddState(fsm, "ClimbPin Aim", "ClimbPin 瞄准阶段");
+            var climbPinAnticState = CreateAndAddState(fsm, "ClimbPin Antic", "ClimbPin 预备动画");
+            var climbPinWaitThreadState = CreateAndAddState(fsm, "ClimbPin WaitThread", "ClimbPin 等待发射命令");  // 新增
+            var climbPinThreadPullState = CreateAndAddState(fsm, "ClimbPin Thread Pull", "ClimbPin 丝线拉动");
+            var climbPinFireState = CreateAndAddState(fsm, "ClimbPin Fire", "ClimbPin 发射阶段");
+            var climbPinRecycleState = CreateAndAddState(fsm, "ClimbPin Recycle", "ClimbPin 回收阶段");
+
+            // 5.1 添加 ClimbPin 状态动作
+            AddClimbPinPrepareActions(fsm, climbPinPrepareState);
+            AddClimbPinFollowActions(fsm, climbPinFollowState);
+            AddClimbPinAimActions(fsm, climbPinAimState);
+            AddClimbPinAnticActions(fsm, climbPinAnticState);
+            AddClimbPinWaitThreadActions(fsm, climbPinWaitThreadState);  // 新增
+            AddClimbPinThreadPullActions(fsm, climbPinThreadPullState, climbPinFireEvent);
+            AddClimbPinFireActions(fsm, climbPinFireState, climbPinTimeoutEvent, pinObj);
+            AddClimbPinRecycleActions(fsm, climbPinRecycleState, pinObj);
+
+            // 6.1 设置 ClimbPin 状态转换
+            // ClimbPin Prepare → (FINISHED) → ClimbPin Follow
+            SetFinishedTransition(climbPinPrepareState, climbPinFollowState);
+            // ClimbPin Follow 等待 CLIMB_PIN_AIM 事件（由全局转换处理）
+            // ClimbPin Aim → (FINISHED) → ClimbPin Antic
+            SetFinishedTransition(climbPinAimState, climbPinAnticState);
+            // ClimbPin Antic → (FINISHED) → ClimbPin WaitThread（等待协程发送 CLIMB_PIN_THREAD）
+            SetFinishedTransition(climbPinAnticState, climbPinWaitThreadState);
+            // ClimbPin WaitThread → (CLIMB_PIN_THREAD) → ClimbPin Thread Pull
+            climbPinWaitThreadState.Transitions = new FsmTransition[]
+            {
+                CreateTransition(climbPinThreadEvent, climbPinThreadPullState)
+            };
+            // ClimbPin Thread Pull → (CLIMB_PIN_FIRE) → ClimbPin Fire（由 Wait 动作触发）
+            climbPinThreadPullState.Transitions = new FsmTransition[]
+            {
+                CreateTransition(climbPinFireEvent, climbPinFireState)
+            };
+            // ClimbPin Fire → (CLIMB_PIN_TIMEOUT) → ClimbPin Recycle
+            climbPinFireState.Transitions = new FsmTransition[]
+            {
+                CreateTransition(climbPinTimeoutEvent, climbPinRecycleState)
+            };
+            // ClimbPin Recycle → (FINISHED) → Managed Dormant
+            SetFinishedTransition(climbPinRecycleState, managedDormantState);
+
             // 7. 添加全局转换
             var globalTransitions = fsm.Fsm.globalTransitions.ToList();
             globalTransitions.Add(CreateTransition(directFireEvent, anticState));
             globalTransitions.Add(CreateTransition(pinArraySlamEvent, pinArraySlamPrepareState));
             globalTransitions.Add(CreateTransition(pinArrayLiftEvent, pinArrayPostLiftState));
+            // ClimbPin 全局转换（只保留 CLIMB_PIN_AIM 一个全局转换）
+            globalTransitions.Add(CreateTransition(climbPinPrepareEvent, climbPinPrepareState));
+            globalTransitions.Add(CreateTransition(climbPinAimEvent, climbPinAimState));
             fsm.Fsm.globalTransitions = globalTransitions.ToArray();
             // 8. 在 Release Pin 状态末尾添加回收动作
             if (releaseState != null)
@@ -619,7 +675,7 @@ namespace AnySilkBoss.Source.Managers
             // 9. 初始化 FSM 数据
             fsm.Fsm.InitData();
 
-            Log.Debug($"[FWPinManager] Pin FSM 已补丁，添加 DIRECT_FIRE/PINARRAY_SLAM/PINARRAY_LIFT 全局转换");
+            Log.Debug($"[FWPinManager] Pin FSM 已补丁，添加 DIRECT_FIRE/PINARRAY_SLAM/PINARRAY_LIFT/CLIMB_PIN 全局转换");
         }
 
         #region PinArray FSM 变量
@@ -663,6 +719,30 @@ namespace AnySilkBoss.Source.Managers
                 floatVars.Add(new FsmFloat("TargetAngle") { Value = 0f });
             }
 
+            // ClimbPin 相关变量
+            if (!floatVars.Any(v => v.Name == "ClimbPinTargetX"))
+            {
+                floatVars.Add(new FsmFloat("ClimbPinTargetX") { Value = 0f });
+            }
+            if (!floatVars.Any(v => v.Name == "ClimbPinTargetY"))
+            {
+                floatVars.Add(new FsmFloat("ClimbPinTargetY") { Value = 0f });
+            }
+            if (!floatVars.Any(v => v.Name == "ClimbPinAimAngle"))
+            {
+                floatVars.Add(new FsmFloat("ClimbPinAimAngle") { Value = -90f });
+            }
+            // ClimbPin 瞄准偏移方向（-1 = 左，+1 = 右）
+            if (!floatVars.Any(v => v.Name == "ClimbPinAimOffsetDirection"))
+            {
+                floatVars.Add(new FsmFloat("ClimbPinAimOffsetDirection") { Value = -1f });
+            }
+            // ClimbPin 瞄准偏移距离
+            if (!floatVars.Any(v => v.Name == "ClimbPinAimOffset"))
+            {
+                floatVars.Add(new FsmFloat("ClimbPinAimOffset") { Value = 0.3f });
+            }
+
             variables.FloatVariables = floatVars.ToArray();
 
             // 重新初始化变量
@@ -683,6 +763,38 @@ namespace AnySilkBoss.Source.Managers
                 return new FsmFloat(name) { Value = 0f };
             }
             return variable;
+        }
+
+        /// <summary>
+        /// 获取 FSM 中的 GameObject 变量引用
+        /// </summary>
+        private FsmGameObject GetFsmGameObjectVariable(PlayMakerFSM fsm, string name)
+        {
+            var variable = fsm.FsmVariables.FindFsmGameObject(name);
+            if (variable == null)
+            {
+                Log.Warn($"[FWPinManager] 未找到 FSM GameObject 变量: {name}");
+                return new FsmGameObject(name) { Value = null };
+            }
+            return variable;
+        }
+
+        /// <summary>
+        /// 获取 FSM 中 Thread 子对象的 GameObject（使用 FSM 内部变量）
+        /// </summary>
+        private GameObject? GetThreadGameObject(PlayMakerFSM fsm)
+        {
+            var threadVar = fsm.FsmVariables.FindFsmGameObject("Thread");
+            return threadVar?.Value;
+        }
+
+        /// <summary>
+        /// 获取 FSM 中 Damager 子对象的 GameObject（使用 FSM 内部变量）
+        /// </summary>
+        private GameObject? GetDamagerGameObject(PlayMakerFSM fsm)
+        {
+            var damagerVar = fsm.FsmVariables.FindFsmGameObject("Damager");
+            return damagerVar?.Value;
         }
 
         /// <summary>
@@ -714,6 +826,22 @@ namespace AnySilkBoss.Source.Managers
 
             var targetAngle = variables.FindFsmFloat("TargetAngle");
             if (targetAngle != null) targetAngle.Value = 0f;
+
+            // 重置 ClimbPin 相关变量
+            var climbPinTargetX = variables.FindFsmFloat("ClimbPinTargetX");
+            if (climbPinTargetX != null) climbPinTargetX.Value = 0f;
+
+            var climbPinTargetY = variables.FindFsmFloat("ClimbPinTargetY");
+            if (climbPinTargetY != null) climbPinTargetY.Value = 0f;
+
+            var climbPinAimAngle = variables.FindFsmFloat("ClimbPinAimAngle");
+            if (climbPinAimAngle != null) climbPinAimAngle.Value = -90f;
+
+            var climbPinAimOffsetDirection = variables.FindFsmFloat("ClimbPinAimOffsetDirection");
+            if (climbPinAimOffsetDirection != null) climbPinAimOffsetDirection.Value = -1f;
+
+            var climbPinAimOffset = variables.FindFsmFloat("ClimbPinAimOffset");
+            if (climbPinAimOffset != null) climbPinAimOffset.Value = 0.3f;
         }
         #endregion
 
@@ -746,7 +874,7 @@ namespace AnySilkBoss.Source.Managers
         /// </summary>
         private void AddPinArraySlamPreFireActions(PlayMakerFSM fsm, FsmState state)
         {
-            var threadObj = fsm.gameObject.transform.Find("Thread")?.gameObject;
+            var threadObj = GetThreadGameObject(fsm);
             var actions = new List<FsmStateAction>();
 
             // 1. 播放音频（从 Antic 状态复制）
@@ -820,9 +948,9 @@ namespace AnySilkBoss.Source.Managers
         /// </summary>
         private void AddPinArraySlamFireActions(PlayMakerFSM fsm, FsmState state, FsmEvent landEvent)
         {
-            // 获取子对象引用
-            var threadObj = fsm.gameObject.transform.Find("Thread")?.gameObject;
-            var damagerObj = fsm.gameObject.transform.Find("Damager")?.gameObject;
+            // 获取子对象引用（使用 FSM 内部变量）
+            var threadObj = GetThreadGameObject(fsm);
+            var damagerObj = GetDamagerGameObject(fsm);
 
             var actions = new List<FsmStateAction>();
 
@@ -970,7 +1098,7 @@ namespace AnySilkBoss.Source.Managers
         /// </summary>
         private void AddPinArraySlamRecoverActions(PlayMakerFSM fsm, FsmState state)
         {
-            var damagerObj = fsm.gameObject.transform.Find("Damager")?.gameObject;
+            var damagerObj = GetDamagerGameObject(fsm);
             var actions = new List<FsmStateAction>();
 
             // 关闭 Damager
@@ -1247,6 +1375,532 @@ namespace AnySilkBoss.Source.Managers
                 // 不设置 Wait，持续等待 ATTACK 事件
             };
         }
+
+        #region ClimbPin 状态动作
+        /// <summary>
+        /// ClimbPin Prepare 状态动作（准备阶段：设置层级、显示 Pin，设置初始朝向，播放 Pin Antic 最后一帧）
+        /// </summary>
+        private void AddClimbPinPrepareActions(PlayMakerFSM fsm, FsmState state)
+        {
+            var actions = new List<FsmStateAction>();
+
+            // 1. 设置层级为 Ignore Raycast（可穿墙）
+            actions.Add(new SetLayer
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                layer = LayerMask.NameToLayer("Ignore Raycast")
+            });
+
+            // 2. 显示 MeshRenderer
+            actions.Add(new SetMeshRenderer
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                active = new FsmBool(true)
+            });
+
+            // 3. 设置初始朝向（-90° 向下）
+            actions.Add(new SetRotation
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                quaternion = new FsmQuaternion { UseVariable = true },
+                vector = new FsmVector3 { Value = new Vector3(0, 0, -90f), UseVariable = false },
+                xAngle = new FsmFloat { UseVariable = true },
+                yAngle = new FsmFloat { UseVariable = true },
+                zAngle = new FsmFloat { Value = -90f, UseVariable = false },
+                space = Space.World,
+                everyFrame = false,
+                lateUpdate = false
+            });
+
+            // 4. 播放 Pin Antic 最后一帧（通过 CallMethod 调用 ResetPinVisualState）
+            actions.Add(new CallMethod
+            {
+                behaviour = this,
+                methodName = "ResetPinVisualState",
+                parameters = new[]
+                {
+                    new FsmVar
+                    {
+                        type = VariableType.GameObject,
+                        objectReference = fsm.gameObject
+                    }
+                },
+                everyFrame = false
+            });
+
+            // 5. 短暂等待后进入 Follow 状态
+            actions.Add(new Wait
+            {
+                time = new FsmFloat(0.1f),
+                finishEvent = FsmEvent.Finished
+            });
+
+            state.Actions = actions.ToArray();
+        }
+
+        /// <summary>
+        /// ClimbPin Follow 状态动作（跟随阶段：等待 CLIMB_PIN_AIM 事件，由协程控制位置）
+        /// </summary>
+        private void AddClimbPinFollowActions(PlayMakerFSM fsm, FsmState state)
+        {
+            // 跟随阶段不需要 FSM 动作，位置由协程控制
+            // 只需要等待 CLIMB_PIN_AIM 事件（通过全局转换处理）
+            state.Actions = new FsmStateAction[] { };
+        }
+
+        /// <summary>
+        /// ClimbPin Aim 状态动作（瞄准阶段：先计算瞄准角度，再旋转指向目标点）
+        /// </summary>
+        private void AddClimbPinAimActions(PlayMakerFSM fsm, FsmState state)
+        {
+            var climbPinAimAngle = GetFsmFloatVariable(fsm, "ClimbPinAimAngle");
+
+            var actions = new List<FsmStateAction>();
+
+            // 1. 先调用 UpdateClimbPinAim 计算正确的瞄准角度（根据偏移方向）
+            actions.Add(new CallMethod
+            {
+                behaviour = this,
+                methodName = "UpdateClimbPinAim",
+                parameters = new[]
+                {
+                    new FsmVar
+                    {
+                        type = VariableType.GameObject,
+                        objectReference = fsm.gameObject
+                    }
+                },
+                everyFrame = false  // 只调用一次
+            });
+
+            // 2. 平滑旋转到目标角度
+            actions.Add(new AnimateRotationTo
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                fromValue = new FsmFloat { UseVariable = true },  // 使用当前角度
+                toValue = climbPinAimAngle,
+                worldSpace = false,
+                negativeSpace = false,
+                time = new FsmFloat(0.2f),
+                delay = new FsmFloat { UseVariable = true },
+                speed = new FsmFloat { UseVariable = true },
+                reverse = new FsmBool(false),
+                easeType = EaseFsmAction.EaseType.easeOutQuad,
+                finishEvent = FsmEvent.Finished
+            });
+
+            state.Actions = actions.ToArray();
+        }
+
+        /// <summary>
+        /// ClimbPin Antic 状态动作（克隆原版 Antic：SetMeshRenderer、Tk2dPlayAnimationWithEvents、PlayAudioEvent）
+        /// </summary>
+        private void AddClimbPinAnticActions(PlayMakerFSM fsm, FsmState state)
+        {
+            var actions = new List<FsmStateAction>();
+
+            // 1. 显示 MeshRenderer
+            actions.Add(new SetMeshRenderer
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                active = new FsmBool(true)
+            });
+
+            // 2. 播放 Pin Antic 动画
+            actions.Add(new Tk2dPlayAnimationWithEvents
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                clipName = new FsmString("Pin Antic") { Value = "Pin Antic" },
+                animationTriggerEvent = FsmEvent.Finished
+            });
+
+            // 3. 播放音效（从原版 Antic 状态复制）
+            var anticState = fsm.FsmStates.FirstOrDefault(s => s.Name == "Antic");
+            var playAudioAction = anticState?.Actions.FirstOrDefault(a => a is PlayAudioEvent) as PlayAudioEvent;
+            if (playAudioAction != null)
+            {
+                actions.Add(new PlayAudioEvent
+                {
+                    Fsm = fsm.Fsm,
+                    audioClip = playAudioAction.audioClip,
+                    volume = playAudioAction.volume,
+                    pitchMin = playAudioAction.pitchMin,
+                    pitchMax = playAudioAction.pitchMax,
+                    audioPlayerPrefab = playAudioAction.audioPlayerPrefab,
+                    spawnPoint = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    spawnPosition = playAudioAction.spawnPosition,
+                    SpawnedPlayerRef = playAudioAction.SpawnedPlayerRef
+                });
+            }
+
+            state.Actions = actions.ToArray();
+        }
+
+        /// <summary>
+        /// ClimbPin WaitThread 状态动作（等待发射命令：每帧更新瞄准角度，等待协程发送 CLIMB_PIN_THREAD 事件）
+        /// </summary>
+        private void AddClimbPinWaitThreadActions(PlayMakerFSM fsm, FsmState state)
+        {
+            var actions = new List<FsmStateAction>();
+
+            // 每帧调用 UpdateClimbPinAim 更新瞄准角度和旋转
+            actions.Add(new CallMethod
+            {
+                behaviour = this,
+                methodName = "UpdateClimbPinAim",
+                parameters = new[]
+                {
+                    new FsmVar
+                    {
+                        type = VariableType.GameObject,
+                        objectReference = fsm.gameObject
+                    }
+                },
+                everyFrame = true  // 每帧调用
+            });
+
+            state.Actions = actions.ToArray();
+        }
+
+        /// <summary>
+        /// ClimbPin Thread Pull 状态动作（克隆原版 Thread Pull，修改 Wait 的 finishEvent 为 CLIMB_PIN_FIRE）
+        /// </summary>
+        private void AddClimbPinThreadPullActions(PlayMakerFSM fsm, FsmState state, FsmEvent climbPinFireEvent)
+        {
+            var threadObj = GetThreadGameObject(fsm);
+            var actions = new List<FsmStateAction>();
+
+            // 1. 显示 Thread MeshRenderer
+            if (threadObj != null)
+            {
+                actions.Add(new SetMeshRenderer
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        GameObject = new FsmGameObject { Value = threadObj }
+                    },
+                    active = new FsmBool(true)
+                });
+
+                // 2. 播放 Pin Thread 动画
+                actions.Add(new Tk2dPlayAnimationWithEvents
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        GameObject = new FsmGameObject { Value = threadObj }
+                    },
+                    clipName = new FsmString("Pin Thread") { Value = "Pin Thread" },
+                    animationCompleteEvent = FsmEvent.Finished
+                });
+
+                // 3. 设置 Thread 从第 0 帧开始播放
+                actions.Add(new Tk2dPlayFrame
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        GameObject = new FsmGameObject { Value = threadObj }
+                    },
+                    frame = new FsmInt(0)
+                });
+            }
+
+            // 4. 等待 0.55 秒后触发 CLIMB_PIN_FIRE（而非原版的 ATTACK）
+            actions.Add(new Wait
+            {
+                time = new FsmFloat(0.55f),
+                finishEvent = climbPinFireEvent
+            });
+
+            state.Actions = actions.ToArray();
+        }
+
+        /// <summary>
+        /// ClimbPin Fire 状态动作（发射阶段：隐藏 Thread、播放 Pin Fire 动画、SetVelocityAsAngle、激活 Damager、4 秒 Wait）
+        /// </summary>
+        private void AddClimbPinFireActions(PlayMakerFSM fsm, FsmState state, FsmEvent climbPinTimeoutEvent, GameObject pinObj)
+        {
+            var threadObj = GetThreadGameObject(fsm);
+            var damagerObj = GetDamagerGameObject(fsm);
+            var climbPinAimAngle = GetFsmFloatVariable(fsm, "ClimbPinAimAngle");
+
+            var actions = new List<FsmStateAction>();
+
+            // 1. 隐藏 Thread
+            if (threadObj != null)
+            {
+                actions.Add(new SetMeshRenderer
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        GameObject = new FsmGameObject { Value = threadObj }
+                    },
+                    active = new FsmBool(false)
+                });
+            }
+
+            // 2. 播放 Pin Fire 动画
+            actions.Add(new Tk2dPlayAnimation
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                animLibName = new FsmString("") { Value = "" },
+                clipName = new FsmString("Pin Fire") { Value = "Pin Fire" }
+            });
+
+            // 3. 关闭 Kinematic
+            actions.Add(new SetIsKinematic2d
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                isKinematic = new FsmBool(false)
+            });
+
+            // 4. 设置速度（使用 ClimbPinAimAngle 变量存储的瞄准角度）
+            actions.Add(new SetVelocityAsAngle
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                angle = climbPinAimAngle,
+                speed = new FsmFloat(120f),
+                everyFrame = false
+            });
+
+            // 5. 激活 Damager
+            if (damagerObj != null)
+            {
+                actions.Add(new ActivateGameObject
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        GameObject = new FsmGameObject { Value = damagerObj }
+                    },
+                    activate = new FsmBool(true),
+                    recursive = new FsmBool(false),
+                    resetOnExit = true
+                });
+            }
+
+            // 6. 播放发射音效（从原版 Fire 状态复制）
+            var fireState = fsm.FsmStates.FirstOrDefault(s => s.Name == "Fire");
+            var playAudioRandomAction = fireState?.Actions.FirstOrDefault(a => a is PlayAudioEventRandom) as PlayAudioEventRandom;
+            if (playAudioRandomAction != null)
+            {
+                actions.Add(new PlayAudioEventRandom
+                {
+                    Fsm = fsm.Fsm,
+                    audioClips = playAudioRandomAction.audioClips,
+                    pitchMin = playAudioRandomAction.pitchMin,
+                    pitchMax = playAudioRandomAction.pitchMax,
+                    volume = playAudioRandomAction.volume,
+                    audioPlayerPrefab = playAudioRandomAction.audioPlayerPrefab,
+                    spawnPoint = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                    spawnPosition = playAudioRandomAction.spawnPosition,
+                    SpawnedPlayerRef = playAudioRandomAction.SpawnedPlayerRef
+                });
+            }
+
+            // 7. 等待 4 秒后触发超时（不监听碰撞）
+            actions.Add(new Wait
+            {
+                time = new FsmFloat(4f),
+                finishEvent = climbPinTimeoutEvent
+            });
+
+            state.Actions = actions.ToArray();
+        }
+
+        /// <summary>
+        /// ClimbPin Recycle 状态动作（回收阶段：恢复层级、隐藏 MeshRenderer、重置位置、关闭 Damager、调用 RecyclePinProjectile）
+        /// </summary>
+        private void AddClimbPinRecycleActions(PlayMakerFSM fsm, FsmState state, GameObject pinObj)
+        {
+            var threadObj = GetThreadGameObject(fsm);
+            var damagerObj = GetDamagerGameObject(fsm);
+
+            var actions = new List<FsmStateAction>();
+
+            // 1. 恢复层级为 Terrain Detector
+            actions.Add(new SetLayer
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                layer = LayerMask.NameToLayer("Terrain Detector")
+            });
+
+            // 2. 隐藏主体 MeshRenderer
+            actions.Add(new SetMeshRenderer
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                active = new FsmBool(false)
+            });
+
+            // 3. 隐藏 Thread MeshRenderer
+            if (threadObj != null)
+            {
+                actions.Add(new SetMeshRenderer
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        GameObject = new FsmGameObject { Value = threadObj }
+                    },
+                    active = new FsmBool(false)
+                });
+            }
+
+            // 4. 清零速度
+            actions.Add(new SetVelocity2d
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                vector = new FsmVector2 { Value = Vector2.zero, UseVariable = false },
+                x = new FsmFloat { Value = 0f, UseVariable = false },
+                y = new FsmFloat { Value = 0f, UseVariable = false },
+                everyFrame = false
+            });
+
+            // 5. 开启 Kinematic
+            actions.Add(new SetIsKinematic2d
+            {
+                gameObject = new FsmOwnerDefault { OwnerOption = OwnerDefaultOption.UseOwner },
+                isKinematic = new FsmBool(true)
+            });
+
+            // 6. 关闭 Damager
+            if (damagerObj != null)
+            {
+                actions.Add(new ActivateGameObject
+                {
+                    gameObject = new FsmOwnerDefault
+                    {
+                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
+                        GameObject = new FsmGameObject { Value = damagerObj }
+                    },
+                    activate = new FsmBool(false),
+                    recursive = new FsmBool(false),
+                    resetOnExit = false
+                });
+            }
+
+            // 7. 调用 RecyclePinProjectile 回收到对象池
+            actions.Add(new CallMethod
+            {
+                behaviour = this,
+                methodName = "RecyclePinProjectile",
+                parameters = new[]
+                {
+                    new FsmVar
+                    {
+                        type = VariableType.GameObject,
+                        objectReference = pinObj
+                    }
+                },
+                everyFrame = false
+            });
+
+            // 8. 触发 FINISHED 进入 Managed Dormant
+            actions.Add(new SendEvent
+            {
+                sendEvent = FsmEvent.Finished,
+                delay = new FsmFloat(0.1f),
+                everyFrame = false
+            });
+
+            state.Actions = actions.ToArray();
+        }
+
+        /// <summary>
+        /// 设置 ClimbPin 的瞄准角度（由协程调用）
+        /// </summary>
+        public void SetClimbPinAimAngle(GameObject pinObj, float targetX, float targetY)
+        {
+            if (pinObj == null) return;
+
+            var fsm = pinObj.LocateMyFSM("Control");
+            if (fsm == null) return;
+
+            // 计算从 Pin 位置到目标点的角度
+            Vector3 pinPos = pinObj.transform.position;
+            float dx = targetX - pinPos.x;
+            float dy = targetY - pinPos.y;
+            float angle = Mathf.Atan2(dy, dx) * Mathf.Rad2Deg;
+
+            // 设置 FSM 变量
+            var climbPinTargetX = fsm.FsmVariables.FindFsmFloat("ClimbPinTargetX");
+            if (climbPinTargetX != null) climbPinTargetX.Value = targetX;
+
+            var climbPinTargetY = fsm.FsmVariables.FindFsmFloat("ClimbPinTargetY");
+            if (climbPinTargetY != null) climbPinTargetY.Value = targetY;
+
+            var climbPinAimAngle = fsm.FsmVariables.FindFsmFloat("ClimbPinAimAngle");
+            if (climbPinAimAngle != null) climbPinAimAngle.Value = angle;
+        }
+
+        /// <summary>
+        /// 设置 ClimbPin 的瞄准偏移方向和距离（由协程在生成时调用）
+        /// </summary>
+        /// <param name="pinObj">Pin 对象</param>
+        /// <param name="offsetDirection">偏移方向：-1 = 左，+1 = 右</param>
+        /// <param name="aimOffset">偏移距离</param>
+        public void SetClimbPinAimOffsetDirection(GameObject pinObj, float offsetDirection, float aimOffset)
+        {
+            if (pinObj == null) return;
+
+            var fsm = pinObj.LocateMyFSM("Control");
+            if (fsm == null) return;
+
+            var climbPinAimOffsetDirection = fsm.FsmVariables.FindFsmFloat("ClimbPinAimOffsetDirection");
+            if (climbPinAimOffsetDirection != null) climbPinAimOffsetDirection.Value = offsetDirection;
+
+            var climbPinAimOffsetVar = fsm.FsmVariables.FindFsmFloat("ClimbPinAimOffset");
+            if (climbPinAimOffsetVar != null) climbPinAimOffsetVar.Value = aimOffset;
+        }
+
+        /// <summary>
+        /// 每帧更新 ClimbPin 的瞄准角度和旋转（由 WaitThread 状态每帧调用）
+        /// </summary>
+        public void UpdateClimbPinAim(GameObject pinObj)
+        {
+            if (pinObj == null) return;
+
+            var hero = HeroController.instance;
+            if (hero == null) return;
+
+            var fsm = pinObj.LocateMyFSM("Control");
+            if (fsm == null) return;
+
+            // 获取偏移方向和距离
+            var climbPinAimOffsetDirection = fsm.FsmVariables.FindFsmFloat("ClimbPinAimOffsetDirection");
+            var climbPinAimOffset = fsm.FsmVariables.FindFsmFloat("ClimbPinAimOffset");
+            
+            float offsetDirection = climbPinAimOffsetDirection?.Value ?? -1f;
+            float aimOffset = climbPinAimOffset?.Value ?? 0.3f;
+
+            // 计算目标点（玩家位置 + 偏移）
+            Vector3 playerPos = hero.transform.position;
+            float targetX = playerPos.x + (aimOffset * offsetDirection);
+            float targetY = playerPos.y;
+
+            // 计算从 Pin 位置到目标点的角度
+            Vector3 pinPos = pinObj.transform.position;
+            float dx = targetX - pinPos.x;
+            float dy = targetY - pinPos.y;
+            float angle = Mathf.Atan2(dy, dx) * Mathf.Rad2Deg;
+
+            // 更新 FSM 变量
+            var climbPinTargetX = fsm.FsmVariables.FindFsmFloat("ClimbPinTargetX");
+            if (climbPinTargetX != null) climbPinTargetX.Value = targetX;
+
+            var climbPinTargetY = fsm.FsmVariables.FindFsmFloat("ClimbPinTargetY");
+            if (climbPinTargetY != null) climbPinTargetY.Value = targetY;
+
+            var climbPinAimAngle = fsm.FsmVariables.FindFsmFloat("ClimbPinAimAngle");
+            if (climbPinAimAngle != null) climbPinAimAngle.Value = angle;
+
+            // 更新 Pin 的旋转角度
+            pinObj.transform.rotation = Quaternion.Euler(0, 0, angle);
+        }
+        #endregion
         #endregion
 
         /// <summary>
