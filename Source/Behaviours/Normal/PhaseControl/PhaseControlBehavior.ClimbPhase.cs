@@ -171,7 +171,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         }
 
         /// <summary>
-        /// 添加 Climb Init Catch 动作（硬控玩家+移动+发送ROAR）
+        /// 添加 Climb Init Catch 动作（发送ROAR事件，让原版Roar机制处理玩家硬控）
         /// </summary>
         private void AddClimbInitCatchActions(FsmState initState)
         {
@@ -193,6 +193,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             });
 
             // 2. 发送 CLIMB ROAR START 给 Boss Control（全局转换，会中断Boss当前行为）
+            // Boss Control 的 Climb Roar 状态会使用 StartRoarEmitter (stunHero=true) 来硬控玩家
             actions.Add(new SendEventByName
             {
                 eventTarget = new FsmEventTarget
@@ -224,19 +225,10 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 everyFrame = false
             });
 
-            // 5. 硬控玩家（完整4步）+ 移动玩家到Y=133.57 + 发送ROAR事件
-            actions.Add(new CallMethod
-            {
-                behaviour = new FsmObject { Value = this },
-                methodName = new FsmString("CatchPlayerForClimb") { Value = "CatchPlayerForClimb" },
-                parameters = new FsmVar[0],
-                everyFrame = false
-            });
-
-            // 6. 等待0.3秒（玩家平滑移动到地面的时间）
+            // 5. 等待一小段时间让 Roar 事件传递
             actions.Add(new Wait
             {
-                time = new FsmFloat(0.3f),
+                time = new FsmFloat(0.1f),
                 finishEvent = FsmEvent.Finished
             });
 
@@ -273,6 +265,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         /// <summary>
         /// 添加 Climb Silk Activate 动作（激活丝线）
         /// 使用原生FSM Action: GetPosition + SetPosition + SetRotation + ActivateGameObject
+        /// 此时 Roar 已结束，需要手动禁用玩家输入
         /// </summary>
         private void AddClimbSilkActivateActions(FsmState silkState)
         {
@@ -284,6 +277,15 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 silkState.Actions = new FsmStateAction[0];
                 return;
             }
+
+            // [0] Roar 结束后，手动禁用玩家输入（简单的输入禁用，不需要处理复杂的 Roar 状态）
+            actions.Add(new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("DisablePlayerInputAfterRoar") { Value = "DisablePlayerInputAfterRoar" },
+                parameters = new FsmVar[0],
+                everyFrame = false
+            });
 
             float offsetDistance = 12.5f;
 
@@ -760,43 +762,47 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         #region 爬升阶段C#辅助方法
 
         /// <summary>
-        /// 硬控玩家并移动到地面（完整4步）
+        /// Roar 结束后禁用玩家输入（简单的输入禁用，Roar 已处理完复杂状态）
         /// </summary>
-        public void CatchPlayerForClimb()
+        public void DisablePlayerInputAfterRoar()
         {
             var hero = HeroController.instance;
             if (hero == null)
             {
-                Log.Error("硬控玩家失败：HeroController未找到");
+                Log.Error("DisablePlayerInputAfterRoar: HeroController未找到");
                 return;
             }
 
             var rb = hero.GetComponent<Rigidbody2D>();
-            GameManager._instance?.inputHandler?.StopAcceptingInput();
-            // 1. RelinquishControl
-            hero.RelinquishControl();
-            // 2. StopAnimationControl
-            hero.StopAnimationControl();
 
-            // 3. AffectedByGravity(false) 
+            // Roar 结束后，玩家状态已被原版机制恢复，现在我们只需要简单禁用输入
+            GameManager._instance?.inputHandler?.StopAcceptingInput();
+            hero.RelinquishControl();
+            hero.StopAnimationControl();
             hero.AffectedByGravity(false);
 
-            // 4. SetVelocity2d(0, 0) - 停止所有速度
             if (rb != null)
             {
                 rb.linearVelocity = Vector2.zero;
             }
 
-            // 5. 设置玩家无敌
+            // 设置玩家无敌
             PlayerData.instance.isInvincible = true;
 
-            Log.Info("硬控玩家完成（完整4步），开始平滑移动到地面");
+            Log.Info("Roar结束后禁用玩家输入完成，开始平滑移动到地面");
 
-            // 6. 平滑移动玩家到Y=133.57（保持X不变）
+            // 平滑移动玩家到Y=133.57（保持X不变）
             StartCoroutine(AnimatePlayerToGround());
+        }
 
-            // 注意：隐藏玩家/激活替身 移到 Climb Catch Effect 状态执行
-            // 注意：CLIMB ROAR START 已经在FSM Action中发送，此处不再重复发送
+        /// <summary>
+        /// 硬控玩家并移动到地面（已废弃，保留兼容）
+        /// </summary>
+        [System.Obsolete("使用 DisablePlayerInputAfterRoar 替代，让原版 Roar 机制处理硬控")]
+        public void CatchPlayerForClimb()
+        {
+            // 直接调用新方法
+            DisablePlayerInputAfterRoar();
         }
 
         /// <summary>

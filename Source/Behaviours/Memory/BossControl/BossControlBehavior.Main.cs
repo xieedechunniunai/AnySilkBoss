@@ -853,13 +853,13 @@ internal partial class MemoryBossBehavior : MonoBehaviour
             return;
         }
 
-        // 1. StartRoarEmitter（复制原版，但 stunHero = false）
+        // 1. StartRoarEmitter（复制原版，stunHero = true 让原版Roar机制处理玩家硬控）
         var climbRoarEmitter = new StartRoarEmitter
         {
             Fsm = _bossControlFsm.Fsm,
             spawnPoint = originalEmitter.spawnPoint,
             delay = originalEmitter.delay,
-            stunHero = new FsmBool(false) { Value = false },  // 玩家已被硬控，不需要stun
+            stunHero = new FsmBool(true) { Value = true },  // 让原版Roar机制处理玩家硬控
             roarBurst = originalEmitter.roarBurst,
             isSmall = originalEmitter.isSmall,
             noVisualEffect = originalEmitter.noVisualEffect,

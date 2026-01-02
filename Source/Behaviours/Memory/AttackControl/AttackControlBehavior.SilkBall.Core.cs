@@ -332,6 +332,9 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 animationTriggerEvent = FsmEvent.Finished,
                 animationCompleteEvent = _nullEvent,
                 animationInterruptedEvent = _nullEvent,
+                _sprite = gameObject.transform.GetComponent<tk2dSpriteAnimator>(),
+                hasExpectedClip = true,
+                expectedClip = gameObject.transform.GetComponent<tk2dSpriteAnimator>().Library.clips.FirstOrDefault(s =>s.name == "Cast")
             });
             state.Actions = actions.ToArray();
 

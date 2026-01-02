@@ -55,6 +55,7 @@ namespace AnySilkBoss.Source.Behaviours.Common
         public bool canBeAbsorbed = false;        // 是否可以被大丝球吸收（仅吸收阶段的小丝球为true）
         private bool _delayDamageActivation = true;
         public bool triggerBlastOnDestroy = false; // 是否在销毁时触发 Blast 攻击
+        public bool canBeClearedByAttack = true;  // 是否可被玩家攻击清除（Reaper 护符功能）
 
         // 对象池相关
         private bool _isAvailable = true;         // 是否可用（在对象池中）
@@ -177,10 +178,6 @@ namespace AnySilkBoss.Source.Behaviours.Common
             if (originalDamageHero == null)
             {
                 originalDamageHero = SilkBallManager.CachedOriginalDamageHero;
-                if (originalDamageHero == null)
-                {
-                    Log.Warn("SilkBallManager.CachedOriginalDamageHero 为 null");
-                }
             }
 
             // 从 SilkBallManager 的静态缓存获取玩家引用
@@ -457,7 +454,7 @@ namespace AnySilkBoss.Source.Behaviours.Common
         /// <summary>
         /// 准备丝球（每次从池中取出时调用）
         /// </summary>
-        public void PrepareForUse(Vector3 spawnPosition, float acceleration = 30f, float maxSpeed = 20f, float chaseTime = 6f, float scale = 1f, bool enableRotation = true, Transform? customTarget = null, bool ignoreWall = false, bool delayDamageActivation = true)
+        public void PrepareForUse(Vector3 spawnPosition, float acceleration = 30f, float maxSpeed = 20f, float chaseTime = 6f, float scale = 1f, bool enableRotation = true, Transform? customTarget = null, bool ignoreWall = false, bool delayDamageActivation = true, bool canBeClearedByAttack = true)
         {
             // 脱离池容器
             if (transform.parent == _poolContainer)
@@ -481,8 +478,12 @@ namespace AnySilkBoss.Source.Behaviours.Common
             // 应用缩放
             ApplyScale();
 
-            // 重置状态
+            // 重置状态（会将 canBeClearedByAttack 重置为 true）
             ResetState();
+
+            // 在 ResetState 之后设置 canBeClearedByAttack，避免被重置覆盖
+            this.canBeClearedByAttack = canBeClearedByAttack;
+
             // 标记为不可用（正在使用中）
             _isAvailable = false;
             isActive = true;
@@ -541,6 +542,7 @@ namespace AnySilkBoss.Source.Behaviours.Common
             isProtected = false;
             canBeAbsorbed = false;
             triggerBlastOnDestroy = false;
+            canBeClearedByAttack = true;  // 重置为默认可被攻击清除
 
             // 重置速度
             if (rb2d != null)
@@ -906,6 +908,7 @@ namespace AnySilkBoss.Source.Behaviours.Common
                 finishEvent = FsmEvent.Finished
             };
 
+            // 攻击检测已移至 HandleCollision 方法中统一处理
             chaseState.Actions = new FsmStateAction[] { startChaseAction, enableDamage, chaseAction, waitAction };
         }
 
@@ -1216,6 +1219,14 @@ namespace AnySilkBoss.Source.Behaviours.Common
 
         private void AddReverseAccelerationActions(FsmState reverseAccelState)
         {
+            // 初始化反向加速度模式
+            var initReverseAccelAction = new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("InitReverseAcceleration") { Value = "InitReverseAcceleration" },
+                parameters = new FsmVar[0]
+            };
+
             // 使用通用的 ReverseAccelerationAction
             var reverseAccelAction = new ReverseAccelerationAction
             {
@@ -1235,7 +1246,8 @@ namespace AnySilkBoss.Source.Behaviours.Common
                 finishEvent = FsmEvent.Finished
             };
 
-            reverseAccelState.Actions = new FsmStateAction[] { reverseAccelAction, waitAction };
+            // 攻击检测已移至 HandleCollision 方法中统一处理
+            reverseAccelState.Actions = new FsmStateAction[] { initReverseAccelAction, reverseAccelAction, waitAction };
         }
         #endregion
 
@@ -1346,6 +1358,7 @@ namespace AnySilkBoss.Source.Behaviours.Common
             isInOrbitalMode = false;
             orbitalAngularSpeed = 0f;
             orbitalOutwardSpeed = 0f;
+            canBeClearedByAttack = true;  // 重置为默认可被攻击清除
 
             // 重置速度
             if (rb2d != null)
@@ -1647,6 +1660,22 @@ namespace AnySilkBoss.Source.Behaviours.Common
 
                 controlFSM.SendEvent("HIT HERO");
                 return;
+            }
+
+            // 检查玩家攻击碰撞（Reaper 护符功能）
+            // 只在 Chase Hero 或 Reverse Acceleration 状态下检测
+            if (isChasing || isInReverseAccelMode)
+            {
+                // 检查是否为玩家攻击（Tag: "Nail Attack" 或 Layer: 17）
+                if (otherObject.CompareTag("Nail Attack") || otherObject.layer == 17)
+                {
+                    // 检查是否满足清除条件：装备 Reaper 护符且丝球可被攻击清除
+                    if (SilkBallManager.IsReaperCrestEquipped && canBeClearedByAttack)
+                    {
+                        controlFSM.SendEvent("HIT WALL");  // 触发消散
+                        return;
+                    }
+                }
             }
         }
 

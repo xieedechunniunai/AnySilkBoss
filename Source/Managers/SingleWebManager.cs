@@ -69,6 +69,14 @@ namespace AnySilkBoss.Source.Managers
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
             if (scene.name != BossSceneName) return;
+            
+            // 如果已经初始化，只需要确保池子可用，不需要重新初始化
+            if (_initialized && _poolContainer != null && _singleWebStrandPrefab != null)
+            {
+                Log.Info($"[SingleWebManager] 检测到 BOSS 场景 {scene.name}，已初始化，跳过重复初始化");
+                return;
+            }
+            
             Log.Info($"检测到 BOSS 场景 {scene.name}，开始初始化 SingleWebManager...");
             StartCoroutine(Initialize());
         }
@@ -102,9 +110,19 @@ namespace AnySilkBoss.Source.Managers
             CacheAudioResources();  // 缓存音频资源
             yield return CreateSingleWebStrandPrefab();
 
-            // 创建统一池容器
-            _poolContainer = new GameObject("SingleWeb Pool");
-            _poolContainer.transform.SetParent(transform);
+            // 创建统一池容器 - 检查是否已存在，避免重复创建
+            var existingPool = transform.Find("SingleWeb Pool");
+            if (existingPool != null)
+            {
+                _poolContainer = existingPool.gameObject;
+                Log.Info("[SingleWebManager] 复用已存在的 SingleWeb Pool");
+            }
+            else
+            {
+                _poolContainer = new GameObject("SingleWeb Pool");
+                _poolContainer.transform.SetParent(transform);
+                Log.Info("[SingleWebManager] 创建新的 SingleWeb Pool");
+            }
             _enableAutoPooling = true;
 
             _initialized = true;
@@ -256,10 +274,20 @@ namespace AnySilkBoss.Source.Managers
 
             if (_poolContainer == null)
             {
-                _poolContainer = new GameObject("SingleWeb Pool");
-                _poolContainer.transform.SetParent(transform);
+                // 检查是否已存在，避免重复创建
+                var existingPool = transform.Find("SingleWeb Pool");
+                if (existingPool != null)
+                {
+                    _poolContainer = existingPool.gameObject;
+                    Log.Info("[SingleWebManager] EnsurePoolInitialized: 复用已存在的 SingleWeb Pool");
+                }
+                else
+                {
+                    _poolContainer = new GameObject("SingleWeb Pool");
+                    _poolContainer.transform.SetParent(transform);
+                    Log.Info("[SingleWebManager] EnsurePoolInitialized: 创建新的 SingleWeb Pool");
+                }
                 _enableAutoPooling = true;
-                Log.Info("[SingleWebManager] 统一池容器已创建");
             }
         }
 

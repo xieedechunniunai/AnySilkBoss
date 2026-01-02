@@ -164,7 +164,10 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 }
             }
         }
-
+        private void OnDestroy()
+        {
+            StopAllCoroutines();
+        }
         /// <summary>
         /// 查看Attack Control FSM的所有状态、跳转和全局跳转
         /// </summary>
@@ -240,7 +243,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 {
                     Log.Info("已获取 LaceCircleSlashManager 引用");
                 }
-                
+
                 ModifyDashAttackState();
             }
             else
@@ -250,6 +253,25 @@ namespace AnySilkBoss.Source.Behaviours.Normal
 
             InitializeHandBehaviors();
             InitializeSilkBallReleaseActions();
+            
+            // 初始化减伤系统的 FSM 引用
+            InitializeDamageReductionFsmReferences();
+        }
+        
+        /// <summary>
+        /// 初始化减伤系统的 FSM 引用
+        /// </summary>
+        private void InitializeDamageReductionFsmReferences()
+        {
+            var damageReductionManager = gameObject.GetComponent<DamageReductionManager>();
+            if (damageReductionManager == null)
+            {
+                Log.Warn("[减伤系统] 未找到 DamageReductionManager 组件");
+                return;
+            }
+            
+            // 普通版没有 Phase Control FSM，传入 null
+            damageReductionManager.InitializeFsmReferences(_attackControlFsm!, null);
         }
 
         /// <summary>

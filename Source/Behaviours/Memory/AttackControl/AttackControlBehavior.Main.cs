@@ -134,7 +134,10 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 }
             }
         }
-
+        private void OnDestroy()
+        {
+            StopAllCoroutines();
+        }
         /// <summary>
         /// 查看Attack Control FSM的所有状态、跳转和全局跳转
         /// </summary>
@@ -239,10 +242,20 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                     Log.Warn("未找到 SingleWebManager 组件");
                 }
 
-                // 初始化DomainBehavior（领域结界）
-                var domainObj = new GameObject("DomainBehavior");
-                domainObj.transform.SetParent(managerObj.transform);
-                _domainBehavior = domainObj.AddComponent<DomainBehavior>();
+                // 初始化DomainBehavior（领域结界）- 检查是否已存在，避免重复创建
+                var existingDomainObj = managerObj.transform.Find("DomainBehavior");
+                if (existingDomainObj != null)
+                {
+                    _domainBehavior = existingDomainObj.GetComponent<DomainBehavior>();
+                    Log.Info("复用已存在的 DomainBehavior");
+                }
+                else
+                {
+                    var domainObj = new GameObject("DomainBehavior");
+                    domainObj.transform.SetParent(managerObj.transform);
+                    _domainBehavior = domainObj.AddComponent<DomainBehavior>();
+                    Log.Info("创建新的 DomainBehavior");
+                }
             }
             else
             {
@@ -252,6 +265,28 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             InitializeHandBehaviors();
             InitializeSilkBallReleaseActions();
             InitializeSpikeSystem();
+            
+            // 初始化减伤系统的 FSM 引用
+            InitializeDamageReductionFsmReferences();
+        }
+        
+        /// <summary>
+        /// 初始化减伤系统的 FSM 引用
+        /// </summary>
+        private void InitializeDamageReductionFsmReferences()
+        {
+            var damageReductionManager = gameObject.GetComponent<DamageReductionManager>();
+            if (damageReductionManager == null)
+            {
+                Log.Warn("[减伤系统] 未找到 DamageReductionManager 组件");
+                return;
+            }
+            
+            // 获取 Phase Control FSM
+            PlayMakerFSM? phaseControlFsm = FSMUtility.LocateMyFSM(gameObject, "Phase Control");
+            
+            // 初始化 FSM 引用
+            damageReductionManager.InitializeFsmReferences(_attackControlFsm!, phaseControlFsm);
         }
 
         private void InitializeNaChargeEffect()

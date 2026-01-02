@@ -53,7 +53,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             parentHandName = handName;
             parentHand = hand;
 
-            Log.Info($"初始化Finger Blade {bladeIndex} (局部索引{index}) ({gameObject.name}) 在 {parentHandName} 下");
+            // Log.Info($"初始化Finger Blade {bladeIndex} (局部索引{index}) ({gameObject.name}) 在 {parentHandName} 下");
             // 查找玩家
             var heroController = FindFirstObjectByType<HeroController>();
             if (heroController != null)
@@ -95,29 +95,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
 
             // 统一初始化FSM（在所有状态和事件添加完成后）
             RelinkFingerBladeEventReferences();
-        }
-
-
-
-        private void Update()
-        {
-            if (Input.GetKeyDown(KeyCode.T) && bladeIndex == 1)
-            {
-                LogHandFSMInfo();
-            }
-        }
-        private void LogHandFSMInfo()
-        {
-            if (controlFSM != null)
-            {
-                Log.Info($"FSM名称: {controlFSM.FsmName}");
-                Log.Info($"当前状态: {controlFSM.ActiveStateName}");
-                FsmAnalyzer.WriteFsmReport(controlFSM, "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\FingerBladeControlFSM.txt");
-            }
-            else
-            {
-                Log.Warn($"手部FSM未找到");
-            }
         }
         /// <summary>
         /// 新增动态变量
@@ -818,7 +795,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             if (isSwipe && isSpecialAttack)
             {
                 controlFSM.SendEvent("IS_PHASE2_SWIPE");
-                Log.Info($"Finger Blade {bladeIndex} 检测到二阶段 Swipe 攻击，Rotation={rotation}, Special Attack={isSpecialAttack}");
             }
         }
 
@@ -850,7 +826,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                     if (waitCount == 1)
                     {
                         wait.time = new FsmFloat(0.48f);
-                        Log.Info($"Finger Blade {bladeIndex} Antic Pull: 第1个Wait时间已修改为0.45s");
                     }
                 }
                 // 修改第一个 WaitBool 的 time 为 0.36
@@ -860,7 +835,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                     if (waitBoolCount == 1)
                     {
                         waitBool.time = new FsmFloat(0.36f);
-                        Log.Info($"Finger Blade {bladeIndex} Antic Pull: 第1个WaitBool时间已修改为0.33s");
                     }
                 }
             }
@@ -872,7 +846,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 realTime = false
             });
             anticPullState.Actions = actions.ToArray();
-            Log.Info($"Finger Blade {bladeIndex} Antic Pull 状态已修改完成");
         }
 
         /// <summary>
@@ -911,7 +884,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             // 创建追踪状态
             CreatePhase2TrackState();
 
-            Log.Info($"Finger Blade {bladeIndex} Antic Pause 状态已修改");
+            // Log.Info($"Finger Blade {bladeIndex} Antic Pause 状态已修改");
         }
 
         /// <summary>
@@ -973,7 +946,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 action.Init(trackState);
             }
 
-            Log.Info($"Finger Blade {bladeIndex} Phase2 Track 状态已创建并初始化");
+            // Log.Info($"Finger Blade {bladeIndex} Phase2 Track 状态已创建并初始化");
 
             // 修改 Antic Pause 的转换逻辑
             ModifyAnticPauseTransitions(trackState);

@@ -872,6 +872,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         private void OnDestroy()
         {
             // 清理对Finger Blade的引用，避免场景返回后残留
+            StopAllCoroutines();
             fingerBlades = new Transform[3];
             fingerBladeBehaviors = new MemoryFingerBladeBehavior[3];
         }
