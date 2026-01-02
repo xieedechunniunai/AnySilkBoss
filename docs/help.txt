@@ -1,0 +1,112 @@
+================================================================================
+                        AnySilkBoss 用户使用指南
+================================================================================
+
+【中文】
+
+--------------------------------------------------------------------------------
+一、MOD 安装
+--------------------------------------------------------------------------------
+
+你应该拿到了以下文件：
+  - AnySilkBoss.dll
+  - Audio 文件夹
+
+安装步骤：
+
+1. 打开 Steam，在游戏库中找到「Hollow Knight: Silksong」
+2. 右键点击游戏 → 管理 → 浏览本地文件
+3. 进入 BepInEx 文件夹
+4. 进入 plugins 文件夹
+5. 在 plugins 文件夹内创建一个新文件夹，命名为「AnySilkBoss」
+6. 将 AnySilkBoss.dll 和 Audio 文件夹放入刚创建的 AnySilkBoss 文件夹
+
+最终目录结构应该是这样的：
+
+Steam\steamapps\common\Hollow Knight Silksong\
+└── BepInEx\
+    └── plugins\
+        └── AnySilkBoss\
+            ├── AnySilkBoss.dll
+            └── Audio\
+                └── (音频文件)
+
+--------------------------------------------------------------------------------
+二、如何进入梦境模式
+--------------------------------------------------------------------------------
+
+1. 使用第三章的存档
+2. 进入 Cradle_03_Destroyed 房间（就是打完 Boss 后的废墟房间）
+3. 按住「深渊挽歌」（↓ + 弹琴）持续 3 秒
+4. 画面会传送，你将进入梦境版 Boss 战
+
+操作提示：↓ + 弹琴，按住不放，等待 3 秒
+
+--------------------------------------------------------------------------------
+三、温馨提示
+--------------------------------------------------------------------------------
+
+梦境版 Boss 是「理论上不可能被战胜」的存在。
+
+打不过是正常的，这不是你的问题，是 Boss 的问题（确信）。
+
+如果你真的打过了……那你可能是神。
+
+请放平心态，享受被暴打的过程，不要上纲上线，游戏嘛，开心最重要 :)
+
+================================================================================
+
+【English】
+
+--------------------------------------------------------------------------------
+1. MOD Installation
+--------------------------------------------------------------------------------
+
+You should have received the following files:
+  - AnySilkBoss.dll
+  - Audio folder
+
+Installation Steps:
+
+1. Open Steam, find "Hollow Knight: Silksong" in your library
+2. Right-click the game → Manage → Browse Local Files
+3. Navigate to the BepInEx folder
+4. Navigate to the plugins folder
+5. Create a new folder inside plugins, name it "AnySilkBoss"
+6. Place AnySilkBoss.dll and the Audio folder into the AnySilkBoss folder
+
+Final directory structure should look like this:
+
+Steam\steamapps\common\Hollow Knight Silksong\
+└── BepInEx\
+    └── plugins\
+        └── AnySilkBoss\
+            ├── AnySilkBoss.dll
+            └── Audio\
+                └── (audio files)
+
+--------------------------------------------------------------------------------
+2. How to Enter Memory Mode
+--------------------------------------------------------------------------------
+
+1. Use a Chapter 3 save file
+2. Enter the Cradle_03_Destroyed room (the ruined room after defeating the Boss)
+3. Hold "Elegy of the Deep" (Down + Needolin) for 3 seconds
+4. The screen will transition, and you'll enter the Memory Mode boss fight
+
+Controls: Down + Needolin, hold for 3 seconds
+
+--------------------------------------------------------------------------------
+3. Friendly Reminder
+--------------------------------------------------------------------------------
+
+The Memory Mode Boss is "theoretically impossible to defeat".
+
+It's totally normal if you can't beat it. It's not you, it's the Boss (trust me).
+
+If you actually manage to win... you might be a god.
+
+Please keep a relaxed mindset, enjoy the process of getting destroyed, 
+don't take it too seriously. It's just a game, have fun! :)
+
+================================================================================

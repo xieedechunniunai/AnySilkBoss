@@ -1,12 +1,14 @@
 # AnySilkBoss
 
+https://github.com/xieedechunniunai/AnySilkBoss
+
 [English](#english) | [中文](#中文)
 
 ---
 
 ## English
 
-A BepInEx mod for Silksong that enhances Boss behaviors and adds a Memory Mode.
+A BepInEx mod for Silksong that enhances SilkBoss behaviors and adds a Memory Mode.
 
 ### Features
 
@@ -69,7 +71,7 @@ For full license details, see [LICENSE.md](LICENSE.md)
 
 ## 中文
 
-一个用于 Silksong（空洞骑士：丝之歌）的 BepInEx MOD，提供 Boss 行为增强与记忆模式。
+一个用于 Silksong（空洞骑士：丝之歌）的 BepInEx MOD，提供 SilkBoss 行为增强与记忆模式。
 
 ### 功能特性
 
@@ -92,7 +94,7 @@ For full license details, see [LICENSE.md](LICENSE.md)
 
 ### ⚡ 如何进入记忆模式 ⚡
 
-> **这是本 MOD 的核心玩法！**
+> **这是本 MOD 的重要玩法！**
 
 | 步骤 | 操作 |
 |------|------|
