@@ -35,27 +35,6 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         {
             StartCoroutine(InitializeHand());
         }
-        private void Update()
-        {
-            if (Input.GetKeyDown(KeyCode.T))
-            {
-                LogHandFSMInfo();
-            }
-        }
-        private void LogHandFSMInfo()
-        {
-            if (handFSM != null)
-            {
-                Log.Info($"=== Attack Control FSM 信息 ===");
-                Log.Info($"FSM名称: {handFSM.FsmName}");
-                Log.Info($"当前状态: {handFSM.ActiveStateName}");
-                FsmAnalyzer.WriteFsmReport(handFSM, "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\handFSM.txt");
-            }
-            else
-            {
-                Log.Warn($"手部FSM未找到");
-            }
-        }
         /// <summary>
         /// 初始化手部对象
         /// </summary>

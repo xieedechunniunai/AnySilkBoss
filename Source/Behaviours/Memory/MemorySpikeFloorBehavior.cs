@@ -91,23 +91,12 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             }
         }
 
-        /// <summary>FSM 输出路径</summary>
-        private const string FSM_OUTPUT_PATH = "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\";
-
         /// <summary>
         /// 修改 Control FSM
         /// </summary>
         private void ModifyControlFSM()
         {
             if (_controlFsm == null) return;
-
-            // 输出修改前的 FSM 报告（只对第一个地刺输出，避免重复）
-            if (spikeIndex == 0)
-            {
-                string prePath = FSM_OUTPUT_PATH + "_spikeFloor_preModify.txt";
-                FsmAnalyzer.WriteFsmReport(_controlFsm, prePath);
-                Log.Debug($"[SpikeFloor {spikeIndex}] 修改前 FSM 报告已输出: {prePath}");
-            }
 
             // 获取状态引用
             _idleState = _controlFsm.FsmStates.FirstOrDefault(s => s.Name == "Idle");
@@ -140,14 +129,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             // 重新初始化 FSM
             _controlFsm.Fsm.InitData();
-
-            // 输出修改后的 FSM 报告（只对第一个地刺输出）
-            if (spikeIndex == 0)
-            {
-                string postPath = FSM_OUTPUT_PATH + "_spikeFloor_postModify.txt";
-                FsmAnalyzer.WriteFsmReport(_controlFsm, postPath);
-                Log.Debug($"[SpikeFloor {spikeIndex}] 修改后 FSM 报告已输出: {postPath}");
-            }
         }
 
         /// <summary>

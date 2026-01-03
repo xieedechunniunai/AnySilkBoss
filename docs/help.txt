@@ -89,7 +89,7 @@ Steam\steamapps\common\Hollow Knight Silksong\
 2. How to Enter Memory Mode
 --------------------------------------------------------------------------------
 
-1. Use a Chapter 3 save file
+1. Use a Act 3 save file
 2. Enter the Cradle_03_Destroyed room (the ruined room after defeating the Boss)
 3. Hold "Elegy of the Deep" (Down + Needolin) for 3 seconds
 4. The screen will transition, and you'll enter the Memory Mode boss fight

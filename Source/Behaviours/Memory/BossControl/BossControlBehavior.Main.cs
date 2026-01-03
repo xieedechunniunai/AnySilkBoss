@@ -100,15 +100,6 @@ internal partial class MemoryBossBehavior : MonoBehaviour
 
     private string _lastStateName = "";
 
-    private void Update()
-    {
-        if (Input.GetKeyDown(KeyCode.T) && _bossControlFsm != null)
-        {
-            Log.Info($"Boss FSM 信息: {_bossControlFsm.FsmName}");
-            FsmAnalyzer.WriteFsmReport(_bossControlFsm, "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\_bossControlFsm.txt");
-        }
-    }
-
     /// <summary>
     /// 延迟初始化
     /// </summary>

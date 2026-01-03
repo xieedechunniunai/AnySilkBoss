@@ -41,9 +41,6 @@ namespace AnySilkBoss.Source.Managers
         /// <summary>AssetManager 中的 Bomb Blast 资源名称</summary>
         private const string BOMB_BLAST_ASSET_NAME = "First Weaver Bomb Blast";
 
-        /// <summary>FSM 分析输出路径</summary>
-        private const string FSM_OUTPUT_PATH = "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\";
-
         /// <summary>Bomb Blast 对象池大小</summary>
         private const int BOMB_BLAST_POOL_SIZE = 40;
         #endregion
@@ -147,13 +144,10 @@ namespace AnySilkBoss.Source.Managers
             // 1. 获取 AssetManager 并加载预制体
             yield return LoadPrefabFromAssetManager();
 
-            // 2. 分析 FSM
-            AnalyzePrefabFsm();
-
-            // 3. 创建对象池容器
+            // 2. 创建对象池容器
             CreatePoolContainer();
 
-            // 4. 预生成对象池
+            // 3. 预生成对象池
             yield return PrewarmPool();
 
             _initialized = true;
@@ -210,23 +204,7 @@ namespace AnySilkBoss.Source.Managers
             }
         }
 
-        private void AnalyzePrefabFsm()
-        {
-            if (_bombBlastPrefab != null)
-            {
-                var bombBlastFsm = _bombBlastPrefab.LocateMyFSM("Control");
-                if (bombBlastFsm != null)
-                {
-                    string outputPath = FSM_OUTPUT_PATH + "_bombBlastFsm.txt";
-                    FsmAnalyzer.WriteFsmReport(bombBlastFsm, outputPath);
-                    Log.Info($"[FWBlastManager] Bomb Blast FSM 分析完成: {outputPath}");
-                }
-                else
-                {
-                    Log.Warn("[FWBlastManager] Bomb Blast 未找到 Control FSM");
-                }
-            }
-        }
+
 
         private void CreatePoolContainer()
         {

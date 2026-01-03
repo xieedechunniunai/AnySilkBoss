@@ -32,9 +32,6 @@ namespace AnySilkBoss.Source.Managers
         /// <summary>AssetManager 中的 Pin Projectile 资源名称</summary>
         private const string PIN_PROJECTILE_ASSET_NAME = "FW Pin Projectile";
 
-        /// <summary>FSM 分析输出路径</summary>
-        private const string FSM_OUTPUT_PATH = "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\";
-
         /// <summary>Pin Projectile 对象池大小</summary>
         private const int PIN_POOL_SIZE = 50;
         #endregion
@@ -141,10 +138,7 @@ namespace AnySilkBoss.Source.Managers
             // 2. 加载动画资源并修复引用
             yield return LoadAndFixAnimationReferences();
 
-            // 3. 分析 FSM
-            AnalyzePrefabFsm();
-
-            // 4. 创建对象池容器
+            // 3. 创建对象池容器
             CreatePoolContainer();
 
             // 5. 预生成对象池
@@ -349,24 +343,6 @@ namespace AnySilkBoss.Source.Managers
                     threadSprite.Collection = spriteCollection;
                     threadSprite.Build();
                     Log.Debug("[FWPinManager] 已修复并重建 Thread tk2dSprite");
-                }
-            }
-        }
-
-        private void AnalyzePrefabFsm()
-        {
-            if (_pinProjectilePrefab != null)
-            {
-                var pinFsm = _pinProjectilePrefab.LocateMyFSM("Control");
-                if (pinFsm != null)
-                {
-                    string outputPath = FSM_OUTPUT_PATH + "_pinProjectileFsm.txt";
-                    FsmAnalyzer.WriteFsmReport(pinFsm, outputPath);
-                    Log.Info($"[FWPinManager] Pin Projectile FSM 分析完成: {outputPath}");
-                }
-                else
-                {
-                    Log.Warn("[FWPinManager] Pin Projectile 未找到 Control FSM");
                 }
             }
         }

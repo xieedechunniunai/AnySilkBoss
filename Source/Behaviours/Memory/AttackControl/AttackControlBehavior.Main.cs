@@ -113,11 +113,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
         private void Update()
         {
-            if (Input.GetKeyDown(KeyCode.T))
-            {
-                LogAttackControlFSMInfo();
-            }
-
             // 检查是否应该停止生成丝球（如果不在移动丝球相关状态）
             if (_isGeneratingSilkBall != null && _isGeneratingSilkBall.Value && _attackControlFsm != null)
             {
@@ -137,22 +132,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         private void OnDestroy()
         {
             StopAllCoroutines();
-        }
-        /// <summary>
-        /// 查看Attack Control FSM的所有状态、跳转和全局跳转
-        /// </summary>
-        public void LogAttackControlFSMInfo()
-        {
-            if (_attackControlFsm == null)
-            {
-                Log.Warn("Attack Control FSM未找到");
-                return;
-            }
-
-            Log.Info("=== Attack Control FSM 信息 ===");
-            Log.Info($"FSM名称: {_attackControlFsm.FsmName}");
-            Log.Info($"当前状态: {_attackControlFsm.ActiveStateName}");
-            FsmAnalyzer.WriteFsmReport(_attackControlFsm, "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\_attackControlFsm.txt");
         }
 
         private IEnumerator DelayedSetup()
