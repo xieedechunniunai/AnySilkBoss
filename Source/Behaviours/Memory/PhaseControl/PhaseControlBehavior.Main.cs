@@ -90,25 +90,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             StartCoroutine(DelayedSetup());
         }
 
-        private void Update()
-        {
-            if (Input.GetKeyDown(KeyCode.T))
-            {
-                LogPhaseControlFSMInfo();
-            }
-        }
-
-        private void LogPhaseControlFSMInfo()
-        {
-            if (_phaseControl != null)
-            {
-                Log.Info($"=== 阶段控制器 FSM 信息 ===");
-                Log.Info($"FSM名称: {_phaseControl.FsmName}");
-                Log.Info($"当前状态: {_phaseControl.ActiveStateName}");
-                FsmAnalyzer.WriteFsmReport(_phaseControl, "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\_phaseControlFsm.txt");
-            }
-        }
-
         /// <summary>
         /// 延迟初始化
         /// </summary>

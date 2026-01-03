@@ -29,7 +29,6 @@ public class Plugin : BaseUnityPlugin
     public static string OriginalSaveBackupPath { get; set; } = null;
     public static bool IsInBossRoom { get; set; } = false;
     public static string CurrentSaveFileName { get; set; } = null;
-    public static string FSM_OUTPUT_PATH = "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\";
 
     /// <summary>
     /// Boulder 贴图（从嵌入资源加载）

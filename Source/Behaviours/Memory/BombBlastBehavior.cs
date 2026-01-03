@@ -97,23 +97,10 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             // 注意：ConfigureMoveMode 可能已经提前调用了 EnsureFsmPatched
             if (_controlFsm != null && !_fsmPatched)
             {
-                // 输出补丁前的 FSM 报告
-                string prePatchPath = FSM_OUTPUT_PATH + "_bombBlast_prePatch.txt";
-                FsmAnalyzer.WriteFsmReport(_controlFsm, prePatchPath);
-                Log.Debug($"[BombBlastBehavior] 补丁前 FSM 报告已输出: {prePatchPath}");
-
                 PatchFsm();
                 _fsmPatched = true;
-
-                // 输出补丁后的 FSM 报告
-                string postPatchPath = FSM_OUTPUT_PATH + "_bombBlast_postPatch.txt";
-                FsmAnalyzer.WriteFsmReport(_controlFsm, postPatchPath);
-                Log.Debug($"[BombBlastBehavior] 补丁后 FSM 报告已输出: {postPatchPath}");
             }
         }
-
-        /// <summary>FSM 输出路径</summary>
-        private const string FSM_OUTPUT_PATH = "D:\\tool\\unityTool\\mods\\new\\AnySilkBoss\\bin\\Debug\\temp\\";
 
         private void OnEnable()
         {
