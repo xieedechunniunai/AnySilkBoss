@@ -255,29 +255,39 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
         /// <summary>
         /// 添加 Climb Wait Roar 动作（等待Boss Roar完成）
+        /// 此状态为空，只等待 CLIMB ROAR DONE 事件
+        /// 玩家动画由原版 Roar 机制处理，小骑士MOD可能没有对应动画
         /// </summary>
         private void AddClimbWaitRoarActions(FsmState waitState)
         {
-            // 此状态播放玩家 Roar Lock 动画，等待 CLIMB ROAR DONE 事件
-            var actions = new List<FsmStateAction>();
-            if (_fsmHero != null)
+            // 此状态不添加任何动作，只等待 CLIMB ROAR DONE 事件
+            // 玩家的 Roar Lock 动画由原版 StartRoarEmitter 处理
+            // 小骑士MOD可能没有这个动画，但不影响流程
+            waitState.Actions = new FsmStateAction[0];
+        }
+
+        /// <summary>
+        /// 检查 tk2dSpriteAnimator 是否有指定的动画剪辑
+        /// </summary>
+        private bool HasAnimationClip(tk2dSpriteAnimator animator, string clipName)
+        {
+            if (animator == null || animator.Library == null) return false;
+            return animator.Library.clips.Any(c => c.name == clipName);
+        }
+
+        /// <summary>
+        /// 安全播放动画（如果动画不存在则跳过）
+        /// </summary>
+        private bool TryPlayAnimation(tk2dSpriteAnimator animator, string clipName)
+        {
+            if (animator == null) return false;
+            if (!HasAnimationClip(animator, clipName))
             {
-                actions.Add(new Tk2dPlayAnimation
-                {
-                    gameObject = new FsmOwnerDefault
-                    {
-                        OwnerOption = OwnerDefaultOption.SpecifyGameObject,
-                        GameObject = _fsmHero
-                    },
-                    animLibName = new FsmString("") { Value = "" },
-                    clipName = new FsmString("Roar Lock") { Value = "Roar Lock" },
-                });
+                Log.Warn($"动画 '{clipName}' 不存在，跳过播放（小骑士MOD兼容）");
+                return false;
             }
-            else
-            {
-                Log.Warn("AddClimbWaitRoarActions: _fsmHero 为空，跳过玩家动画");
-            }
-            waitState.Actions = actions.ToArray();
+            animator.Play(clipName);
+            return true;
         }
 
         /// <summary>
@@ -771,101 +781,60 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         #region 爬升阶段C#辅助方法
 
         /// <summary>
+        /// 获取玩家 GameObject（优先使用全局 Hero 变量，兼容小骑士MOD）
+        /// </summary>
+        private GameObject? GetHeroGameObject()
+        {
+            // 优先使用全局 Hero 变量（小骑士MOD兼容）
+            var globalHeroVar = FsmVariables.GlobalVariables.GetFsmGameObject("Hero");
+            if (globalHeroVar != null && globalHeroVar.Value != null)
+            {
+                return globalHeroVar.Value;
+            }
+            // 回退到 HeroController.instance
+            return HeroController.instance?.gameObject;
+        }
+
+        /// <summary>
         /// Roar 结束后禁用玩家输入（简单的输入禁用，Roar 已处理完复杂状态）
+        /// 小骑士MOD已patch HeroController，直接使用即可
         /// </summary>
         public void DisablePlayerInputAfterRoar()
         {
-            var hero = HeroController.instance;
-            if (hero == null)
+            var heroObj = GetHeroGameObject();
+            if (heroObj == null)
             {
-                Log.Error("DisablePlayerInputAfterRoar: HeroController未找到");
+                Log.Error("DisablePlayerInputAfterRoar: 无法获取玩家对象");
                 return;
             }
 
-            var rb = hero.GetComponent<Rigidbody2D>();
+            var hero = HeroController.instance;
+            if (hero == null)
+            {
+                Log.Error("DisablePlayerInputAfterRoar: HeroController.instance 为空");
+                return;
+            }
 
-            // Roar 结束后，玩家状态已被原版机制恢复，现在我们只需要简单禁用输入
+            // 禁用玩家输入（小骑士MOD已patch这些方法）
             GameManager._instance?.inputHandler?.StopAcceptingInput();
             hero.RelinquishControl();
             hero.StopAnimationControl();
             hero.AffectedByGravity(false);
 
-            if (rb != null)
-            {
-                rb.linearVelocity = Vector2.zero;
-            }
-
-            // 设置玩家无敌
-            PlayerData.instance.isInvincible = true;
-
             Log.Info("Roar结束后禁用玩家输入完成，开始平滑移动到地面");
 
             // 平滑移动玩家到Y=133.57（保持X不变）
-            StartCoroutine(AnimatePlayerToGround());
-        }
-
-        /// <summary>
-        /// 硬控玩家并移动到地面（已废弃，保留兼容）
-        /// </summary>
-        [System.Obsolete("使用 DisablePlayerInputAfterRoar 替代，让原版 Roar 机制处理硬控")]
-        public void CatchPlayerForClimb()
-        {
-            // 直接调用新方法
-            DisablePlayerInputAfterRoar();
-        }
-
-        /// <summary>
-        /// 设置捕捉效果（隐藏英雄 + 激活替身）
-        /// </summary>
-        public void SetupCatchEffect()
-        {
-            var hero = HeroController.instance;
-            if (hero == null) return;
-
-            // 隐藏英雄的MeshRenderer
-            var heroRenderer = hero.GetComponent<MeshRenderer>();
-            if (heroRenderer != null)
-            {
-                heroRenderer.enabled = false;
-                Log.Info("英雄MeshRenderer已隐藏");
-            }
-
-            // 找到并激活Web Strand Catch Effect
-            var bossScene = GameObject.Find("Boss Scene");
-            if (bossScene != null)
-            {
-                var catchEffect = bossScene.transform.Find("Web Strand Catch Effect");
-                if (catchEffect != null)
-                {
-                    // 设置替身位置到英雄位置
-                    catchEffect.position = hero.transform.position;
-
-                    // 匹配英雄的朝向
-                    var heroScale = hero.transform.localScale;
-                    var effectScale = catchEffect.localScale;
-                    effectScale.x = Mathf.Sign(heroScale.x) * Mathf.Abs(effectScale.x);
-                    catchEffect.localScale = effectScale;
-
-                    // 激活替身
-                    catchEffect.gameObject.SetActive(true);
-                    Log.Info($"Web Strand Catch Effect已激活，位置: {catchEffect.position}");
-                }
-                else
-                {
-                    Log.Warn("Web Strand Catch Effect未找到");
-                }
-            }
+            StartCoroutine(AnimatePlayerToGround(heroObj));
         }
 
         /// <summary>
         /// 平滑移动玩家到地面Y=133.57
         /// </summary>
-        private IEnumerator AnimatePlayerToGround()
+        private IEnumerator AnimatePlayerToGround(GameObject heroObj)
         {
-            var hero = HeroController.instance;
-            if (hero == null) yield break;
+            if (heroObj == null) yield break;
 
-            float startY = hero.transform.position.y;
+            float startY = heroObj.transform.position.y;
             float targetY = 133.57f;
             float duration = 0.3f;
             float elapsed = 0f;
@@ -877,22 +846,22 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 // 使用easeOutCubic缓动
                 float easeT = 1f - Mathf.Pow(1f - t, 3f);
                 float newY = Mathf.Lerp(startY, targetY, easeT);
-                hero.transform.position = new Vector3(
-                    hero.transform.position.x,
+                heroObj.transform.position = new Vector3(
+                    heroObj.transform.position.x,
                     newY,
-                    hero.transform.position.z
+                    heroObj.transform.position.z
                 );
                 yield return null;
             }
 
             // 确保最终位置精确
-            hero.transform.position = new Vector3(
-                hero.transform.position.x,
+            heroObj.transform.position = new Vector3(
+                heroObj.transform.position.x,
                 targetY,
-                hero.transform.position.z
+                heroObj.transform.position.z
             );
 
-            Log.Info($"玩家平滑移动到地面完成，最终Y={hero.transform.position.y:F2}");
+            Log.Info($"玩家平滑移动到地面完成，最终Y={heroObj.transform.position.y:F2}");
         }
 
         /// <summary>
@@ -909,14 +878,20 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         public void PreparePlayerForFall()
         {
+            var heroObj = GetHeroGameObject();
             var hero = HeroController.instance;
-            if (hero == null) return;
+            
+            if (heroObj == null || hero == null)
+            {
+                Log.Error("PreparePlayerForFall: 无法获取玩家对象");
+                return;
+            }
 
-            // 恢复重力
+            // 恢复重力（小骑士MOD已patch）
             hero.AffectedByGravity(true);
 
             // 恢复英雄显示
-            var meshRenderer = hero.GetComponent<MeshRenderer>();
+            var meshRenderer = heroObj.GetComponent<MeshRenderer>();
             if (meshRenderer != null)
             {
                 meshRenderer.enabled = true;
@@ -952,20 +927,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         #endregion
 
         /// <summary>
-        /// 禁用玩家输入
-        /// </summary>
-        public void DisablePlayerInput()
-        {
-            var hero = HeroController.instance;
-            if (hero != null)
-            {
-                hero.StopAnimationControl();
-                hero.RelinquishControl();
-                Log.Info("禁用玩家输入和控制");
-            }
-        }
-
-        /// <summary>
         /// 启动玩家动画控制协程
         /// </summary>
         public void StartClimbPhasePlayerAnimation()
@@ -979,33 +940,35 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         private IEnumerator ClimbPhasePlayerAnimationCoroutine()
         {
+            var heroObj = GetHeroGameObject();
             var hero = HeroController.instance;
-            if (hero == null)
+            
+            if (heroObj == null || hero == null)
             {
-                Log.Error("HeroController 未找到");
+                Log.Error("ClimbPhasePlayerAnimationCoroutine: 无法获取玩家对象");
                 yield break;
             }
 
-            var tk2dAnimator = hero.GetComponent<tk2dSpriteAnimator>();
-            var rb = hero.GetComponent<Rigidbody2D>();
+            var tk2dAnimator = heroObj.GetComponent<tk2dSpriteAnimator>();
+            var rb = heroObj.GetComponent<Rigidbody2D>();
 
             Log.Info("开始穿墙下落序列");
 
             // 1. 保存原始图层
-            int originalLayer = hero.gameObject.layer;
-            Vector3 currentPos = hero.transform.position;
+            int originalLayer = heroObj.layer;
+            Vector3 currentPos = heroObj.transform.position;
 
             // 2. 设置穿墙图层
-            hero.gameObject.layer = LayerMask.NameToLayer("Ignore Raycast");
+            heroObj.layer = LayerMask.NameToLayer("Ignore Raycast");
             // 统一确保无敌状态
-            PlayerData.instance.isInvincible = true;
+            PlayerData.instance?.SetBool(nameof(PlayerData.isInvincible), true);
 
             // 4. 计算X轴速度让玩家落到目标位置（X=40）
             if (rb != null)
             {
                 float targetX = 40f;
                 float currentX = currentPos.x;
-                float fallTime = 2.3f; // 实测下落时间
+                float fallTime = 2.15f; // 实测下落时间
 
                 // 计算所需的X轴速度: vx = deltaX / t
                 float deltaX = targetX - currentX;
@@ -1017,45 +980,48 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 Log.Info($"玩家下落计算 - 当前位置:({currentX:F2}, {currentPos.y:F2}), 目标X:{targetX}, X轴速度:{velocityX:F2}");
             }
 
-            // 5. 播放 Weak Fall 动画
-            if (tk2dAnimator != null)
-                tk2dAnimator.Play("Weak Fall");
+            // 5. 播放 Weak Fall 动画（安全播放，动画不存在则跳过）
+            TryPlayAnimation(tk2dAnimator, "Weak Fall");
 
             // 6. 监控 Y 轴，当 Y < 57 时恢复原始图层和无敌状态（此时还未落地）
-            while (hero.transform.position.y >= 57f)
+            while (heroObj != null && heroObj.transform.position.y >= 57f)
             {
                 yield return null;
             }
+
+            if (heroObj == null) yield break;
 
             // 7. 恢复原始图层和无敌状态（玩家继续下落但不再穿墙）
-            hero.gameObject.layer = originalLayer;
-            PlayerData.instance.isInvincible = false;
-            Log.Info($"玩家 Y < 57，恢复原始图层: {originalLayer}，当前位置: {hero.transform.position.y}");
+            heroObj.layer = originalLayer;
+            PlayerData.instance?.SetBool(nameof(PlayerData.isInvincible), false);
+            Log.Info($"玩家 Y < 57，恢复原始图层: {originalLayer}，当前位置: {heroObj.transform.position.y}");
 
             // 8. 等待落地（Y <= 53.8）
-            while (hero.transform.position.y > 53.8f)
+            while (heroObj != null && heroObj.transform.position.y > 53.8f)
             {
                 yield return null;
             }
 
-            Log.Info($"玩家落地，最终位置: {hero.transform.position.y}");
+            if (heroObj == null) yield break;
+
+            Log.Info($"玩家落地，最终位置: {heroObj.transform.position.y}");
             if (rb != null)
                 rb.linearVelocity = new Vector2(0f, rb.linearVelocity.y);
 
-            // 9. 播放恢复动画序列
+            // 9. 播放恢复动画序列（安全播放，动画不存在则跳过）
             if (tk2dAnimator != null)
             {
-                tk2dAnimator.Play("FallToProstrate");
-                yield return new WaitForSeconds(1f);
+                if (TryPlayAnimation(tk2dAnimator, "FallToProstrate"))
+                    yield return new WaitForSeconds(1f);
 
-                tk2dAnimator.Play("ProstrateRiseToKneel");
-                yield return new WaitForSeconds(1f);
+                if (TryPlayAnimation(tk2dAnimator, "ProstrateRiseToKneel"))
+                    yield return new WaitForSeconds(1f);
 
-                tk2dAnimator.Play("GetUpToIdle");
-                yield return new WaitForSeconds(0.3f);
+                if (TryPlayAnimation(tk2dAnimator, "GetUpToIdle"))
+                    yield return new WaitForSeconds(0.3f);
             }
 
-            // 10. 恢复玩家控制和动画控制
+            // 10. 恢复玩家控制和动画控制（小骑士MOD已patch）
             GameManager._instance?.inputHandler?.StartAcceptingInput();
             hero.RegainControl();
             hero.StartAnimationControl();
@@ -1078,15 +1044,15 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         {
             if (_climbCompleteEventSent) return;
 
-            var hero = HeroController.instance;
-            if (hero == null) return;
+            var heroObj = GetHeroGameObject();
+            if (heroObj == null) return;
 
             // 边界限制：X轴范围 [2, 78]
-            Vector3 pos = hero.transform.position;
+            Vector3 pos = heroObj.transform.position;
             if (pos.x < 2f)
             {
-                hero.transform.position = new Vector3(2f, pos.y, pos.z);
-                var rb = hero.GetComponent<Rigidbody2D>();
+                heroObj.transform.position = new Vector3(2f, pos.y, pos.z);
+                var rb = heroObj.GetComponent<Rigidbody2D>();
                 if (rb != null && rb.linearVelocity.x < 0)
                 {
                     rb.linearVelocity = new Vector2(0f, rb.linearVelocity.y);
@@ -1094,8 +1060,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             }
             else if (pos.x > 78f)
             {
-                hero.transform.position = new Vector3(78f, pos.y, pos.z);
-                var rb = hero.GetComponent<Rigidbody2D>();
+                heroObj.transform.position = new Vector3(78f, pos.y, pos.z);
+                var rb = heroObj.GetComponent<Rigidbody2D>();
                 if (rb != null && rb.linearVelocity.x > 0)
                 {
                     rb.linearVelocity = new Vector2(0f, rb.linearVelocity.y);
@@ -1253,8 +1219,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         private IEnumerator MonitorPlayerXForCollapseGate()
         {
-            var hero = HeroController.instance;
-            if (hero == null || _collapseGate == null)
+            var heroObj = GetHeroGameObject();
+            if (heroObj == null || _collapseGate == null)
             {
                 Log.Warn("无法监控玩家X坐标或collapse_gate为null");
                 yield break;
@@ -1263,9 +1229,9 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             Log.Info("开始监控玩家X坐标以恢复collapse_gate");
 
             // 持续监控直到玩家X > 20或collapse_gate已恢复
-            while (hero != null && _collapseGate != null)
+            while (heroObj != null && _collapseGate != null)
             {
-                float playerX = hero.transform.position.x;
+                float playerX = heroObj.transform.position.x;
 
                 // 如果玩家X > 20且collapse_gate未激活，则恢复它
                 if (playerX > 20f && !_collapseGate.activeSelf)
@@ -1297,14 +1263,14 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 return;
             }
 
-            var hero = HeroController.instance;
-            if (hero == null)
+            var heroObj = GetHeroGameObject();
+            if (heroObj == null)
             {
-                Log.Error("HeroController未找到，无法启用丝线缠绕");
+                Log.Error("无法获取玩家对象，无法启用丝线缠绕");
                 return;
             }
 
-            Vector3 heroPos = hero.transform.position;
+            Vector3 heroPos = heroObj.transform.position;
             float offsetDistance = 10f;  // 偏移距离
 
             // 五个位置：上、左上、右上、左下、右下
@@ -1366,10 +1332,10 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// <param name="duration">跟随持续时间</param>
         private IEnumerator UpdateSilkYankPositions(float duration)
         {
-            var hero = HeroController.instance;
-            if (hero == null)
+            var heroObj = GetHeroGameObject();
+            if (heroObj == null)
             {
-                Log.Warn("HeroController未找到，无法更新丝线位置");
+                Log.Warn("无法获取玩家对象，无法更新丝线位置");
                 yield break;
             }
 
@@ -1388,9 +1354,9 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             while (elapsed < duration)
             {
-                if (hero != null)
+                if (heroObj != null)
                 {
-                    Vector3 heroPos = hero.transform.position;
+                    Vector3 heroPos = heroObj.transform.position;
 
                     // 五个位置：上、左上、右上、左下、右下
                     Vector3[] positions = new Vector3[]

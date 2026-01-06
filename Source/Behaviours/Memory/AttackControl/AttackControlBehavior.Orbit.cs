@@ -264,6 +264,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
         /// <summary>
         /// 修改HandPtnChoiceState状态的SendRandomEventV4动作，添加环绕攻击事件
+        /// Hand Ptn Choice: eventMax 全改为 1
         /// </summary>
         private void ModifySendRandomEventAction()
         {
@@ -282,12 +283,12 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 var newEventMax = new FsmInt[existingEventMax.Length + 1];
                 var newMissedMax = new FsmInt[existingMissedMax.Length + 1];
                 var newActiveBool = new FsmBool(existingActiveBool);
-                // 复制原有事件
+                // 复制原有事件，并将所有 eventMax 改为 1
                 for (int i = 0; i < existingEvents.Length; i++)
                 {
                     newEvents[i] = existingEvents[i];
                     newWeights[i] = existingWeights[i];
-                    newEventMax[i] = existingEventMax[i];
+                    newEventMax[i] = new FsmInt(1);  // 全部改为 1
                     newMissedMax[i] = existingMissedMax[i];
                 }
 
@@ -305,6 +306,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 sendRandomEventAction.missedMax = newMissedMax;
                 sendRandomEventAction.activeBool = newActiveBool;
             }
+            Log.Info("Hand Ptn Choice: 所有原有事件的 eventMax 已改为 1");
         }
 
         /// <summary>

@@ -23,7 +23,7 @@
         <!--These properties will control the generated PluginInfo. Version is also used by various parts of the build system.-->
         <BepInExPluginGuid>AnySilkBoss</BepInExPluginGuid>
         <BepInExPluginName>AnySilkBoss</BepInExPluginName>
-        <Version>0.1.0</Version>
+        <Version>0.1.2</Version>
     </PropertyGroup>
 
     <ItemGroup>

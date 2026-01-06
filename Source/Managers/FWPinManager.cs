@@ -106,8 +106,14 @@ namespace AnySilkBoss.Source.Managers
 
         private void OnSceneChanged(Scene oldScene, Scene newScene)
         {
-            // 只有真正离开 BOSS 场景（到其他场景）时才清理，同场景重载（如死亡复活）不清理
-            if (oldScene.name == BOSS_SCENE_NAME && newScene.name != BOSS_SCENE_NAME)
+            // 同场景重载（如死亡复活）：回收所有活跃的 Pin 到池中
+            if (oldScene.name == BOSS_SCENE_NAME && newScene.name == BOSS_SCENE_NAME)
+            {
+                Log.Info($"[FWPinManager] 同场景重载 {oldScene.name}，回收所有活跃 Pin");
+                RecycleAllPinProjectiles();
+            }
+            // 离开 BOSS 场景（到其他场景）：完全清理对象池
+            else if (oldScene.name == BOSS_SCENE_NAME && newScene.name != BOSS_SCENE_NAME)
             {
                 Log.Info($"[FWPinManager] 离开 BOSS 场景 {oldScene.name}，清理缓存");
                 CleanupPool();
@@ -2024,6 +2030,17 @@ namespace AnySilkBoss.Source.Managers
 
             StopAllCoroutines();
 
+            // 先销毁所有活跃的 Pin（不在池中的）
+            var activeObjects = FindObjectsByType<GameObject>(FindObjectsSortMode.None);
+            foreach (var obj in activeObjects)
+            {
+                if (obj != null && obj.name.Contains("FW Pin Projectile") && obj.transform.parent != _poolContainer?.transform)
+                {
+                    Destroy(obj);
+                }
+            }
+
+            // 再清理池中的对象
             foreach (var obj in _pinProjectilePool)
             {
                 if (obj != null)
