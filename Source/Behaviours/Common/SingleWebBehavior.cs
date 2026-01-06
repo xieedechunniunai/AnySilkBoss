@@ -163,7 +163,6 @@ namespace AnySilkBoss.Source.Behaviours.Common
             DisableHornetCatchFsm();
 
             _initialized = true;
-            Log.Info($"=== SingleWebBehavior 初始化完成: {gameObject.name} ===");
         }
 
         /// <summary>

@@ -488,6 +488,9 @@ namespace AnySilkBoss.Source.Behaviours.Common
             _isAvailable = false;
             isActive = true;
 
+            // 穿墙丝球：设置 MeshRenderer 的 sortingOrder 让其显示在墙体前面
+            UpdateRenderOrder(ignoreWall);
+
             // ⚠️ 关键修复：如果不需要延迟激活伤害，立即启用 DamageHero
             if (!_delayDamageActivation && damageHero != null)
             {
@@ -503,6 +506,29 @@ namespace AnySilkBoss.Source.Behaviours.Common
                     controlFSM.Fsm.SetState("Idle");
                 }
                 controlFSM.SendEvent("PREPARE");
+            }
+        }
+
+        /// <summary>
+        /// 更新渲染顺序（穿墙丝球显示在墙体前面）
+        /// </summary>
+        private void UpdateRenderOrder(bool ignoreWall)
+        {
+            if (spriteSilk == null) return;
+
+            var meshRenderer = spriteSilk.GetComponent<MeshRenderer>();
+            if (meshRenderer != null)
+            {
+                if (ignoreWall)
+                {
+                    // 穿墙丝球：设置较高的 sortingOrder 显示在墙体前面
+                    meshRenderer.sortingOrder = 10;
+                }
+                else
+                {
+                    // 普通丝球：恢复默认 sortingOrder
+                    meshRenderer.sortingOrder = 0;
+                }
             }
         }
 

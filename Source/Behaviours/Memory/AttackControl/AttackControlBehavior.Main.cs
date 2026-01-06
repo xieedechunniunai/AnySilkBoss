@@ -163,9 +163,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             handL = _handLFsmVar?.Value;
             handR = _handRFsmVar?.Value;
 
-            // 缓存阶段判断变量（Special Attack = true 表示 P2 阶段）
-            _specialAttackVar = _attackControlFsm.FsmVariables.FindFsmBool("Special Attack");
-
             // 获取 Hand Control FSM（注意名称是 "Hand Control" 不是 "Control"）
             _handLControlFsm = handL != null ? FSMUtility.LocateMyFSM(handL, "Hand Control") : null;
             _handRControlFsm = handR != null ? FSMUtility.LocateMyFSM(handR, "Hand Control") : null;
@@ -203,6 +200,10 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             _strandPatterns = _bossScene.transform.Find("Strand Patterns").gameObject;
             InitializeSilkBallDashVariables();
+
+            // 缓存阶段判断变量（Special Attack = true 表示 P2 阶段）
+            // 注意：必须在 InitializeSilkBallDashVariables 之后，因为该方法会创建此变量
+            _specialAttackVar = _attackControlFsm.FsmVariables.FindFsmBool("Special Attack");
 
             InitializeNaChargeEffect();
 

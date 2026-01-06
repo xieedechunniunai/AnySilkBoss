@@ -155,12 +155,13 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 everyFrame = false
             });
 
+            // Silk Ball Prepare: STATIC/DASH missedMax=3, WITH WEB 权重0.25 eventMax=1 missedMax=4
             actions.Add(new SendRandomEventV4
             {
                 events = new FsmEvent[] { _silkBallStaticEvent!, _silkBallDashEvent!, _silkBallWithWebAttackEvent! },
-                weights = new FsmFloat[] { 1f, 1f, 1f },
-                eventMax = new FsmInt[] { 2, 2, 2 },
-                missedMax = new FsmInt[] { 2, 2, 2 },
+                weights = new FsmFloat[] { 1f, 1f, 0.25f },
+                eventMax = new FsmInt[] { 2, 2, 1 },
+                missedMax = new FsmInt[] { 3, 3, 4 },
                 activeBool = new FsmBool { UseVariable = true, Value = true }
             });
 
@@ -171,6 +172,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
         /// <summary>
         /// 修改Attack Choice状态，添加丝球攻击
+        /// 调整后的概率：HAND 53%, DASH 10%, WEB 12%, SILK BALL 25%
         /// </summary>
         private void ModifyAttackChoiceForSilkBall()
         {
@@ -195,6 +197,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 return;
             }
 
+            // Attack Choice [3] (Can Web Strand Attack = true)
+            // HAND: 0.53, missedMax 3 | DASH: 0.10, missedMax 5 | WEB: 0.12, missedMax 5 | SILK BALL: 0.25, eventMax 2, missedMax 4
             {
                 var action = sendRandomActions[0];
 
@@ -207,33 +211,36 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 {
                     newEvents[i] = action.events[i];
                     newEventMax[i] = action.eventMax[i];
-                    newMissedMax[i] = action.missedMax[i];
 
                     if (action.events[i] != null && action.events[i].Name == "HAND ATTACK")
                     {
-                        newWeights[i] = new FsmFloat(0.5f);
-                        Log.Info($"第一个动作 - HAND ATTACK权重: {action.weights[i].Value} -> 0.5f");
+                        newWeights[i] = new FsmFloat(0.53f);
+                        newMissedMax[i] = new FsmInt(3);
+                        Log.Info($"第一个动作 - HAND ATTACK: 权重 0.53, missedMax 3");
                     }
                     else if (action.events[i] != null && action.events[i].Name == "DASH ATTACK")
                     {
-                        newWeights[i] = new FsmFloat(0.15f);
-                        Log.Info($"第一个动作 - DASH ATTACK权重: {action.weights[i].Value} -> 0.15f");
+                        newWeights[i] = new FsmFloat(0.10f);
+                        newMissedMax[i] = new FsmInt(5);
+                        Log.Info($"第一个动作 - DASH ATTACK: 权重 0.10, missedMax 5");
                     }
                     else if (action.events[i] != null && action.events[i].Name == "WEB ATTACK")
                     {
-                        newWeights[i] = new FsmFloat(0.15f);
-                        Log.Info($"第一个动作 - WEB ATTACK权重: {action.weights[i].Value} -> 0.15f");
+                        newWeights[i] = new FsmFloat(0.12f);
+                        newMissedMax[i] = new FsmInt(5);
+                        Log.Info($"第一个动作 - WEB ATTACK: 权重 0.12, missedMax 5");
                     }
                     else
                     {
                         newWeights[i] = action.weights[i];
+                        newMissedMax[i] = action.missedMax[i];
                     }
                 }
 
                 int newIndex = action.events.Length;
                 newEvents[newIndex] = _silkBallAttackEvent!;
-                newWeights[newIndex] = new FsmFloat(0.2f);
-                newEventMax[newIndex] = new FsmInt(1);
+                newWeights[newIndex] = new FsmFloat(0.25f);
+                newEventMax[newIndex] = new FsmInt(2);
                 newMissedMax[newIndex] = new FsmInt(4);
 
                 action.events = newEvents;
@@ -241,9 +248,11 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 action.eventMax = newEventMax;
                 action.missedMax = newMissedMax;
 
-                Log.Info("第一个SendRandomEventV4修改完成：HAND 0.5, DASH 0.15, WEB 0.15, SILK BALL 0.2");
+                Log.Info("第一个SendRandomEventV4修改完成：HAND 0.53, DASH 0.10, WEB 0.12, SILK BALL 0.25");
             }
 
+            // Attack Choice [4] (始终执行)
+            // HAND: 0.6, missedMax 2 | DASH: 0.15, missedMax 4 | SILK BALL: 0.25, missedMax 3
             {
                 var action = sendRandomActions[1];
                 Log.Info("修改第二个SendRandomEventV4（按顺序判断）");
@@ -257,34 +266,38 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 {
                     newEvents[i] = action.events[i];
                     newEventMax[i] = action.eventMax[i];
-                    newMissedMax[i] = action.missedMax[i];
 
                     if (action.events[i] != null && action.events[i].Name == "HAND ATTACK")
                     {
                         newWeights[i] = new FsmFloat(0.6f);
-                        Log.Info($"第二个动作 - HAND ATTACK权重: {action.weights[i].Value} -> 0.6f");
+                        newMissedMax[i] = new FsmInt(2);
+                        Log.Info($"第二个动作 - HAND ATTACK: 权重 0.6, missedMax 2");
                     }
                     else if (action.events[i] != null && action.events[i].Name == "DASH ATTACK")
                     {
-                        newWeights[i] = new FsmFloat(0.2f);
-                        Log.Info($"第二个动作 - DASH ATTACK权重: {action.weights[i].Value} -> 0.2f");
+                        newWeights[i] = new FsmFloat(0.15f);
+                        newMissedMax[i] = new FsmInt(4);
+                        Log.Info($"第二个动作 - DASH ATTACK: 权重 0.15, missedMax 4");
                     }
                     else
                     {
                         newWeights[i] = action.weights[i];
+                        newMissedMax[i] = action.missedMax[i];
                     }
                 }
 
                 int newIndex = action.events.Length;
                 newEvents[newIndex] = _silkBallAttackEvent!;
-                newWeights[newIndex] = new FsmFloat(0.2f);
+                newWeights[newIndex] = new FsmFloat(0.25f);
                 newEventMax[newIndex] = new FsmInt(1);
-                newMissedMax[newIndex] = new FsmInt(4);
+                newMissedMax[newIndex] = new FsmInt(3);
 
                 action.events = newEvents;
                 action.weights = newWeights;
                 action.eventMax = newEventMax;
                 action.missedMax = newMissedMax;
+
+                Log.Info("第二个SendRandomEventV4修改完成：HAND 0.6, DASH 0.15, SILK BALL 0.25");
             }
         }
 

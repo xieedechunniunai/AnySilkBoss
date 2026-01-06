@@ -80,6 +80,9 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         private FsmFloat? _fsmHeroX;
         private FsmFloat? _fsmHeroY;
 
+        // 小骑士MOD适配：全局Hero变量缓存
+        private GameObject? _globalHero;
+
         private void Awake()
         {
             // 初始化在Start中进行
@@ -88,6 +91,75 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         private void Start()
         {
             StartCoroutine(DelayedSetup());
+            
+            // 尝试获取全局 Hero 变量（小骑士MOD适配）
+            TryGetGlobalHero();
+        }
+
+        private void Update()
+        {
+            // 按T键打印全局Hero信息（调试用）
+            if (Input.GetKeyDown(KeyCode.T))
+            {
+                PrintGlobalHeroInfo();
+            }
+        }
+
+        /// <summary>
+        /// 尝试获取全局 Hero 变量（小骑士MOD适配）
+        /// </summary>
+        private void TryGetGlobalHero()
+        {
+            try
+            {
+                var heroVar = FsmVariables.GlobalVariables.GetFsmGameObject("Hero");
+                if (heroVar != null && heroVar.Value != null)
+                {
+                    _globalHero = heroVar.Value;
+                    Log.Info($"[PhaseControl] 获取到全局 Hero: {_globalHero.name}");
+                }
+                else
+                {
+                    Log.Warn("[PhaseControl] 全局 Hero 变量为空");
+                }
+            }
+            catch (System.Exception ex)
+            {
+                Log.Error($"[PhaseControl] 获取全局 Hero 失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 打印全局 Hero 信息（按T键触发）
+        /// </summary>
+        private void PrintGlobalHeroInfo()
+        {
+            // 每次按T都重新获取，以便检测变化
+            TryGetGlobalHero();
+
+            if (_globalHero == null)
+            {
+                Log.Info("[PhaseControl] 全局 Hero 为空");
+                return;
+            }
+
+            Log.Info($"========== 全局 Hero 信息 ==========");
+            Log.Info($"名称: {_globalHero.name}");
+            Log.Info($"位置: {_globalHero.transform.position}");
+            Log.Info($"Layer: {_globalHero.layer} ({LayerMask.LayerToName(_globalHero.layer)})");
+            Log.Info($"激活状态: {_globalHero.activeSelf}");
+            
+            var components = _globalHero.GetComponents<Component>();
+            Log.Info($"组件数量: {components.Length}");
+            Log.Info("组件列表:");
+            foreach (var comp in components)
+            {
+                if (comp != null)
+                {
+                    Log.Info($"  - {comp.GetType().Name}");
+                }
+            }
+            Log.Info($"=====================================");
         }
 
         /// <summary>

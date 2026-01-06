@@ -618,6 +618,9 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
         /// <summary>
         /// 将 BlastBurst 事件添加到 SendRandomEventV4 动作中
+        /// BLAST BURST 1: 权重1.5, eventMax 1, missedMax 5
+        /// BLAST BURST 2: 权重1, eventMax 1, missedMax 6
+        /// BLAST BURST 3: 权重1, eventMax 1, missedMax 6
         /// </summary>
         private void AddBlastBurstToSendRandomEvent()
         {
@@ -646,12 +649,12 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                     newMissedMax[i] = action.missedMax[i];
                 }
 
-                // 添加 BLAST BURST 1
+                // 添加 BLAST BURST 1: eventMax 改为 1
                 if (_blastBurst1Event != null)
                 {
                     newEvents[currentLength] = _blastBurst1Event;
                     newWeights[currentLength] = new FsmFloat(1.5f);
-                    newEventMax[currentLength] = new FsmInt(2);
+                    newEventMax[currentLength] = new FsmInt(1);  // 改为 1
                     newMissedMax[currentLength] = new FsmInt(5);
                 }
 
@@ -679,7 +682,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 action.eventMax = newEventMax;
                 action.missedMax = newMissedMax;
 
-                Log.Info($"[BlastBurst] 已添加 {eventsToAdd} 个爆炸攻击事件到 SendRandomEventV4");
+                Log.Info($"[BlastBurst] 已添加 {eventsToAdd} 个爆炸攻击事件到 SendRandomEventV4 (eventMax 全为 1)");
             }
         }
 
