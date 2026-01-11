@@ -312,6 +312,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             PatchOriginalAttackPatterns();
             AddAttactStopAction();
             ModifySpikeLiftAimState();
+            PatchShiftHeroStateSetMeshRenderer();
             RelinkAllEventReferences();
             Log.Info("Attack Control FSM修改完成");
         }

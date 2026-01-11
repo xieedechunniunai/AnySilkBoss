@@ -391,6 +391,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             PatchDashOrbitForDashAttack();
             AddAttactStopAction();
             ModifySpikeLiftAimState();
+            PatchShiftHeroStateSetMeshRenderer();
             RelinkAllEventReferences();
             Log.Info("Attack Control FSM修改完成");
         }
