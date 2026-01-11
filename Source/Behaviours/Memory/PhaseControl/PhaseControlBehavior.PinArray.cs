@@ -17,6 +17,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         private FsmEvent? _pinArraySkipEvent;
         private FsmEvent? _startPinArraySpecialEvent;
         private FsmEvent? _pinArrayRoarDoneEvent;
+        private FsmEvent? _pinArrayStartDoneEvent;
 
         private FsmState? _pinArrayHpCheckEntryState;
         private FsmState? _pinArrayHpCheck400State;
@@ -24,7 +25,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         private FsmState? _pinArrayRoarWaitState;
         private FsmState? _pinArrayPrepareState;
         private FsmState? _pinArrayStartState;
-        private FsmState? _pinArrayWaitState;
         private FsmState? _pinArrayEndState;
 
         private Coroutine? _pinArrayBladeAttackCoroutine;
@@ -76,10 +76,9 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             _pinArrayRoarWaitState = CreateState(_phaseControl.Fsm, "PinArray Roar Wait", "PinArray roar wait");
             _pinArrayPrepareState = CreateState(_phaseControl.Fsm, "PinArray Prepare", "PinArray prepare");
             _pinArrayStartState = CreateState(_phaseControl.Fsm, "PinArray Start", "PinArray start");
-            _pinArrayWaitState = CreateState(_phaseControl.Fsm, "PinArray Wait", "PinArray wait");
             _pinArrayEndState = CreateState(_phaseControl.Fsm, "PinArray End", "PinArray end");
 
-            AddStatesToFsm(_phaseControl, _pinArrayHpCheckEntryState, _pinArrayHpCheck400State, _pinArrayRoarState, _pinArrayRoarWaitState, _pinArrayPrepareState, _pinArrayStartState, _pinArrayWaitState, _pinArrayEndState);
+            AddStatesToFsm(_phaseControl, _pinArrayHpCheckEntryState, _pinArrayHpCheck400State, _pinArrayRoarState, _pinArrayRoarWaitState, _pinArrayPrepareState, _pinArrayStartState, _pinArrayEndState);
 
             PatchP4Transition(p4State, hpCheck4State, _pinArrayHpCheckEntryState);
 
@@ -89,7 +88,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             AddPinArrayRoarWaitActions(_pinArrayRoarWaitState);
             AddPinArrayPrepareActions(_pinArrayPrepareState);
             AddPinArrayStartActions(_pinArrayStartState);
-            AddPinArrayWaitActions(_pinArrayWaitState);
             AddPinArrayEndActions(_pinArrayEndState);
 
             _pinArrayHpCheckEntryState.Transitions = new FsmTransition[]
@@ -106,9 +104,16 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             SetFinishedTransition(_pinArrayRoarState, _pinArrayRoarWaitState);
             SetFinishedTransition(_pinArrayPrepareState, _pinArrayStartState);
-            SetFinishedTransition(_pinArrayStartState, _pinArrayWaitState);
-            SetFinishedTransition(_pinArrayWaitState, _pinArrayEndState);
             SetFinishedTransition(_pinArrayEndState, p4State);
+
+            // PinArray Start 通过 PIN_ARRAY_START_DONE 事件跳转到 PinArray End
+            if (_pinArrayStartDoneEvent != null)
+            {
+                _pinArrayStartState!.Transitions = new FsmTransition[]
+                {
+                    CreateTransition(_pinArrayStartDoneEvent, _pinArrayEndState)
+                };
+            }
 
             if (_pinArrayRoarDoneEvent != null)
             {
@@ -142,6 +147,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             _pinArraySkipEvent = GetOrCreateEvent(_phaseControl, "PIN_ARRAY_SKIP");
             _startPinArraySpecialEvent = GetOrCreateEvent(_phaseControl, "START PIN ARRAY SPECIAL");
             _pinArrayRoarDoneEvent = GetOrCreateEvent(_phaseControl, "PIN ARRAY ROAR DONE");
+            _pinArrayStartDoneEvent = GetOrCreateEvent(_phaseControl, "PIN_ARRAY_START_DONE");
         }
 
         private void PatchP4Transition(FsmState p4State, FsmState hpCheck4State, FsmState entryState)
@@ -321,6 +327,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
         private void AddPinArrayStartActions(FsmState state)
         {
+            // 只调用 StartPinArraySpecialAttack，协程完成后会发送 PIN_ARRAY_START_DONE 事件
             state.Actions = new FsmStateAction[]
             {
                 new CallMethod
@@ -328,11 +335,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                     behaviour = new FsmObject { Value = this },
                     methodName = new FsmString("StartPinArraySpecialAttack") { Value = "StartPinArraySpecialAttack" },
                     parameters = new FsmVar[0]
-                },
-                new Wait
-                {
-                    time = new FsmFloat(0.1f),
-                    finishEvent = FsmEvent.Finished
                 }
             };
         }
@@ -393,6 +395,12 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             MemorySpikeFloorBehavior.ResumeSpikeSystem(spikeFloorsParent);
 
             Log.Info("[PinArray] 大招主流程完成");
+
+            // 11. 发送 PIN_ARRAY_START_DONE 事件，通知 FSM 进入 End 状态
+            if (_phaseControl != null)
+            {
+                _phaseControl.SendEvent("PIN_ARRAY_START_DONE");
+            }
         }
 
         /// <summary>
@@ -729,20 +737,6 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
                 yield return new WaitForSeconds(interval);
             }
-        }
-
-        private void AddPinArrayWaitActions(FsmState state)
-        {
-            // 总时长估算：展开(2s) + WaveA落地(1.2s) + Lift(0.8s) + 发射(~5s) + 结束等待(2s) ≈ 11s
-            // 留 3s 余量
-            state.Actions = new FsmStateAction[]
-            {
-                new Wait
-                {
-                    time = new FsmFloat(14.0f),
-                    finishEvent = FsmEvent.Finished
-                }
-            };
         }
 
         private void AddPinArrayEndActions(FsmState state)

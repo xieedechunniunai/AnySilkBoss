@@ -196,6 +196,46 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             attackStopState.Actions = actions.ToArray();
         }
 
+        /// <summary>
+        /// 修改 Shift Hero 状态中 SetMeshRenderer 的 active 属性为 true
+        /// </summary>
+        private void PatchShiftHeroStateSetMeshRenderer()
+        {
+            if (_attackControlFsm == null) return;
+
+            var shiftHeroState = _attackControlFsm.FsmStates.FirstOrDefault(s => s.Name == "Shift Hero");
+            if (shiftHeroState == null)
+            {
+                Log.Warn("未找到 Shift Hero 状态，无法修改 SetMeshRenderer");
+                return;
+            }
+
+            if (shiftHeroState.Actions == null)
+            {
+                Log.Warn("Shift Hero 状态没有 Actions");
+                return;
+            }
+
+            int patchedCount = 0;
+            foreach (var action in shiftHeroState.Actions)
+            {
+                if (action is SetMeshRenderer setMeshRenderer)
+                {
+                    setMeshRenderer.active = new FsmBool(true);
+                    patchedCount++;
+                }
+            }
+
+            if (patchedCount > 0)
+            {
+                Log.Info($"已将 Shift Hero 状态中 {patchedCount} 个 SetMeshRenderer 的 active 属性改为 true");
+            }
+            else
+            {
+                Log.Warn("Shift Hero 状态中未找到 SetMeshRenderer 动作");
+            }
+        }
+
         private void ModifyDashAttackState()
         {
             var dashAttackState = _attackControlFsm?.FsmStates.FirstOrDefault(x => x.Name == "Dash Attack");

@@ -127,6 +127,11 @@ namespace AnySilkBoss.Source.Behaviours.Common
                 if (_protectionTimer <= 0f)
                 {
                     isProtected = false;
+                    // 保护时间结束，如果不是穿墙丝球则恢复默认层级
+                    if (!ignoreWallCollision)
+                    {
+                        UpdateRenderOrder(false);
+                    }
                 }
             }
 
@@ -1712,6 +1717,9 @@ namespace AnySilkBoss.Source.Behaviours.Common
         {
             isProtected = true;
             _protectionTimer = duration;
+            
+            // 保护期间设置高层级显示（显示在墙体前面）
+            UpdateRenderOrder(true);
         }
         #endregion
     }

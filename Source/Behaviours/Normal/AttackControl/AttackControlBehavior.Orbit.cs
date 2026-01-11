@@ -175,6 +175,10 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         {
             if (_attackControlFsm == null) return;
 
+            // 注册新事件（避免使用 FINISHED）
+            var orbitFirstShootDoneEvent = GetOrCreateEvent(_attackControlFsm, "ORBIT_FIRST_SHOOT_DONE");
+            var orbitSecondShootDoneEvent = GetOrCreateEvent(_attackControlFsm, "ORBIT_SECOND_SHOOT_DONE");
+
             // 使用 FsmStateBuilder 批量创建子状态
             var orbitSubStates = CreateStates(_attackControlFsm.Fsm,
                 ("Orbit First Shoot", "发送第一个SHOOT事件"),
@@ -185,22 +189,22 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             var orbitFirstShootState = orbitSubStates[0];
             var orbitSecondShootState = orbitSubStates[1];
 
-            // 设置各状态的动作
-            SetOrbitFirstShootActions(orbitFirstShootState);
-            SetOrbitSecondShootActions(orbitSecondShootState);
+            // 设置各状态的动作（传入新事件）
+            SetOrbitFirstShootActions(orbitFirstShootState, orbitFirstShootDoneEvent);
+            SetOrbitSecondShootActions(orbitSecondShootState, orbitSecondShootDoneEvent);
             // 添加转换
             AddOrbitAttackTransitions(orbitFirstShootState);
-            // 设置状态转换
+            // 设置状态转换（使用新事件）
             if (_waitForHandsReadyState != null)
             {
-                SetOrbitAttackSubStateTransitions(orbitFirstShootState, orbitSecondShootState, _waitForHandsReadyState);
+                SetOrbitAttackSubStateTransitions(orbitFirstShootState, orbitSecondShootState, _waitForHandsReadyState, orbitFirstShootDoneEvent, orbitSecondShootDoneEvent);
             }
         }
 
         /// <summary>
         /// 设置Orbit First Shoot状态动作
         /// </summary>
-        private void SetOrbitFirstShootActions(FsmState orbitFirstShootState)
+        private void SetOrbitFirstShootActions(FsmState orbitFirstShootState, FsmEvent doneEvent)
         {
             var randomShootAction = new CallMethod
             {
@@ -209,19 +213,19 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 parameters = new FsmVar[0]
             };
 
-            var finishAction = new Wait
+            var waitAction = new Wait
             {
                 time = new FsmFloat(1.5f),
-                finishEvent = FsmEvent.Finished
+                finishEvent = doneEvent
             };
 
-            orbitFirstShootState.Actions = new FsmStateAction[] { randomShootAction, finishAction };
+            orbitFirstShootState.Actions = new FsmStateAction[] { randomShootAction, waitAction };
         }
 
         /// <summary>
         /// 设置Orbit Second Shoot状态动作
         /// </summary>
-        private void SetOrbitSecondShootActions(FsmState orbitSecondShootState)
+        private void SetOrbitSecondShootActions(FsmState orbitSecondShootState, FsmEvent doneEvent)
         {
             var secondShootAction = new CallMethod
             {
@@ -230,25 +234,30 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 parameters = new FsmVar[0]
             };
 
-            var finishAction = new Wait
+            var waitAction = new Wait
             {
                 time = new FsmFloat(4f),
-                finishEvent = FsmEvent.Finished
+                finishEvent = doneEvent
             };
 
-            orbitSecondShootState.Actions = new FsmStateAction[] { secondShootAction, finishAction };
+            orbitSecondShootState.Actions = new FsmStateAction[] { secondShootAction, waitAction };
         }
 
         /// <summary>
         /// 设置环绕攻击子状态转换
         /// </summary>
-        private void SetOrbitAttackSubStateTransitions(FsmState orbitFirstShootState, FsmState orbitSecondShootState, FsmState waitForHandsReadyState)
+        private void SetOrbitAttackSubStateTransitions(FsmState orbitFirstShootState, FsmState orbitSecondShootState, FsmState waitForHandsReadyState, FsmEvent firstShootDoneEvent, FsmEvent secondShootDoneEvent)
         {
-            // 使用 FsmStateBuilder 简化转换设置
-            // Orbit First Shoot -> Orbit Second Shoot
-            SetFinishedTransition(orbitFirstShootState, orbitSecondShootState);
-            // Orbit Second Shoot -> Wait For Hands Ready
-            SetFinishedTransition(orbitSecondShootState, waitForHandsReadyState);
+            // Orbit First Shoot -> Orbit Second Shoot（通过 ORBIT_FIRST_SHOOT_DONE 事件）
+            orbitFirstShootState.Transitions = new FsmTransition[]
+            {
+                CreateTransition(firstShootDoneEvent, orbitSecondShootState)
+            };
+            // Orbit Second Shoot -> Wait For Hands Ready（通过 ORBIT_SECOND_SHOOT_DONE 事件）
+            orbitSecondShootState.Transitions = new FsmTransition[]
+            {
+                CreateTransition(secondShootDoneEvent, waitForHandsReadyState)
+            };
         }
 
         /// <summary>
