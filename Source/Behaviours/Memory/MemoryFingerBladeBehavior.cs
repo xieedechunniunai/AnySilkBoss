@@ -39,10 +39,11 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
         // 私有变量
         private PlayMakerFSM? controlFSM;        // Control FSM
-        private PlayMakerFSM? tinkFSM;           // Tink FSM
+        private PlayMakerFSM? tinkFSM;           // Tink FSM(貌似没用)
         private Transform? playerTransform;      // 玩家Transform
                                                  // 运行时缓存：新增的FSM变量引用，确保动作字段绑定到同一实例
         private FWPinManager? _pinManager;
+        private MeshRenderer? _meshRenderer;     // MeshRenderer缓存，用于控制显示层级
 
         // 事件引用缓存
         private FsmEvent? _orbitStartEvent;
@@ -100,6 +101,12 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             if (controlFSM == null)
             {
                 Log.Warn($"Finger Blade {bladeIndex} ({gameObject.name}) 未找到Control FSM");
+            }
+            // 缓存 MeshRenderer 用于显示层级控制
+            _meshRenderer = GetComponent<MeshRenderer>();
+            if (_meshRenderer == null)
+            {
+                Log.Warn($"Finger Blade {bladeIndex} ({gameObject.name}) 未找到 MeshRenderer，无法控制显示层级");
             }
             AddDynamicVariables();
             EnsureDashOrbitVariables();
@@ -638,6 +645,18 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         private void AddOrbitStartActions(FsmState orbitStartState)
         {
+            // 动作0：设置前景显示（环绕时显示在墙体前方）
+            var setRenderOrderAction = new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("UpdateRenderOrder") { Value = "UpdateRenderOrder" },
+                parameters = new FsmVar[]
+                {
+                    new FsmVar(typeof(bool)) { boolValue = true } // true = 前景显示
+                },
+                everyFrame = false
+            };
+
             // 动作1：开始环绕（持续环绕，直到收到SHOOT事件）
             // 使用变量引用，这样可以在运行时动态获取最新值
             var orbitAction = new OrbitAroundTargetAction
@@ -664,7 +683,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 finishEvent = _shootEvent // 等待SHOOT事件
             };
 
-            orbitStartState.Actions = new FsmStateAction[] { orbitAction, waitForShootAction };
+            orbitStartState.Actions = new FsmStateAction[] { setRenderOrderAction, orbitAction, waitForShootAction };
         }
 
         /// <summary>
@@ -1342,7 +1361,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         }
 
         /// <summary>
-        /// 修改 Thunk 状态：将 Damager 的 layer 重置回 Attack 层级
+        /// 修改 Thunk 状态：将 Damager 的 layer 重置回 Attack 层级，并恢复默认显示层级
         /// </summary>
         private void ModifyThunkState()
         {
@@ -1375,8 +1394,21 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 layer = LayerMask.NameToLayer("Attack")
             };
 
+            // 创建恢复显示层级的动作
+            var restoreRenderOrderAction = new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("UpdateRenderOrder") { Value = "UpdateRenderOrder" },
+                parameters = new FsmVar[]
+                {
+                    new FsmVar(typeof(bool)) { boolValue = false } // false = 恢复默认
+                },
+                everyFrame = false
+            };
+
             // 在 Actions 数组开头插入（确保在状态进入时立即执行）
             var actions = thunkState.Actions.ToList();
+            actions.Insert(0, restoreRenderOrderAction);
             actions.Insert(0, setLayerAction);
             thunkState.Actions = actions.ToArray();
         }
@@ -1448,6 +1480,26 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             if (fsm != null)
             {
                 fsm.SendEvent("ATTACK");
+            }
+        }
+
+        /// <summary>
+        /// 更新 Finger Blade 的显示层级（参照 SilkBallBehavior.UpdateRenderOrder）
+        /// </summary>
+        /// <param name="toFront">true=显示在前景(sortingOrder=10)，false=恢复默认(sortingOrder=0)</param>
+        public void UpdateRenderOrder(bool toFront)
+        {
+            if (_meshRenderer == null) return;
+
+            if (toFront)
+            {
+                // 环绕/穿墙：设置较高的 sortingOrder 显示在墙体前面
+                _meshRenderer.sortingOrder = 10;
+            }
+            else
+            {
+                // 普通状态：恢复默认 sortingOrder
+                _meshRenderer.sortingOrder = 0;
             }
         }
     }

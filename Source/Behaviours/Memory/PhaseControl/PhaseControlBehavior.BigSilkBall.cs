@@ -587,9 +587,17 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 everyFrame = false
             });
 
+            // 2. 立即发送一次 ATTACK CLEAR（清理常规攻击）
             actions.Add(new SendEventToRegister
             {
                 eventName = new FsmString("ATTACK CLEAR") { Value = "ATTACK CLEAR" },
+            });
+
+            // 3. 延迟发送第二次 ATTACK CLEAR（清理延迟激活的网攻击，如 ActivateGameObjectDelay）
+            actions.Add(new SendEventToRegisterDelay
+            {
+                delay = new FsmFloat(0.6f),
+                EventName = new FsmString("ATTACK CLEAR") { Value = "ATTACK CLEAR" }
             });
 
             actions.Add(new Tk2dWatchAnimationEvents

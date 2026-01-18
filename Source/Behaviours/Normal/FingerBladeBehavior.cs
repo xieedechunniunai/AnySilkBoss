@@ -37,6 +37,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         private FsmFloat? _orbitOffsetVar;
         private FsmFloat? _trackTimeVar;         // Track Time 变量缓存
         private FsmBool? _specialAttackVar;      // Special Attack 变量缓存
+        private MeshRenderer? _meshRenderer;     // MeshRenderer缓存，用于控制显示层级
 
         // 事件引用缓存
         private FsmEvent? _orbitStartEvent;
@@ -87,11 +88,18 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             {
                 Log.Warn($"Finger Blade {bladeIndex} ({gameObject.name}) 未找到Control FSM");
             }
+            // 缓存 MeshRenderer 用于显示层级控制
+            _meshRenderer = GetComponent<MeshRenderer>();
+            if (_meshRenderer == null)
+            {
+                Log.Warn($"Finger Blade {bladeIndex} ({gameObject.name}) 未找到 MeshRenderer，无法控制显示层级");
+            }
             AddDynamicVariables();
             AddCustomStompStates();
             AddCustomSwipeStates();
             ModifyAnticPullState();  // 修改 Antic Pull 状态的等待时间
             ModifyAnticPauseState(); // 修改 Antic Pause 状态，添加二阶段追踪判断
+            ModifyThunkState();      // 修改 Thunk 状态，恢复显示层级
 
             // 统一初始化FSM（在所有状态和事件添加完成后）
             RelinkFingerBladeEventReferences();
@@ -326,6 +334,18 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         /// </summary>
         private void AddOrbitStartActions(FsmState orbitStartState)
         {
+            // 动作0：设置前景显示（环绕时显示在墙体前方）
+            var setRenderOrderAction = new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("UpdateRenderOrder") { Value = "UpdateRenderOrder" },
+                parameters = new FsmVar[]
+                {
+                    new FsmVar(typeof(bool)) { boolValue = true } // true = 前景显示
+                },
+                everyFrame = false
+            };
+
             // 动作1：开始环绕（持续环绕，直到收到SHOOT事件）
             // 使用变量引用，这样可以在运行时动态获取最新值
             var orbitAction = new OrbitAroundTargetAction
@@ -352,7 +372,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 finishEvent = _shootEvent // 等待SHOOT事件
             };
 
-            orbitStartState.Actions = new FsmStateAction[] { orbitAction, waitForShootAction };
+            orbitStartState.Actions = new FsmStateAction[] { setRenderOrderAction, orbitAction, waitForShootAction };
         }
 
         /// <summary>
@@ -799,6 +819,39 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         }
 
         /// <summary>
+        /// 修改 Thunk 状态：恢复默认显示层级
+        /// </summary>
+        private void ModifyThunkState()
+        {
+            if (controlFSM == null) return;
+
+            // 查找 Thunk 状态
+            var thunkState = controlFSM.FsmStates.FirstOrDefault(s => s.Name == "Thunk");
+            if (thunkState == null)
+            {
+                Log.Warn($"Finger Blade {bladeIndex} 未找到 Thunk 状态");
+                return;
+            }
+
+            // 创建恢复显示层级的动作
+            var restoreRenderOrderAction = new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("UpdateRenderOrder") { Value = "UpdateRenderOrder" },
+                parameters = new FsmVar[]
+                {
+                    new FsmVar(typeof(bool)) { boolValue = false } // false = 恢复默认
+                },
+                everyFrame = false
+            };
+
+            // 在 Actions 数组开头插入（确保在状态进入时立即执行）
+            var actions = thunkState.Actions.ToList();
+            actions.Insert(0, restoreRenderOrderAction);
+            thunkState.Actions = actions.ToArray();
+        }
+
+        /// <summary>
         /// 修改 Antic Pull 状态：调整等待时间
         /// </summary>
         private void ModifyAnticPullState()
@@ -1009,6 +1062,26 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 toFsmState = trackState
             });
             anticPauseState.Transitions = transitions.ToArray();
+        }
+
+        /// <summary>
+        /// 更新 Finger Blade 的显示层级（参照 SilkBallBehavior.UpdateRenderOrder）
+        /// </summary>
+        /// <param name="toFront">true=显示在前景(sortingOrder=10)，false=恢复默认(sortingOrder=0)</param>
+        public void UpdateRenderOrder(bool toFront)
+        {
+            if (_meshRenderer == null) return;
+
+            if (toFront)
+            {
+                // 环绕/穿墙：设置较高的 sortingOrder 显示在墙体前面
+                _meshRenderer.sortingOrder = 10;
+            }
+            else
+            {
+                // 普通状态：恢复默认 sortingOrder
+                _meshRenderer.sortingOrder = 0;
+            }
         }
     }
 }
