@@ -506,6 +506,7 @@ namespace AnySilkBoss.Source.Behaviours.Common
             _enableFollowTarget = false;
             _enableContinuousRotation = false;
             _continuousRotationSpeed = 0f;
+            SetAudioEnabled(true);
         }
 
         /// <summary>

@@ -68,6 +68,7 @@ public class Plugin : BaseUnityPlugin
             _harmony.PatchAll(typeof(DamageReductionPatches));
 
             // 梦境模式补丁
+            _harmony.PatchAll(typeof(MemoryCustomSceneManagerPatch));
             _harmony.PatchAll(typeof(MemorySceneTransitionPatch));
             _harmony.PatchAll(typeof(MemoryClashTinkPatch));
             _harmony.PatchAll(typeof(MemoryParryDownspikePatch));

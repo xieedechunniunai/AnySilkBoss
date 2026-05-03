@@ -283,22 +283,17 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             Vector3 scale = new Vector3(2.4f, 1.1f, 1f);
 
             // 第一根丝线：根据参数决定是否播放音效
-            var w1 = _singleWebManager.SpawnAndAttack(pos, new Vector3(0f, 0f, baseAngle), scale, 0f, 0.75f);
+            var w1 = _singleWebManager.SpawnAndAttack(pos, new Vector3(0f, 0f, baseAngle), scale, 0f, 0.75f, playAudio);
             if (w1 != null)
             {
-                if (!playAudio)
-                {
-                    w1.SetAudioEnabled(false);
-                }
                 w1.ConfigureFollowTarget(followTarget);
                 w1.ConfigureContinuousRotation(true, rotationSpeed);
             }
 
             // 第二根丝线：始终静音
-            var w2 = _singleWebManager.SpawnAndAttack(pos, new Vector3(0f, 0f, baseAngle + 90f), scale, 0f, 0.75f);
+            var w2 = _singleWebManager.SpawnAndAttack(pos, new Vector3(0f, 0f, baseAngle + 90f), scale, 0f, 0.75f, false);
             if (w2 != null)
             {
-                w2.SetAudioEnabled(false);
                 w2.ConfigureFollowTarget(followTarget);
                 w2.ConfigureContinuousRotation(true, rotationSpeed);
             }

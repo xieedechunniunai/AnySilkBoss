@@ -2,6 +2,7 @@ using System.Linq;
 using UnityEngine;
 using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
+using AnySilkBoss.Source.Actions;
 using AnySilkBoss.Source.Tools;
 using AnySilkBoss.Source.Managers;
 using static AnySilkBoss.Source.Tools.FsmStateBuilder;
@@ -24,6 +25,18 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         private Vector2 _lastDashSlashPosition = Vector2.zero;
         private bool _isDashAttackEndState = false;  // 标记当前是否在 Dash Attack End 状态
         #endregion
+
+        private GuardedSendEventByName CreateGuardedWebAttackAction(SendEventByName source, float delay)
+        {
+            return new GuardedSendEventByName
+            {
+                eventTarget = source.eventTarget,
+                sendEvent = source.sendEvent,
+                delay = new FsmFloat(delay),
+                everyFrame = source.everyFrame,
+                suppressDuringBigSilkBall = new FsmBool(true)
+            };
+        }
 
         #region 原版AttackControl调整
         private void PatchOriginalAttackPatterns()
@@ -128,10 +141,9 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 Log.Warn("克隆Double最后两个行为失败，无法补丁行为补齐");
                 return;
             }
-            newLast2.delay = new FsmFloat(0.8f);
             var singleActions = singleState.Actions.ToList();
             singleActions.Add(newLast1);
-            singleActions.Add(newLast2);
+            singleActions.Add(CreateGuardedWebAttackAction(newLast2, 0.8f));
             singleState.Actions = singleActions.ToArray();
             Log.Info("已将Double最后GetRandomChild/SendEventByName行为复制到Single和Double末尾各一份");
         }
@@ -155,13 +167,11 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 Log.Warn("Double克隆攻击动作失败");
                 return;
             }
-            sendEventAction.delay = new FsmFloat(0.8f);
-
             var tripleState = CreateState(_attackControlFsm.Fsm, "Triple", "补丁三连击：1次GetRandomChild+SendEvent+延时1s");
             tripleState.Actions = new FsmStateAction[]
             {
                 atkAction,
-                sendEventAction,
+                CreateGuardedWebAttackAction(sendEventAction, 0.8f),
                 new Wait { time = new FsmFloat(1.0f), finishEvent = FsmEvent.Finished }
             };
 
@@ -193,7 +203,48 @@ namespace AnySilkBoss.Source.Behaviours.Normal
                 parameters = new FsmVar[0],
                 everyFrame = false
             });
+            actions.Insert(0, new KillDelayedEvents());
             attackStopState.Actions = actions.ToArray();
+        }
+
+        public void SuppressWebStrandAttacksForBigSilkBall()
+        {
+            Log.Info("[AttackControl] 大丝球阶段开始，抑制并清理 Web Strand 攻击");
+
+            _attackControlFsm?.Fsm?.KillDelayedEvents();
+            _attackControlFsm?.SendEvent("ATTACK STOP");
+            EventRegister.SendEvent("ATTACK CLEAR");
+
+            var doP6WebAttack = _attackControlFsm?.FsmVariables.FindFsmBool("Do P6 Web Attack");
+            if (doP6WebAttack != null)
+            {
+                doP6WebAttack.Value = false;
+            }
+
+            var didWebStrandAttack = _attackControlFsm?.FsmVariables.FindFsmBool("Did Web Strand Attack");
+            if (didWebStrandAttack != null)
+            {
+                didWebStrandAttack.Value = false;
+            }
+
+            KillStrandPatternDelayedEvents();
+        }
+
+        private void KillStrandPatternDelayedEvents()
+        {
+            if (_strandPatterns == null)
+            {
+                return;
+            }
+
+            foreach (Transform pattern in _strandPatterns.transform)
+            {
+                foreach (var fsm in pattern.GetComponentsInChildren<PlayMakerFSM>(true))
+                {
+                    fsm.Fsm?.KillDelayedEvents();
+                    fsm.SendEvent("ATTACK CLEAR");
+                }
+            }
         }
 
         /// <summary>

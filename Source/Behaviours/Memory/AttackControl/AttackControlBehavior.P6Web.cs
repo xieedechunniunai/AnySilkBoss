@@ -138,6 +138,13 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         public void ExecuteDomainSlash()
         {
+            if (BigSilkBallPhaseGuard.IsActive)
+            {
+                Log.Info("[MemoryAttackControl] 大丝球阶段中，跳过 P6 领域次元斩");
+                _attackControlFsm?.SendEvent("P6 DOMAIN SLASH DONE");
+                return;
+            }
+
             StartCoroutine(ExecuteDomainSlashCoroutine());
         }
 
@@ -174,10 +181,22 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             // 2. 5波攻击循环
             for (int wave = 1; wave <= 5; wave++)
             {
+                if (BigSilkBallPhaseGuard.IsActive)
+                {
+                    CleanupDomainSlashAfterGuard();
+                    yield break;
+                }
+
                 Log.Info($"=== 第{wave}波攻击开始 ===");
 
                 // 执行本波web攻击
                 yield return StartCoroutine(ExecuteWave(wave));
+
+                if (BigSilkBallPhaseGuard.IsActive)
+                {
+                    CleanupDomainSlashAfterGuard();
+                    yield break;
+                }
 
                 // 缩圈（最后一波不缩）
                 if (wave < 5 && _domainBehavior != null)
@@ -208,6 +227,14 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             {
                 _attackControlFsm.SendEvent("P6 DOMAIN SLASH DONE");
             }
+        }
+
+        private void CleanupDomainSlashAfterGuard()
+        {
+            Log.Info("[MemoryAttackControl] 大丝球阶段打断 P6 领域次元斩");
+            CleanupAllWebs();
+            _domainBehavior?.DeactivateDomain();
+            _attackControlFsm?.SendEvent("P6 DOMAIN SLASH DONE");
         }
 
         /// <summary>
@@ -262,10 +289,11 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             // 激活所有位置的web攻击
             List<Coroutine> attackCoroutines = new List<Coroutine>();
+            int audibleSlotIndex = totalSlotsNeeded > 0 ? Random.Range(0, totalSlotsNeeded) : -1;
             for (int i = 0; i < totalSlotsNeeded && i < _webSlots.Count; i++)
             {
                 var slot = _webSlots[i];
-                var coroutine = StartCoroutine(ActivateSlotWeb(slot));
+                var coroutine = StartCoroutine(ActivateSlotWeb(slot, i == audibleSlotIndex));
                 attackCoroutines.Add(coroutine);
             }
 
@@ -371,8 +399,13 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// <summary>
         /// 激活单个位置的web攻击（双web轮换）
         /// </summary>
-        private IEnumerator ActivateSlotWeb(WebSlotInfo slot)
+        private IEnumerator ActivateSlotWeb(WebSlotInfo slot, bool audioEnabled)
         {
+            if (BigSilkBallPhaseGuard.IsActive)
+            {
+                yield break;
+            }
+
             if (_singleWebManager == null)
             {
                 Log.Warn("SingleWebManager未找到，无法激活web");
@@ -396,7 +429,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                     new Vector3(0f, 0f, slot.Angle),
                     new Vector3(3.2f, 1f, 1f),
                     0f,
-                    _burstDelay
+                    _burstDelay,
+                    audioEnabled
                 );
 
                 if (newWeb != null)
@@ -410,6 +444,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 // 使用已有的web
                 slot.WebPair[webIndex].transform.position = slot.Position;
                 slot.WebPair[webIndex].transform.eulerAngles = new Vector3(0f, 0f, slot.Angle);
+                slot.WebPair[webIndex].SetAudioEnabled(audioEnabled);
                 slot.WebPair[webIndex].TriggerAttack(0f, _burstDelay);
             }
 

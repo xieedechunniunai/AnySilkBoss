@@ -17,17 +17,35 @@ namespace AnySilkBoss.Source.Managers
     internal class BigSilkBallManager : MonoBehaviour
     {
         #region Fields
+        public static BigSilkBallManager? Instance { get; private set; }
+
         private GameObject? _bigSilkBallPrefab;
         public GameObject? BigSilkBallPrefab => _bigSilkBallPrefab;
 
         private bool _initialized = false;
+        private bool _phaseFovActive = false;
         
         // 缓存的 Animator 组件引用（用于播放爆炸动画）
         private Animator? _cachedAnimator;
         
         // BOSS 场景名称
         private const string BossSceneName = "Cradle_03";
+        private const float BigSilkBallFovOffset = 8f;
+        private const float BigSilkBallFovInTime = 0.65f;
+        private const float BigSilkBallFovOutTime = 0.5f;
         #endregion
+
+        private void Awake()
+        {
+            if (Instance == null || Instance == this)
+            {
+                Instance = this;
+            }
+            else
+            {
+                Log.Warn("发现重复的 BigSilkBallManager，保留现有 Instance");
+            }
+        }
 
         private void OnEnable()
         {
@@ -43,6 +61,8 @@ namespace AnySilkBoss.Source.Managers
             SceneManager.sceneLoaded -= OnSceneLoaded;
             // 取消监听场景切换事件
             SceneManager.activeSceneChanged -= OnSceneChanged;
+
+            ResetBigSilkBallPhaseEffects("BigSilkBallManager disabled");
         }
 
         /// <summary>
@@ -55,6 +75,8 @@ namespace AnySilkBoss.Source.Managers
             {
                 return;
             }
+
+            ResetBigSilkBallPhaseEffects("boss scene loaded");
 
             // 每次进入 BOSS 场景都重新初始化
             StartCoroutine(Initialize());
@@ -69,6 +91,7 @@ namespace AnySilkBoss.Source.Managers
             if (oldScene.name == BossSceneName && newScene.name != BossSceneName)
             {
                 Log.Info($"离开 BOSS 场景 {oldScene.name}，清理 BigSilkBallManager 缓存");
+                ResetBigSilkBallPhaseEffects($"leave {BossSceneName}");
                 CleanupPrefab();
             }
         }
@@ -247,6 +270,53 @@ namespace AnySilkBoss.Source.Managers
         #endregion
 
         #region Public Methods
+        public void BeginBigSilkBallPhase(string reason)
+        {
+            BigSilkBallPhaseGuard.Begin(reason);
+            ApplyFovOffset(BigSilkBallFovOffset, BigSilkBallFovInTime, reason);
+            _phaseFovActive = true;
+        }
+
+        public void EndBigSilkBallPhase(string reason)
+        {
+            ResetBigSilkBallPhaseEffects(reason);
+        }
+
+        public void ResetBigSilkBallPhaseEffects(string reason)
+        {
+            bool shouldResetFov = _phaseFovActive || BigSilkBallPhaseGuard.IsActive;
+            BigSilkBallPhaseGuard.End(reason);
+
+            if (!shouldResetFov)
+            {
+                return;
+            }
+
+            ApplyFovOffset(0f, BigSilkBallFovOutTime, reason);
+            _phaseFovActive = false;
+        }
+
+        private void ApplyFovOffset(float offset, float duration, string reason)
+        {
+            try
+            {
+                var gameCameras = GameCameras.SilentInstance;
+                var forceCameraAspect = gameCameras != null ? gameCameras.forceCameraAspect : null;
+                if (forceCameraAspect == null)
+                {
+                    Log.Warn($"无法设置大丝球 FOV offset={offset}: GameCameras.forceCameraAspect 为空");
+                    return;
+                }
+
+                forceCameraAspect.SetFovOffset(offset, duration, AnimationCurve.EaseInOut(0f, 0f, 1f, 1f));
+                Log.Info($"已设置大丝球 FOV offset={offset}, duration={duration}, reason={reason}");
+            }
+            catch (System.Exception ex)
+            {
+                Log.Error($"设置大丝球 FOV offset={offset} 失败: {ex.Message}");
+            }
+        }
+
         /// <summary>
         /// 生成一个大丝球实例
         /// </summary>
@@ -362,19 +432,28 @@ namespace AnySilkBoss.Source.Managers
         {
             if (_bigSilkBallPrefab == null)
             {
-                Log.Warn("大丝球预制体未初始化，无法清理");
-                return;
+                Log.Warn("大丝球预制体未初始化，仍尝试清理场景中的大丝球实例");
             }
 
-            // 查找所有活跃的大丝球实例
-            var allBigSilkBalls = FindObjectsByType<BigSilkBallBehavior>(FindObjectsSortMode.None);
             int destroyedCount = 0;
 
-            foreach (var behavior in allBigSilkBalls)
+            foreach (var behavior in FindObjectsByType<BigSilkBallBehavior>(FindObjectsSortMode.None))
             {
                 if (behavior != null && behavior.gameObject != null)
                 {
                     // 确保不是预制体本身
+                    if (behavior.gameObject != _bigSilkBallPrefab)
+                    {
+                        Object.Destroy(behavior.gameObject);
+                        destroyedCount++;
+                    }
+                }
+            }
+
+            foreach (var behavior in FindObjectsByType<MemoryBigSilkBallBehavior>(FindObjectsSortMode.None))
+            {
+                if (behavior != null && behavior.gameObject != null)
+                {
                     if (behavior.gameObject != _bigSilkBallPrefab)
                     {
                         Object.Destroy(behavior.gameObject);
@@ -391,6 +470,8 @@ namespace AnySilkBoss.Source.Managers
         public void CleanupPrefab()
         {
             Log.Info("=== 开始清理 BigSilkBallManager 缓存 ===");
+
+            ResetBigSilkBallPhaseEffects("cleanup prefab");
 
             // 停止所有协程
             StopAllCoroutines();

@@ -1,8 +1,10 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using GlobalEnums;
 using AnySilkBoss.Source.Tools;
 using HutongGames.PlayMaker;
 using TeamCherry.SharedUtils;
@@ -25,6 +27,9 @@ namespace AnySilkBoss.Source.Managers
 
         // Memory 模式状态
         public static bool IsInMemoryMode { get; private set; } = false;
+
+        private static readonly FieldInfo? ForceCurrentSceneMemoryField =
+            typeof(GameManager).GetField("forceCurrentSceneMemory", BindingFlags.Instance | BindingFlags.NonPublic);
 
         // 场景名称
         private const string TRIGGER_SCENE = "Cradle_03_Destroyed";
@@ -56,6 +61,7 @@ namespace AnySilkBoss.Source.Managers
 
         // 是否正在从梦境返回
         private bool _isReturningFromMemory = false;
+        private bool _isInitialMemorySceneEntryPending = false;
 
         // 重生标记
         private const string MEMORY_RESPAWN_MARKER_NAME = "MemoryRespawnMarker";
@@ -117,6 +123,8 @@ namespace AnySilkBoss.Source.Managers
                 if (IsInMemoryMode)
                 {
                     Log.Info($"[MemoryManager] ====== 进入梦境 {TARGET_SCENE} ======");
+                    SetForceCurrentSceneMemoryFlag(true);
+                    StartCoroutine(ApplyMemorySceneSettingsWhenReady());
 
                     // 加载梦境池子（会自动销毁普通池子）
                     SwitchToMemoryPool();
@@ -124,8 +132,21 @@ namespace AnySilkBoss.Source.Managers
                     // 禁用 TransitionPoint，防止自动切换场景
                     DisableAllTransitionPoints();
 
-                    // 设置玩家位置并播放醒来动画
-                    StartCoroutine(EnterMemorySceneRoutine());
+                    // 保证死亡重载时 GameManager/KIS 能通过 respawnMarkerName 找到我们的梦境复活点。
+                    CreateMemoryRespawnMarker(SPAWN_POS_X, SPAWN_POS_Y, SPAWN_POS_Z);
+
+                    if (_isInitialMemorySceneEntryPending)
+                    {
+                        _isInitialMemorySceneEntryPending = false;
+
+                        // 只有手动进入梦境时才播放入场醒来流程。
+                        StartCoroutine(EnterMemorySceneRoutine());
+                    }
+                    else
+                    {
+                        Log.Info("[MemoryManager] 检测到梦境场景重载，交由原游戏/KIS复活流程处理");
+                        StartCoroutine(EnableTransitionPointsAfterDelay());
+                    }
 
                     // 启动弹琴检测（用于退出梦境）
                     _hasTriggeredThisSession = false;
@@ -133,6 +154,8 @@ namespace AnySilkBoss.Source.Managers
                 }
                 else
                 {
+                    SetForceCurrentSceneMemoryFlag(false);
+
                     // 进入普通 BOSS 房（非梦境模式）
                     // 如果梦境池子已加载，切换回普通池子
                     SwitchToNormalPoolIfNeeded();
@@ -160,10 +183,7 @@ namespace AnySilkBoss.Source.Managers
                     _isReturningFromMemory = false;
                     IsInMemoryMode = false;
 
-                    if (GameManager._instance != null)
-                    {
-                        GameManager._instance.ForceCurrentSceneIsMemory(false);
-                    }
+                    SetForceCurrentSceneMemoryFlag(false);
 
                     // 禁用 TransitionPoint
                     DisableAllTransitionPoints();
@@ -182,6 +202,21 @@ namespace AnySilkBoss.Source.Managers
             // ========== 从 Cradle_03 离开到其他场景 ==========
             else if (oldScene.name == TARGET_SCENE && IsInMemoryMode)
             {
+                if (!IsCurrentPlayerHornet())
+                {
+                    Log.Info($"[MemoryManager] 非大黄蜂玩家离开梦境场景: {oldScene.name} → {newScene.name}，不强制返回");
+                    RestorePlayerDataAfterExitingMemory();
+                    IsInMemoryMode = false;
+                    _isReturningFromMemory = false;
+                    _isInitialMemorySceneEntryPending = false;
+                    SetForceCurrentSceneMemoryFlag(false);
+                    _disabledTransitionPoints.Clear();
+                    _isInTriggerScene = false;
+                    _isCheckingAudio = false;
+                    _audioPlayingTimer = 0f;
+                    return;
+                }
+
                 Log.Info($"[MemoryManager] 梦境中尝试离开到 {newScene.name}，强制返回 {TRIGGER_SCENE}");
 
                 // 标记正在返回
@@ -217,6 +252,7 @@ namespace AnySilkBoss.Source.Managers
                 _disabledTransitionPoints.Clear();
 
                 _isReturningFromMemory = false;
+                _isInitialMemorySceneEntryPending = false;
                 _isInTriggerScene = false;
                 _isCheckingAudio = false;
                 _hasTriggeredThisSession = false;
@@ -227,10 +263,7 @@ namespace AnySilkBoss.Source.Managers
                     IsInMemoryMode = false;
                 }
 
-                if (GameManager._instance != null)
-                {
-                    GameManager._instance.ForceCurrentSceneIsMemory(false);
-                }
+                SetForceCurrentSceneMemoryFlag(false);
 
                 _hasSavedPlayerData = false;
             }
@@ -308,12 +341,14 @@ namespace AnySilkBoss.Source.Managers
             SavePlayerDataBeforeEnteringMemory();
 
             IsInMemoryMode = true;
+            _isInitialMemorySceneEntryPending = true;
 
             var hero = HeroController.instance;
             if (hero == null)
             {
                 Log.Error("[MemoryManager] HeroController.instance 为空！");
                 IsInMemoryMode = false;
+                _isInitialMemorySceneEntryPending = false;
                 yield break;
             }
 
@@ -340,10 +375,7 @@ namespace AnySilkBoss.Source.Managers
             }
 
             // 设置为梦境场景
-            if (GameManager._instance != null)
-            {
-                GameManager._instance.ForceCurrentSceneIsMemory(true);
-            }
+            SetForceCurrentSceneMemoryFlag(true);
 
             // 传送到梦境场景
             try
@@ -364,6 +396,7 @@ namespace AnySilkBoss.Source.Managers
             {
                 Log.Error($"[MemoryManager] 场景传送失败: {ex.Message}");
                 IsInMemoryMode = false;
+                _isInitialMemorySceneEntryPending = false;
                 ForceEnablePlayerControl();
             }
         }
@@ -402,6 +435,35 @@ namespace AnySilkBoss.Source.Managers
             // 恢复 TransitionPoint
             yield return null;
             EnableAllTransitionPoints();
+        }
+
+        private IEnumerator ApplyMemorySceneSettingsWhenReady()
+        {
+            for (int i = 0; i < 20; i++)
+            {
+                if (!IsInMemoryMode)
+                {
+                    yield break;
+                }
+
+                var gameManager = GameManager._instance;
+                var sceneManager = gameManager?.sm ?? FindFirstObjectByType<CustomSceneManager>();
+                if (sceneManager != null && sceneManager.gameObject.scene.name == TARGET_SCENE)
+                {
+                    if (sceneManager.mapZone != MapZone.MEMORY)
+                    {
+                        var oldZone = sceneManager.mapZone;
+                        sceneManager.mapZone = MapZone.MEMORY;
+                        CustomSceneManager.IncrementVersion();
+                        Log.Info($"[MemoryManager] 兜底设置 {TARGET_SCENE} mapZone: {oldZone} -> {MapZone.MEMORY}");
+                    }
+
+                    SetForceCurrentSceneMemoryFlag(true);
+                    yield break;
+                }
+
+                yield return new WaitForSeconds(0.1f);
+            }
         }
 
         #endregion
@@ -479,10 +541,7 @@ namespace AnySilkBoss.Source.Managers
             // 传送回触发场景
             try
             {
-                if (GameManager._instance != null)
-                {
-                    GameManager._instance.ForceCurrentSceneIsMemory(false);
-                }
+                SetForceCurrentSceneMemoryFlag(false);
 
                 GameManager._instance?.BeginSceneTransition(new GameManager.SceneLoadInfo
                 {
@@ -516,10 +575,7 @@ namespace AnySilkBoss.Source.Managers
 
             try
             {
-                if (GameManager._instance != null)
-                {
-                    GameManager._instance.ForceCurrentSceneIsMemory(false);
-                }
+                SetForceCurrentSceneMemoryFlag(false);
 
                 GameManager._instance?.BeginSceneTransition(new GameManager.SceneLoadInfo
                 {
@@ -785,6 +841,12 @@ namespace AnySilkBoss.Source.Managers
             _disabledTransitionPoints.Clear();
         }
 
+        private IEnumerator EnableTransitionPointsAfterDelay()
+        {
+            yield return new WaitForSeconds(0.5f);
+            EnableAllTransitionPoints();
+        }
+
         /// <summary>
         /// 保存进入梦境前的玩家数据
         /// </summary>
@@ -892,14 +954,145 @@ namespace AnySilkBoss.Source.Managers
 
         public static bool CheckIsMemoryMode() => IsInMemoryMode;
 
+        public static GameObject? GetCurrentHeroGameObject()
+        {
+            try
+            {
+                var heroVar = FsmVariables.GlobalVariables.GetFsmGameObject("Hero");
+                if (heroVar != null && heroVar.Value != null)
+                {
+                    return heroVar.Value;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"[MemoryManager] 获取全局 Hero 失败: {ex.Message}");
+            }
+
+            return HeroController.instance?.gameObject;
+        }
+
+        public static bool IsCurrentPlayerHornet()
+        {
+            if (IsKnightInSilkSongActive())
+            {
+                return false;
+            }
+
+            var currentHero = GetCurrentHeroGameObject();
+            if (LooksLikeKnightHero(currentHero))
+            {
+                return false;
+            }
+
+            var hornet = HeroController.instance;
+            if (hornet != null && !hornet.enabled)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsKnightInSilkSongActive()
+        {
+            try
+            {
+                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    var type = assembly.GetType("KIS.KnightInSilksong");
+                    if (type == null)
+                    {
+                        continue;
+                    }
+
+                    var property = type.GetProperty("IsKnight", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                    if (property?.GetValue(null) is bool isKnight)
+                    {
+                        return isKnight;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"[MemoryManager] 检测 KnightInSilkSong 状态失败: {ex.Message}");
+            }
+
+            return false;
+        }
+
+        private static bool LooksLikeKnightHero(GameObject? heroObject)
+        {
+            if (heroObject == null)
+            {
+                return false;
+            }
+
+            if (heroObject.name.StartsWith("Knight", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            foreach (var component in heroObject.GetComponents<Component>())
+            {
+                var fullName = component?.GetType().FullName;
+                if (fullName != null && fullName.StartsWith("Knight.", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public static void SetForceCurrentSceneMemoryFlag(bool value)
+        {
+            try
+            {
+                var gameManager = GameManager._instance ?? GameManager.instance;
+                if (gameManager == null)
+                {
+                    Log.Warn($"[MemoryManager] GameManager 为空，无法设置 forceCurrentSceneMemory={value}");
+                    return;
+                }
+
+                if (ForceCurrentSceneMemoryField != null)
+                {
+                    ForceCurrentSceneMemoryField.SetValue(gameManager, value);
+                    Log.Info($"[MemoryManager] 已设置 forceCurrentSceneMemory={value}");
+                    return;
+                }
+
+                if (value)
+                {
+                    gameManager.ForceCurrentSceneIsMemory(true);
+                    Log.Warn("[MemoryManager] 反射字段缺失，已使用原游戏方法设置回忆模式");
+                }
+                else
+                {
+                    Log.Warn("[MemoryManager] 反射字段缺失，无法清理 forceCurrentSceneMemory=false");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"[MemoryManager] 设置 forceCurrentSceneMemory={value} 失败: {ex.Message}");
+            }
+        }
+
         public static void ExitMemoryMode()
         {
             if (IsInMemoryMode)
             {
                 Log.Info("[MemoryManager] 手动退出 Memory 模式");
                 IsInMemoryMode = false;
-                GameManager._instance?.ForceCurrentSceneIsMemory(false);
             }
+
+            if (Instance != null)
+            {
+                Instance._isInitialMemorySceneEntryPending = false;
+            }
+
+            SetForceCurrentSceneMemoryFlag(false);
         }
 
         /// <summary>

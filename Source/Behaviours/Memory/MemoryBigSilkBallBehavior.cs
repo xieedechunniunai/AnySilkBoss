@@ -109,6 +109,7 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     private GameObject? heroObject;
     private float lastHeroX = 0f;
     private Vector3 collisionBoxBaseLocalPos;  // 碰撞箱的基础本地位置
+    private readonly Vector3 collisionBoxVisualAnchorLocalPos = new Vector3(-6.4f, -5f, 0f);
 
     // 吸收音效资源（从原版预制体提取）
     private AudioClip? absorbAudioClip;
@@ -202,39 +203,62 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
 
     private void Update()
     {
-        // 更新碰撞箱X轴位置，跟随英雄移动
+        // 通过相机投影保持视觉层大丝球与Z=0碰撞箱对齐
         UpdateCollisionBoxPosition();
     }
 
     /// <summary>
-    /// 更新碰撞箱X轴位置，跟随英雄移动
-    /// 由于大丝球在Z=57的背景，视角移动会导致显示位置和碰撞箱位置偏差
+    /// 通过大丝球视觉锚点的屏幕坐标，反算到世界Z=0平面上的碰撞箱中心。
     /// </summary>
     private void UpdateCollisionBoxPosition()
     {
         // Final Burst阶段禁用位置更新，避免影响小丝球受力计算
         if (!shouldUpdateCollisionBoxPosition) return;
         
-        if (collisionBox == null || heroObject == null) return;
+        if (collisionBox == null) return;
 
-        float currentHeroX = heroObject.transform.position.x;
+        if (TryProjectVisualAnchorToWorldZ0(out var projectedCenter))
+        {
+            collisionBox.transform.position = projectedCenter;
+            return;
+        }
 
-        // 定义英雄X轴范围和对应的碰撞箱本地X轴相对偏移
-        // 英雄X轴从 29 到 46 之间，碰撞箱本地X轴从 -2.5 到 6.8 相对偏移
-        float heroMinX = 29f;
-        float heroMaxX = 46f;
-        float collisionBoxRelativeMinX = -2.5f;
-        float collisionBoxRelativeMaxX = 6.8f;
+        collisionBox.transform.localPosition = collisionBoxBaseLocalPos;
+    }
 
-        // 将当前英雄X轴映射到碰撞箱相对X轴的范围
-        // 使用 Mathf.InverseLerp 将值归一化到 0-1 范围，然后用 Mathf.Lerp 映射到目标范围
-        float t = Mathf.InverseLerp(heroMinX, heroMaxX, currentHeroX);
-        float targetRelativeX = Mathf.Lerp(collisionBoxRelativeMinX, collisionBoxRelativeMaxX, t);
+    private bool TryProjectVisualAnchorToWorldZ0(out Vector3 projectedCenter)
+    {
+        projectedCenter = Vector3.zero;
 
-        Vector3 currentLocalPos = collisionBox.transform.localPosition;
-        currentLocalPos.x = collisionBoxBaseLocalPos.x + targetRelativeX; // 加上基础本地X和计算出的相对偏移
-        collisionBox.transform.localPosition = currentLocalPos;
+        var gameCameras = GameCameras.SilentInstance;
+        var camera = gameCameras != null ? gameCameras.mainCamera : Camera.main;
+        if (camera == null)
+        {
+            camera = Camera.main;
+        }
 
+        if (camera == null)
+        {
+            return false;
+        }
+
+        Vector3 visualWorld = transform.TransformPoint(collisionBoxVisualAnchorLocalPos);
+        Vector3 viewportPoint = camera.WorldToViewportPoint(visualWorld);
+        if (viewportPoint.z <= 0f)
+        {
+            return false;
+        }
+
+        Ray ray = camera.ViewportPointToRay(new Vector3(viewportPoint.x, viewportPoint.y, 0f));
+        Plane zZeroPlane = new Plane(Vector3.forward, Vector3.zero);
+        if (!zZeroPlane.Raycast(ray, out float distance))
+        {
+            return false;
+        }
+
+        projectedCenter = ray.GetPoint(distance);
+        projectedCenter.z = 0f;
+        return true;
     }
 
     /// <summary>
@@ -243,13 +267,13 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     /// </summary>
     private void LateUpdate()
     {
-        if (heartTransform == null) return;
-
         // 强制覆盖缩放（蓄力动画），防止Animator重置heart的大小
-        if (forceOverrideScale)
+        if (heartTransform != null && forceOverrideScale)
         {
             heartTransform.localScale = targetHeartScale;
         }
+
+        UpdateCollisionBoxPosition();
     }
     /// <summary>
     /// 获取组件引用
@@ -1421,6 +1445,4 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     }
     #endregion
 }
-
-
 

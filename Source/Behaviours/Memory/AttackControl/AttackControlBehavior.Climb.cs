@@ -648,10 +648,9 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 }
 
                 // 第二根丝线（垂直于第一根，静音）
-                var w2 = _singleWebManager.SpawnAndAttack(ballPos, new Vector3(0f, 0f, baseAngle + 90f), scale, 0f, 0.75f);
+                var w2 = _singleWebManager.SpawnAndAttack(ballPos, new Vector3(0f, 0f, baseAngle + 90f), scale, 0f, 0.75f, false);
                 if (w2 != null)
                 {
-                    w2.SetAudioEnabled(false);
                     w2.ConfigureFollowTarget(silkBallTransform);
                     w2.ConfigureContinuousRotation(true, rotationSpeed);
                 }

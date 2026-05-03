@@ -96,6 +96,18 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             TryGetGlobalHero();
         }
 
+        private void OnDisable()
+        {
+            (_bigSilkBallManager ?? Managers.BigSilkBallManager.Instance)
+                ?.ResetBigSilkBallPhaseEffects("memory phase control disabled");
+        }
+
+        private void OnDestroy()
+        {
+            (_bigSilkBallManager ?? Managers.BigSilkBallManager.Instance)
+                ?.ResetBigSilkBallPhaseEffects("memory phase control destroyed");
+        }
+
         private void Update()
         {
             // 按T键打印全局Hero信息（调试用）
@@ -678,7 +690,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                         hpVar.Value = 280;
                         break;
                     case 2:
-                        hpVar.Value = 380;//380;
+                        hpVar.Value = 430;//380;
                         break;
                     case 3:
                         hpVar.Value = 500;//500;

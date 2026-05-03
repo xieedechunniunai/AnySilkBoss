@@ -458,6 +458,14 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 finishEvent = FsmEvent.Finished
             });
 
+            actions.Add(new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("EndBigSilkBallPhaseEffects") { Value = "EndBigSilkBallPhaseEffects" },
+                parameters = new FsmVar[0],
+                everyFrame = false
+            });
+
             // 3. 解锁Boss（发送BIG SILK BALL UNLOCK到Boss Control FSM）
             actions.Add(new SendEventByName
             {
@@ -497,6 +505,14 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         private void AddBigSilkBallRoarActions(FsmState roarState)
         {
             var actions = new List<FsmStateAction>();
+
+            actions.Add(new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("BeginBigSilkBallPhaseEffects") { Value = "BeginBigSilkBallPhaseEffects" },
+                parameters = new FsmVar[0],
+                everyFrame = false
+            });
 
             // 1. 播放Tk2d动画 "Roar"
             actions.Add(new Tk2dPlayAnimationWithEvents
@@ -651,6 +667,31 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             SetFinishedTransition(returnState, p3State);
 
             Log.Info("已设置大招状态转换: Roar -> Roar End -> Prepare -> Move To Center -> Spawn -> Wait -> End -> Return -> P3");
+        }
+
+        public void BeginBigSilkBallPhaseEffects()
+        {
+            if (_bigSilkBallManager == null)
+            {
+                GetBigSilkBallManager();
+            }
+
+            _bigSilkBallManager?.BeginBigSilkBallPhase("memory roar");
+            _attackControl?.Fsm?.KillDelayedEvents();
+            _attackControl?.SendEvent("ATTACK STOP");
+            EventRegister.SendEvent("ATTACK CLEAR");
+
+            if (_attackControlBehavior == null)
+            {
+                _attackControlBehavior = gameObject.GetComponent<MemoryAttackControlBehavior>();
+            }
+
+            _attackControlBehavior?.SuppressWebStrandAttacksForBigSilkBall();
+        }
+
+        public void EndBigSilkBallPhaseEffects()
+        {
+            _bigSilkBallManager?.EndBigSilkBallPhase("memory return");
         }
 
         /// <summary>

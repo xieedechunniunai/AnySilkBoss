@@ -1,9 +1,45 @@
 using HarmonyLib;
 using UnityEngine;
+using GlobalEnums;
 using AnySilkBoss.Source.Managers;
 using AnySilkBoss.Source.Tools;
 
 namespace AnySilkBoss.Source.Patches;
+
+/// <summary>
+/// 手动进入 Cradle_03 回忆时，把场景本身接入原游戏的 MEMORY mapZone。
+/// </summary>
+[HarmonyPatch(typeof(CustomSceneManager), nameof(CustomSceneManager.UpdateSceneSettings))]
+internal static class MemoryCustomSceneManagerPatch
+{
+    private const string TargetScene = "Cradle_03";
+
+    [HarmonyPostfix]
+    private static void Postfix(CustomSceneManager __instance)
+    {
+        if (__instance == null || !MemoryManager.IsInMemoryMode)
+        {
+            return;
+        }
+
+        if (__instance.gameObject == null || __instance.gameObject.scene.name != TargetScene)
+        {
+            return;
+        }
+
+        if (__instance.mapZone == MapZone.MEMORY)
+        {
+            MemoryManager.SetForceCurrentSceneMemoryFlag(true);
+            return;
+        }
+
+        var oldZone = __instance.mapZone;
+        __instance.mapZone = MapZone.MEMORY;
+        MemoryManager.SetForceCurrentSceneMemoryFlag(true);
+        CustomSceneManager.IncrementVersion();
+        Log.Info($"[MemoryCustomSceneManagerPatch] {TargetScene} mapZone: {oldZone} -> {MapZone.MEMORY}");
+    }
+}
 
 /// <summary>
 /// 拦截场景切换，在梦境模式下阻止离开 BOSS 房间
@@ -29,6 +65,13 @@ internal static class MemorySceneTransitionPatch
         string currentScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
         if (currentScene != TARGET_SCENE)
             return true;
+
+        // KIS 小骑士等非大黄蜂玩家有自己的快速复活/场景处理流程，不强制改写离场。
+        if (!MemoryManager.IsCurrentPlayerHornet())
+        {
+            Log.Info($"[MemoryPatch] 非大黄蜂玩家允许梦境场景切换: {currentScene} → {info.SceneName}");
+            return true;
+        }
 
         // 目标是主菜单或退出游戏，不拦截
         if (info.SceneName == "Menu_Title" || info.SceneName == "Quit_To_Menu" ||

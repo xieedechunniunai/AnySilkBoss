@@ -92,6 +92,19 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         {
             StartCoroutine(DelayedSetup());
         }
+
+        private void OnDisable()
+        {
+            (_bigSilkBallManager ?? Managers.BigSilkBallManager.Instance)
+                ?.ResetBigSilkBallPhaseEffects("normal phase control disabled");
+        }
+
+        private void OnDestroy()
+        {
+            (_bigSilkBallManager ?? Managers.BigSilkBallManager.Instance)
+                ?.ResetBigSilkBallPhaseEffects("normal phase control destroyed");
+        }
+
         /// <summary>
         /// 延迟初始化
         /// </summary>

@@ -375,7 +375,8 @@ namespace AnySilkBoss.Source.Managers
             Vector3? rotation = null,
             Vector3? scale = null,
             float appearDelay = 0f,
-            float burstDelay = 0.75f)
+            float burstDelay = 0.75f,
+            bool audioEnabled = true)
         {
             var webBehavior = GetAvailableWeb();
             if (webBehavior == null)
@@ -388,6 +389,7 @@ namespace AnySilkBoss.Source.Managers
             webBehavior.transform.eulerAngles = rotation ?? Vector3.zero;
             webBehavior.transform.localScale = scale ?? Vector3.one;
 
+            webBehavior.SetAudioEnabled(audioEnabled);
             webBehavior.TriggerAttack(appearDelay, burstDelay);
             return webBehavior;
         }
@@ -404,9 +406,10 @@ namespace AnySilkBoss.Source.Managers
             Vector3? rotation = null,
             Vector3? scale = null,
             float appearDelay = 0f,
-            float burstDelay = 0.75f)
+            float burstDelay = 0.75f,
+            bool audioEnabled = true)
         {
-            var webBehavior = SpawnAndAttack(position, rotation, scale, appearDelay, burstDelay);
+            var webBehavior = SpawnAndAttack(position, rotation, scale, appearDelay, burstDelay, audioEnabled);
             webBehavior?.ConfigureFollowTarget(followTarget, followOffset);
             return webBehavior;
         }
@@ -417,9 +420,10 @@ namespace AnySilkBoss.Source.Managers
             Vector3? rotation = null,
             Vector3? scale = null,
             float appearDelay = 0f,
-            float burstDelay = 0.75f)
+            float burstDelay = 0.75f,
+            bool audioEnabled = true)
         {
-            var webBehavior = SpawnAndAttack(position, rotation, scale, appearDelay, burstDelay);
+            var webBehavior = SpawnAndAttack(position, rotation, scale, appearDelay, burstDelay, audioEnabled);
             webBehavior?.ConfigureContinuousRotation(true, rotationSpeed);
             return webBehavior;
         }
@@ -429,7 +433,8 @@ namespace AnySilkBoss.Source.Managers
             Vector3? rotation = null,
             Vector3? scale = null,
             Vector2? randomAppearDelay = null,
-            float burstDelay = 0.75f)
+            float burstDelay = 0.75f,
+            bool audioEnabled = true)
         {
             var behaviors = new List<SingleWebBehavior>();
             Vector2 delayRange = randomAppearDelay ?? new Vector2(0f, 0.3f);
@@ -437,7 +442,7 @@ namespace AnySilkBoss.Source.Managers
             foreach (var pos in positions)
             {
                 float randomDelay = Random.Range(delayRange.x, delayRange.y);
-                var behavior = SpawnAndAttack(pos, rotation, scale, randomDelay, burstDelay);
+                var behavior = SpawnAndAttack(pos, rotation, scale, randomDelay, burstDelay, audioEnabled);
                 if (behavior != null)
                 {
                     behaviors.Add(behavior);

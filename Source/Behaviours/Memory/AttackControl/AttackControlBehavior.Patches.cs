@@ -3,6 +3,7 @@ using System.Linq;
 using UnityEngine;
 using HutongGames.PlayMaker;
 using HutongGames.PlayMaker.Actions;
+using AnySilkBoss.Source.Actions;
 using AnySilkBoss.Source.Tools;
 using AnySilkBoss.Source.Managers;
 using static AnySilkBoss.Source.Tools.FsmStateBuilder;
@@ -11,6 +12,61 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 {
     internal partial class MemoryAttackControlBehavior
     {
+        private GuardedSendEventByName CreateGuardedWebAttackAction(SendEventByName source, float delay)
+        {
+            return new GuardedSendEventByName
+            {
+                eventTarget = source.eventTarget,
+                sendEvent = source.sendEvent,
+                delay = new FsmFloat(delay),
+                everyFrame = source.everyFrame,
+                suppressDuringBigSilkBall = new FsmBool(true)
+            };
+        }
+
+        private GuardedSendEventByName CreateGuardedWebAttackAction(GuardedSendEventByName source, float delay)
+        {
+            return new GuardedSendEventByName
+            {
+                eventTarget = source.eventTarget,
+                sendEvent = source.sendEvent,
+                delay = new FsmFloat(delay),
+                everyFrame = source.everyFrame,
+                suppressDuringBigSilkBall = source.suppressDuringBigSilkBall ?? new FsmBool(true)
+            };
+        }
+
+        private GuardedSendEventByName? CloneWebAttackSendAction(string sourceStateName)
+        {
+            if (_attackControlFsm == null)
+            {
+                return null;
+            }
+
+            var sourceState = _attackControlFsm.FsmStates.FirstOrDefault(s => s.Name == sourceStateName);
+            if (sourceState?.Actions == null)
+            {
+                Log.Warn($"未找到状态{sourceStateName}，无法克隆Web攻击发送动作");
+                return null;
+            }
+
+            foreach (var action in sourceState.Actions)
+            {
+                if (action is SendEventByName sendAction && sendAction.sendEvent?.Value == "ATTACK")
+                {
+                    return CreateGuardedWebAttackAction(sendAction, ATTACK_SEND_DELAY);
+                }
+
+                if (action is GuardedSendEventByName guardedAction && guardedAction.sendEvent?.Value == "ATTACK")
+                {
+                    return CreateGuardedWebAttackAction(guardedAction, ATTACK_SEND_DELAY);
+                }
+            }
+
+            Log.Warn($"在状态{sourceStateName}中未找到Web攻击发送动作");
+            return null;
+        }
+
         #region 原版AttackControl调整
         private void PatchOriginalAttackPatterns()
         {
@@ -66,10 +122,9 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             // === 1. 修改Single状态，添加第2次攻击动作 ===
             var atkAction1 = CloneAction<GetRandomChild>("Double");
-            var sendEventAction1 = CloneAction<SendEventByName>("Double");
+            var sendEventAction1 = CloneWebAttackSendAction("Double");
             if (atkAction1 != null && sendEventAction1 != null)
             {
-                sendEventAction1.delay = new FsmFloat(ATTACK_SEND_DELAY);
                 var actions = singleState.Actions.ToList();
                 actions.Add(atkAction1);
                 actions.Add(sendEventAction1);
@@ -96,16 +151,19 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             // === 4. 创建 Single Extra 状态 (第3次攻击) ===
             var atkAction2 = CloneAction<GetRandomChild>("Double");
-            var sendEventAction2 = CloneAction<SendEventByName>("Double");
+            var sendEventAction2 = CloneWebAttackSendAction("Double");
             if (atkAction2 == null || sendEventAction2 == null)
             {
                 Log.Warn("Single Extra: 克隆攻击动作失败");
                 return;
             }
-            sendEventAction2.delay = new FsmFloat(ATTACK_SEND_DELAY);
 
             var singleExtraState = CreateState(_attackControlFsm.Fsm, "Single Extra", "梦境版Single第3次攻击");
-            singleExtraState.Actions = new FsmStateAction[] { atkAction2, sendEventAction2 };
+            singleExtraState.Actions = new FsmStateAction[]
+            {
+                atkAction2,
+                sendEventAction2
+            };
 
             // === 5. 将新状态添加到FSM ===
             AddStatesToFsm(_attackControlFsm, singleExtraCheckState, singleExtraState);
@@ -209,17 +267,20 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             if (doubleState.Actions != null)
             {
                 int patchedCount = 0;
-                foreach (var action in doubleState.Actions)
+                var actions = doubleState.Actions.ToArray();
+                for (int i = 0; i < actions.Length; i++)
                 {
-                    if (action is SendEventByName sendAction)
+                    if (actions[i] is SendEventByName sendAction && sendAction.sendEvent?.Value == "ATTACK")
                     {
-                        sendAction.delay = new FsmFloat(ATTACK_SEND_DELAY);
+                        actions[i] = CreateGuardedWebAttackAction(sendAction, ATTACK_SEND_DELAY);
                         patchedCount++;
                     }
                 }
+                doubleState.Actions = actions;
+
                 if (patchedCount > 0)
                 {
-                    Log.Info($"已将Double状态中{patchedCount}个SendEventByName的delay调整为{ATTACK_SEND_DELAY}s");
+                    Log.Info($"已将Double状态中{patchedCount}个SendEventByName替换为大丝球Guard延迟发送");
                 }
             }
 
@@ -228,13 +289,12 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             // === 2. 创建 Triple 状态 (第3次攻击) ===
             var tripleAtkAction = CloneAction<GetRandomChild>("Double");
-            var tripleSendEventAction = CloneAction<SendEventByName>("Double");
+            var tripleSendEventAction = CloneWebAttackSendAction("Double");
             if (tripleAtkAction == null || tripleSendEventAction == null)
             {
                 Log.Warn("Triple: 克隆攻击动作失败");
                 return;
             }
-            tripleSendEventAction.delay = new FsmFloat(ATTACK_SEND_DELAY);
 
             var tripleState = CreateState(_attackControlFsm.Fsm, "Triple", "梦境版第3次攻击");
             tripleState.Actions = new FsmStateAction[]
@@ -259,13 +319,12 @@ namespace AnySilkBoss.Source.Behaviours.Memory
 
             // === 4. 创建 Quadruple 状态 (第4次攻击) ===
             var quadrupleAtkAction = CloneAction<GetRandomChild>("Double");
-            var quadrupleSendEventAction = CloneAction<SendEventByName>("Double");
+            var quadrupleSendEventAction = CloneWebAttackSendAction("Double");
             if (quadrupleAtkAction == null || quadrupleSendEventAction == null)
             {
                 Log.Warn("Quadruple: 克隆攻击动作失败");
                 return;
             }
-            quadrupleSendEventAction.delay = new FsmFloat(ATTACK_SEND_DELAY);
 
             var quadrupleState = CreateState(_attackControlFsm.Fsm, "Quadruple", "梦境版第4次攻击");
             quadrupleState.Actions = new FsmStateAction[]
@@ -367,7 +426,52 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 parameters = new FsmVar[0],
                 everyFrame = false
             });
+            actions.Insert(0, new KillDelayedEvents());
             attackStopState.Actions = actions.ToArray();
+        }
+
+        public void SuppressWebStrandAttacksForBigSilkBall()
+        {
+            Log.Info("[MemoryAttackControl] 大丝球阶段开始，抑制并清理 Web Strand 攻击");
+
+            _attackControlFsm?.Fsm?.KillDelayedEvents();
+            _attackControlFsm?.SendEvent("ATTACK STOP");
+            EventRegister.SendEvent("ATTACK CLEAR");
+
+            var doP6WebAttack = _attackControlFsm?.FsmVariables.FindFsmBool("Do P6 Web Attack");
+            if (doP6WebAttack != null)
+            {
+                doP6WebAttack.Value = false;
+            }
+
+            var didWebStrandAttack = _attackControlFsm?.FsmVariables.FindFsmBool("Did Web Strand Attack");
+            if (didWebStrandAttack != null)
+            {
+                didWebStrandAttack.Value = false;
+            }
+
+            KillStrandPatternDelayedEvents();
+
+            var managerObj = GameObject.Find("AnySilkBossManager");
+            var singleWebManager = managerObj != null ? managerObj.GetComponent<SingleWebManager>() : null;
+            singleWebManager?.ClearPool();
+        }
+
+        private void KillStrandPatternDelayedEvents()
+        {
+            if (_strandPatterns == null)
+            {
+                return;
+            }
+
+            foreach (Transform pattern in _strandPatterns.transform)
+            {
+                foreach (var fsm in pattern.GetComponentsInChildren<PlayMakerFSM>(true))
+                {
+                    fsm.Fsm?.KillDelayedEvents();
+                    fsm.SendEvent("ATTACK CLEAR");
+                }
+            }
         }
 
         /// <summary>

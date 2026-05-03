@@ -143,7 +143,10 @@ namespace AnySilkBoss.Source.Behaviours.Normal
 
             var sendAttackAction = CloneAction<SendEventByName>("Activate Strands", predicate: a =>
                 a.sendEvent?.Value == "ATTACK");
-            if (sendAttackAction != null) actions.Add(sendAttackAction);
+            if (sendAttackAction != null)
+            {
+                actions.Add(CreateGuardedWebAttackAction(sendAttackAction, sendAttackAction.delay?.Value ?? 0f));
+            }
 
             // 调用生成小丝球的方法
             actions.Add(new CallMethod

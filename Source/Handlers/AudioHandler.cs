@@ -17,6 +17,8 @@ namespace AnySilkBoss.Source.Handlers;
 [HarmonyPatch]
 public static class AudioHandler
 {
+    private static readonly string[] SupportedAudioExtensions = { ".flac", ".wav", ".mp3", ".ogg" };
+
     /// <summary>
     /// 已加载的替换音频缓存
     /// Key: 原始音频名称, Value: 替换后的 AudioClip
@@ -26,10 +28,9 @@ public static class AudioHandler
     /// <summary>
     /// Audio 文件夹路径（DLL 所在目录下的 Audio 文件夹）
     /// </summary>
-    public static string AudioFolder => Path.Combine(
-        Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? "",
-        "Audio"
-    );
+    public static string PluginDirectory => Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? "";
+
+    public static string AudioFolder => Path.Combine(PluginDirectory, "Audio");
 
     /// <summary>
     /// 应用 Harmony 补丁
@@ -101,7 +102,7 @@ public static class AudioHandler
     private static bool IsAudioFile(string path)
     {
         string ext = Path.GetExtension(path).ToLowerInvariant();
-        return ext == ".flac" || ext == ".wav" || ext == ".mp3" || ext == ".ogg";
+        return SupportedAudioExtensions.Contains(ext);
     }
 
     /// <summary>
@@ -190,9 +191,9 @@ public static class AudioHandler
     /// <summary>
     /// 根据音频名称从 Audio 文件夹加载音频
     /// </summary>
-    private static AudioClip LoadAudioClip(string clipName)
+    private static AudioClip? LoadAudioClip(string clipName)
     {
-        string filePath = GetAudioFilePath(clipName);
+        string? filePath = GetAudioFilePath(clipName);
         if (string.IsNullOrEmpty(filePath))
             return null;
 
@@ -226,15 +227,38 @@ public static class AudioHandler
     /// <summary>
     /// 查找匹配的音频文件路径
     /// </summary>
-    private static string GetAudioFilePath(string clipName)
+    private static string? GetAudioFilePath(string clipName)
     {
-        if (!Directory.Exists(AudioFolder))
-            return null;
+        var audioFolderMatch = FindAudioFile(AudioFolder, clipName, SearchOption.AllDirectories);
+        if (!string.IsNullOrEmpty(audioFolderMatch))
+        {
+            return audioFolderMatch;
+        }
 
-        // 在 Audio 文件夹中查找同名文件（支持任意扩展名）
-        var files = Directory.GetFiles(AudioFolder, $"{clipName}.*", SearchOption.AllDirectories);
-        if (files.Any())
-            return files.First();
+        var pluginDirectoryMatch = FindAudioFile(PluginDirectory, clipName, SearchOption.TopDirectoryOnly);
+        if (!string.IsNullOrEmpty(pluginDirectoryMatch))
+        {
+            return pluginDirectoryMatch;
+        }
+
+        return null;
+    }
+
+    private static string? FindAudioFile(string directory, string clipName, SearchOption searchOption)
+    {
+        if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory))
+        {
+            return null;
+        }
+
+        foreach (var extension in SupportedAudioExtensions)
+        {
+            var files = Directory.GetFiles(directory, $"{clipName}{extension}", searchOption);
+            if (files.Any())
+            {
+                return files.First();
+            }
+        }
 
         return null;
     }

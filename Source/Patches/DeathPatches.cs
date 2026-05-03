@@ -21,7 +21,11 @@ internal static class HeroControllerDeathPatches
     {
         try
         {
-            if (DeathManager.Instance != null && MemoryManager.IsInMemoryMode)
+            BigSilkBallManager.Instance?.ResetBigSilkBallPhaseEffects("hero death");
+
+            if (DeathManager.Instance != null &&
+                MemoryManager.IsInMemoryMode &&
+                MemoryManager.IsCurrentPlayerHornet())
             {
                 Log.Info($"[DeathManager] 梦境中死亡，nonLethal={nonLethal}，设置等待重生标志");
                 DeathManager.Instance.SetWaitingForMemoryRespawn();
@@ -52,6 +56,12 @@ internal static class GameManagerRespawnPatches
         {
             if (MemoryManager.IsInMemoryMode)
             {
+                if (!MemoryManager.IsCurrentPlayerHornet())
+                {
+                    Log.Info($"[DeathManager] 非大黄蜂玩家梦境死亡，保留原重生信息: {scene}/{marker}");
+                    return;
+                }
+
                 string originalScene = scene;
                 string originalMarker = marker;
 
