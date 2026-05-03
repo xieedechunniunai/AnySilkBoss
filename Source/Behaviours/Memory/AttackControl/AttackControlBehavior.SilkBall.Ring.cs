@@ -69,11 +69,13 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             Vector3 bossPosition = transform.position;
             float innerRadius = 6f;
             float outerRadius = 14f;
+            const float outerScale = 1.4f;
+            const float outerChaseTime = 6.4f;
 
-            // 外圈角度：顺时针时在右边（30°, 330°, 270°），逆时针时在左边（150°, 210°, 270°）
-            float[] outerAngles = clockwise
-                ? new float[] { 30f, 330f, 270f }
-                : new float[] { 150f, 210f, 270f };
+            bool spawnOuterOnRight = ShouldSpawnPhase2OuterSilkBallsOnRight(bossPosition);
+            float[] outerAngles = spawnOuterOnRight
+                ? new float[] { 30f, 0f, 330f }
+                : new float[] { 150f, 180f, 210f };
 
             int outerIndex = 0;
 
@@ -108,13 +110,12 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                     );
                     Vector3 outerSpawnPosition = bossPosition + outerOffset;
                     outerSpawnPosition.z = 0f;
-                    // 外圈：1.75倍大小，更低加速度（15f vs 30f）
-                    var outerBehavior = _silkBallManager?.SpawnSilkBall(outerSpawnPosition, 15f, 25f, 8f, 1.75f, true);
+                    var outerBehavior = _silkBallManager?.SpawnSilkBall(outerSpawnPosition, 15f, 25f, outerChaseTime, outerScale, true);
                     if (outerBehavior != null)
                     {
                         _activeSilkBalls.Add(outerBehavior.gameObject);
                         outerBehavior.StartProtectionTime(2.5f);
-                        Log.Info($"召唤外圈丝球 {outerIndex + 1}/3（{outerAngle}°，1.75x大小）");
+                        Log.Info($"召唤外圈丝球 {outerIndex + 1}/3（{outerAngle}°，{outerScale}x大小，{outerChaseTime}s，{(spawnOuterOnRight ? "右侧" : "左侧")}）");
                     }
                     outerIndex++;
                 }
@@ -123,6 +124,17 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             }
 
             Log.Info($"=== Memory Phase2丝球召唤完成，共 {_activeSilkBalls.Count} 个（内圈6 + 外圈3）===");
+        }
+
+        private bool ShouldSpawnPhase2OuterSilkBallsOnRight(Vector3 bossPosition)
+        {
+            var hero = HeroController.instance;
+            if (hero == null)
+            {
+                return Random.value < 0.5f;
+            }
+
+            return hero.transform.position.x <= bossPosition.x;
         }
 
         public void StartSilkBallSummonAtHighPoint()

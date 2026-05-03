@@ -110,6 +110,7 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     private float lastHeroX = 0f;
     private Vector3 collisionBoxBaseLocalPos;  // 碰撞箱的基础本地位置
     private readonly Vector3 collisionBoxVisualAnchorLocalPos = new Vector3(-6.4f, -5f, 0f);
+    private readonly Vector3 collisionBoxWorldOffset = new Vector3(-1.75f, 1.75f, 0f);
 
     // 吸收音效资源（从原版预制体提取）
     private AudioClip? absorbAudioClip;
@@ -258,6 +259,7 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
 
         projectedCenter = ray.GetPoint(distance);
         projectedCenter.z = 0f;
+        projectedCenter += collisionBoxWorldOffset;
         return true;
     }
 
@@ -341,7 +343,7 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
         collisionBox.transform.parent = transform;
 
         // 设置位置：XY跟heart一致(-9.4, -2.9)，Z轴设为0（世界坐标）
-        collisionBoxBaseLocalPos = new Vector3(-6.4f, -5f, -57.4491f);  // 保存基础本地位置
+        collisionBoxBaseLocalPos = new Vector3(-6.4f, -5f, -57.4491f) + collisionBoxWorldOffset;  // 保存基础本地位置
         collisionBox.transform.localPosition = collisionBoxBaseLocalPos;
 
         // 添加碰撞箱脚本
@@ -1114,7 +1116,7 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
         {
             savedBurstCenter = transform.position;
         }
-
+        savedBurstCenter += Vector3.up * 1.3f;
         if (collisionBox != null)
         {
             collisionBox.SetActive(false);
@@ -1445,4 +1447,3 @@ internal class MemoryBigSilkBallBehavior : MonoBehaviour
     }
     #endregion
 }
-

@@ -222,15 +222,36 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             if (zone == BossZone.Middle)
             {
                 bool goLeft = UnityEngine.Random.value > 0.5f;
-                point0 = goLeft ? POS_LEFT_UP : POS_RIGHT_UP;
-                point1 = goLeft ? POS_RIGHT_UP : POS_LEFT_UP;
-                Log.Info($"中区路线: {(goLeft ? "左上→右上" : "右上→左上")}→中下");
+                if (goLeft)
+                {
+                    point0 = POS_LEFT_UP;
+                    point1 = POS_RIGHT_UP;
+                    if (isPhase2) pointSpecial = POS_LEFT_DOWN;
+                    Log.Info(isPhase2 ? "中区Phase2路线: 左上→左下→右上→中下" : "中区路线: 左上→右上→中下");
+                }
+                else
+                {
+                    point0 = POS_RIGHT_UP;
+                    point1 = POS_LEFT_UP;
+                    if (isPhase2) pointSpecial = POS_RIGHT_DOWN;
+                    Log.Info(isPhase2 ? "中区Phase2路线: 右上→右下→左上→中下" : "中区路线: 右上→左上→中下");
+                }
             }
             else if (isFar)
             {
                 point0 = POS_MIDDLE_UP;
-                point1 = (zone == BossZone.Left) ? POS_LEFT_UP : POS_RIGHT_UP;
-                Log.Info($"{zone}区+远距离: 中上→{(zone == BossZone.Left ? "左上" : "右上")}→中下");
+                if (zone == BossZone.Left)
+                {
+                    point1 = POS_LEFT_UP;
+                    if (isPhase2) pointSpecial = POS_LEFT_DOWN;
+                    Log.Info(isPhase2 ? "左区+远距离Phase2路线: 中上→左下→左上→中下" : "左区+远距离: 中上→左上→中下");
+                }
+                else
+                {
+                    point1 = POS_RIGHT_UP;
+                    if (isPhase2) pointSpecial = POS_RIGHT_DOWN;
+                    Log.Info(isPhase2 ? "右区+远距离Phase2路线: 中上→右下→右上→中下" : "右区+远距离: 中上→右上→中下");
+                }
             }
             else
             {
@@ -238,45 +259,19 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 {
                     point0 = POS_RIGHT_UP;
                     point1 = POS_LEFT_UP;
-                    Log.Info("左区+近距离: 右上→左上→中下");
+                    if (isPhase2) pointSpecial = POS_RIGHT_DOWN;
+                    Log.Info(isPhase2 ? "左区+近距离Phase2路线: 右上→右下→左上→中下" : "左区+近距离: 右上→左上→中下");
                 }
                 else
                 {
                     point0 = POS_LEFT_UP;
                     point1 = POS_RIGHT_UP;
-                    Log.Info("右区+近距离: 左上→右上→中下");
+                    if (isPhase2) pointSpecial = POS_LEFT_DOWN;
+                    Log.Info(isPhase2 ? "右区+近距离Phase2路线: 左上→左下→右上→中下" : "右区+近距离: 左上→右上→中下");
                 }
             }
 
             point2 = POS_MIDDLE_DOWN;
-
-            if (isPhase2)
-            {
-                if (zone == BossZone.Left)
-                {
-                    pointSpecial = POS_RIGHT_DOWN;
-                    Log.Info("Phase2模式：Boss在左侧，Special点位 = 右下");
-                }
-                else if (zone == BossZone.Right)
-                {
-                    pointSpecial = POS_LEFT_DOWN;
-                    Log.Info("Phase2模式：Boss在右侧，Special点位 = 左下");
-                }
-                else
-                {
-                    var hero = HeroController.instance;
-                    if (hero != null && hero.transform.position.x < bossPos.x)
-                    {
-                        pointSpecial = POS_RIGHT_DOWN;
-                        Log.Info("Phase2模式：Boss在中区，Hero在左侧，Special点位 = 右下");
-                    }
-                    else
-                    {
-                        pointSpecial = POS_LEFT_DOWN;
-                        Log.Info("Phase2模式：Boss在中区，Hero在右侧或未找到Hero，Special点位 = 左下");
-                    }
-                }
-            }
 
             if (isPhase2 && pointSpecial.HasValue)
             {
@@ -297,7 +292,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             }
 
             string routeLog = isPhase2 && pointSpecial.HasValue
-                ? $"Special({pointSpecial.Value}) → {point0} → {point1} → {point2}"
+                ? $"{point0} → Special({pointSpecial.Value}) → {point1} → {point2}"
                 : $"{point0} → {point1} → {point2}";
             Log.Info($"路线已设置: {routeLog}");
         }

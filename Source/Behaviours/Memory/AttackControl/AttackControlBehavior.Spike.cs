@@ -27,6 +27,7 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         private FsmInt? _currentPhaseVar;             // 当前阶段变量
         private int _activeSpikeCount = 0;            // 当前活跃地刺数量
         private bool _spikeSystemInitialized = false;
+        private const int MaxSpikeEnsurePhase = 3;    // 仅 P1-P3 自动兜底补 SpikeAttackPending
         
         #endregion
 
@@ -237,8 +238,15 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             }
             FsmStateBuilder.AddTransition(attackChoiceState, CreateTransition(_spikeTriggerEvent, _spikeTriggerState!));
 
-            // 在动作开头添加 BoolTest 检测 SpikeAttackPending
+            // 在动作开头先同步阶段目标，再检测 SpikeAttackPending
             var actions = attackChoiceState.Actions.ToList();
+            var ensureSpikeTarget = new CallMethod
+            {
+                behaviour = new FsmObject { Value = this },
+                methodName = new FsmString("EnsureSpikeTargetForCurrentPhase") { Value = "EnsureSpikeTargetForCurrentPhase" },
+                parameters = new FsmVar[0],
+                everyFrame = false
+            };
             var boolTest = new BoolTest
             {
                 boolVariable = _spikeAttackPending,
@@ -246,10 +254,51 @@ namespace AnySilkBoss.Source.Behaviours.Memory
                 isFalse = null,
                 everyFrame = false
             };
-            actions.Insert(0, boolTest);
+            actions.Insert(0, ensureSpikeTarget);
+            actions.Insert(1, boolTest);
             attackChoiceState.Actions = actions.ToArray();
 
-            Log.Info("[AttackControl] Attack Choice 状态已添加地刺检测");
+            Log.Info("[AttackControl] Attack Choice 状态已添加地刺目标同步和检测");
+        }
+
+        /// <summary>
+        /// 在 Attack Choice 入口校正阶段目标，避免高伤害跳阶段时丢失一次性 SpikeAttackPending。
+        /// </summary>
+        public void EnsureSpikeTargetForCurrentPhase()
+        {
+            if (_spikeAttackPending == null) return;
+            if (MemorySpikeFloorBehavior.IsSpikeSystemPaused) return;
+
+            if (_spikeFloorsParent == null)
+            {
+                FindSpikeFloorsParent();
+                if (_spikeFloorsParent == null) return;
+            }
+
+            int currentPhase = ResolveCurrentSpikePhase();
+            if (currentPhase > MaxSpikeEnsurePhase)
+            {
+                return;
+            }
+
+            bool phaseChanged = _currentPhaseVar == null || _currentPhaseVar.Value != currentPhase;
+            if (_currentPhaseVar != null && phaseChanged)
+            {
+                _currentPhaseVar.Value = currentPhase;
+            }
+
+            if (phaseChanged)
+            {
+                MemorySpikeFloorBehavior.SetAllSpikesPhase(_spikeFloorsParent, currentPhase);
+            }
+
+            int currentActiveCount = GetActiveSpikeCount();
+            int targetCount = Mathf.Clamp(currentPhase, 1, 6);
+            if (currentActiveCount < targetCount)
+            {
+                _spikeAttackPending.Value = true;
+                Log.Debug($"[AttackControl] 地刺数量不足，设置 SpikeAttackPending=true（阶段 P{currentPhase}，活跃 {currentActiveCount}/{targetCount}）");
+            }
         }
 
         /// <summary>
@@ -257,6 +306,8 @@ namespace AnySilkBoss.Source.Behaviours.Memory
         /// </summary>
         public void ExecuteSpikeTrigger()
         {
+            if (MemorySpikeFloorBehavior.IsSpikeSystemPaused) return;
+
             if (_spikeFloorsParent == null)
             {
                 FindSpikeFloorsParent();
@@ -264,13 +315,23 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             }
 
             // 获取当前阶段
-            int currentPhase = _currentPhaseVar?.Value ?? 1;
+            int currentPhase = ResolveCurrentSpikePhase();
+
+            bool phaseChanged = _currentPhaseVar == null || _currentPhaseVar.Value != currentPhase;
+            if (_currentPhaseVar != null && phaseChanged)
+            {
+                _currentPhaseVar.Value = currentPhase;
+            }
+            if (phaseChanged)
+            {
+                MemorySpikeFloorBehavior.SetAllSpikesPhase(_spikeFloorsParent, currentPhase);
+            }
 
             // 获取当前活跃地刺数量
             int currentActiveCount = GetActiveSpikeCount();
 
             // 计算需要触发的数量
-            int targetCount = currentPhase;
+            int targetCount = Mathf.Clamp(currentPhase, 1, 6);
             int toTrigger = targetCount - currentActiveCount;
 
             if (toTrigger > 0)
@@ -440,6 +501,45 @@ namespace AnySilkBoss.Source.Behaviours.Memory
             }
 
             return count;
+        }
+
+        private int ResolveCurrentSpikePhase()
+        {
+            int phase = _currentPhaseVar?.Value ?? 1;
+
+            var phaseControlFsm = FSMUtility.LocateMyFSM(gameObject, "Phase Control");
+            var phaseControlVar = phaseControlFsm?.FsmVariables.FindFsmInt("CurrentPhase");
+            if (phaseControlVar != null && phaseControlVar.Value > phase)
+            {
+                phase = phaseControlVar.Value;
+            }
+
+            int statePhase = ParsePhaseFromStateName(phaseControlFsm?.ActiveStateName);
+            if (statePhase > phase)
+            {
+                phase = statePhase;
+            }
+
+            return Mathf.Clamp(phase, 1, 6);
+        }
+
+        private int ParsePhaseFromStateName(string? stateName)
+        {
+            if (string.IsNullOrEmpty(stateName)) return 0;
+
+            int phaseMarkerIndex = stateName.IndexOf('P');
+            while (phaseMarkerIndex >= 0 && phaseMarkerIndex + 1 < stateName.Length)
+            {
+                char phaseChar = stateName[phaseMarkerIndex + 1];
+                if (phaseChar >= '1' && phaseChar <= '6')
+                {
+                    return phaseChar - '0';
+                }
+
+                phaseMarkerIndex = stateName.IndexOf('P', phaseMarkerIndex + 1);
+            }
+
+            return 0;
         }
 
         #endregion

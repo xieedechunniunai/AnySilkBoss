@@ -968,11 +968,11 @@ internal partial class BossBehavior : MonoBehaviour
         // 重置Pending标志
         dashPendingVar.Value = false;
 
-        // 根据Phase2决定触发哪个事件
+        // 普通和二阶段都先从 Dash Antic 0 进入；二阶段的 Special 在 Point 0 后插入。
         if (isPhase2)
         {
-            _bossControlFsm.SendEvent("SILK BALL DASH SPECIAL BRIDGE");
-            Log.Info("触发Phase2 Special路径");
+            _bossControlFsm.SendEvent("SILK BALL DASH BRIDGE");
+            Log.Info("触发Phase2 Dash路径，Special将在Point 0后插入");
         }
         else
         {
@@ -1130,13 +1130,13 @@ internal partial class BossBehavior : MonoBehaviour
             });
         }
 
-        if (dashAnticSpecialState != null)
+        if (dashAnticSpecialState != null && dashAntic0State != null)
         {
             transitions.Add(new FsmTransition
             {
                 FsmEvent = dashSpecialBridgeEvent,
-                toState = dashAnticSpecialState.Name,
-                toFsmState = dashAnticSpecialState
+                toState = dashAntic0State.Name,
+                toFsmState = dashAntic0State
             });
         }
 

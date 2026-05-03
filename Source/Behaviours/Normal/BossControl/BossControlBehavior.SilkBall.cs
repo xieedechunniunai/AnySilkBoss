@@ -122,6 +122,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             var dashAntic0State = CreateDashAnticState(0);
             var dashToPoint0State = CreateDashToPointState(0);
             var idleAtPoint0State = CreateIdleAtPointState(0);
+            var dashSpecialCheckState = CreateDashSpecialCheckState();
 
             var dashAntic1State = CreateDashAnticState(1);
             var dashToPoint1State = CreateDashToPointState(1);
@@ -134,14 +135,14 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             // 使用 FsmStateBuilder 批量添加状态
             AddStatesToFsm(_bossControlFsm,
                 dashAnticSpecialState, dashToSpecialState, idleAtSpecialState,
-                dashAntic0State, dashToPoint0State, idleAtPoint0State,
+                dashAntic0State, dashToPoint0State, idleAtPoint0State, dashSpecialCheckState,
                 dashAntic1State, dashToPoint1State, idleAtPoint1State,
                 dashAntic2State, dashToPoint2State, dashEndState);
 
             // 设置转换（包括Special路径）
             SetupSilkBallDashTransitions(
                 dashAnticSpecialState, dashToSpecialState, idleAtSpecialState,
-                dashAntic0State, dashToPoint0State, idleAtPoint0State,
+                dashAntic0State, dashToPoint0State, idleAtPoint0State, dashSpecialCheckState,
                 dashAntic1State, dashToPoint1State, idleAtPoint1State,
                 dashAntic2State, dashToPoint2State,
                 dashEndState);
@@ -157,7 +158,7 @@ namespace AnySilkBoss.Source.Behaviours.Normal
         /// </summary>
         private void SetupSilkBallDashTransitions(
             FsmState dashAnticSpecial, FsmState dashToSpecial, FsmState idleAtSpecial,
-            FsmState dashAntic0, FsmState dashToPoint0, FsmState idleAtPoint0,
+            FsmState dashAntic0, FsmState dashToPoint0, FsmState idleAtPoint0, FsmState dashSpecialCheck,
             FsmState dashAntic1, FsmState dashToPoint1, FsmState idleAtPoint1,
             FsmState dashAntic2, FsmState dashToPoint2,
             FsmState dashEnd)
@@ -167,12 +168,19 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             // Special路径（Phase2才使用）
             SetFinishedTransition(dashAnticSpecial, dashToSpecial);
             SetFinishedTransition(dashToSpecial, idleAtSpecial);
-            SetFinishedTransition(idleAtSpecial, dashAntic0);
+            SetFinishedTransition(idleAtSpecial, dashAntic1);
 
             // Point 0
             SetFinishedTransition(dashAntic0, dashToPoint0);
             SetFinishedTransition(dashToPoint0, idleAtPoint0);
-            SetFinishedTransition(idleAtPoint0, dashAntic1);
+            SetFinishedTransition(idleAtPoint0, dashSpecialCheck);
+
+            var dashSpecialEvent = FsmEvent.GetFsmEvent("DASH SPECIAL");
+            dashSpecialCheck.Transitions = new FsmTransition[]
+            {
+                CreateTransition(dashSpecialEvent, dashAnticSpecial),
+                CreateFinishedTransition(dashAntic1)
+            };
 
             // Point 1
             SetFinishedTransition(dashAntic1, dashToPoint1);
@@ -191,6 +199,24 @@ namespace AnySilkBoss.Source.Behaviours.Normal
             }
 
             Log.Info("移动丝球状态链转换设置完成（包括Special路径）");
+        }
+
+        private FsmState CreateDashSpecialCheckState()
+        {
+            var state = CreateState(_bossControlFsm!.Fsm, "Dash Special Check", "二阶段Dash Special插入判断");
+            var specialAttackVar = EnsureBoolVariable(_bossControlFsm, "Special Attack");
+            state.Actions = new FsmStateAction[]
+            {
+                new BoolTest
+                {
+                    boolVariable = specialAttackVar,
+                    isTrue = FsmEvent.GetFsmEvent("DASH SPECIAL"),
+                    isFalse = FsmEvent.Finished,
+                    everyFrame = false
+                }
+            };
+
+            return state;
         }
 
         /// <summary>
